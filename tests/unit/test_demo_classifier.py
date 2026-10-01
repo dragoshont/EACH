@@ -1,9 +1,15 @@
 from __future__ import annotations
 
+import json
+from pathlib import Path
+
 import pytest
 
+from each.cli import main
 from each.demo import EXPECTED_TEST_COUNT, FixtureExecutionError, _interpret_test_run
 from each.executor.base import ExecutionResult
+from each.executor.container import ContainerExecutor
+from each.models.fixture import FixtureModel
 
 
 def _result(exit_code: int, stdout: str = "", stderr: str = "") -> ExecutionResult:
@@ -49,3 +55,29 @@ def test_interpret_test_run_rejects_unrecognizable_nonzero_output() -> None:
     result = _result(2, stderr="Ran 1 test in 0.000s\n\nsomething weird happened\n")
     with pytest.raises(FixtureExecutionError, match="FAILED summary"):
         _interpret_test_run(result, expected_tests=EXPECTED_TEST_COUNT)
+
+
+@pytest.mark.parametrize(
+    ("exit_code", "stdout"),
+    [(0, ""), (2, "network probe errno: None\n"), (2, "network probe errno: 111\n")],
+)
+def test_demo_fails_closed_before_generation_or_tests(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, exit_code: int, stdout: str
+) -> None:
+    monkeypatch.setattr(
+        ContainerExecutor, "verify_isolation", lambda self, worktree: _result(exit_code, stdout)
+    )
+    monkeypatch.setattr("each.demo.runs_dir", lambda: tmp_path)
+
+    def unexpected_execution(*args: object, **kwargs: object) -> None:
+        pytest.fail("unverified isolation must stop before generation or target execution")
+
+    monkeypatch.setattr(ContainerExecutor, "run", unexpected_execution)
+    monkeypatch.setattr(FixtureModel, "complete", unexpected_execution)
+    assert main(["demo", "hello-repair"]) == 1
+    receipt_path = next(tmp_path.iterdir()).joinpath("receipt.json")
+    receipt = json.loads(receipt_path.read_text())
+    assert receipt["outcome"] == "ISOLATION_UNVERIFIED"
+    assert receipt["assuranceLevel"] == "EACH-P1"
+    assert receipt["baselineResult"] == receipt["repairedResult"] == {}
+    assert receipt["rawCompletion"] == receipt["patchText"] == ""

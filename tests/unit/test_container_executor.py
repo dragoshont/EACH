@@ -5,6 +5,7 @@ import pytest
 from each.executor.base import ExecutionResult
 from each.executor.container import (
     DEFAULT_IMAGE_DIGEST,
+    NETWORK_PROBE_DENIAL_MARKER,
     ContainerExecutor,
     ContainerExecutorError,
     derive_assurance_level,
@@ -32,7 +33,7 @@ def test_derive_assurance_level_is_p2_when_probe_actually_denied() -> None:
     denied = ExecutionResult(
         command=("python", "-c", "probe"),
         exit_code=1,
-        stdout="connection denied as expected: [Errno 101] Network is unreachable\n",
+        stdout=f"{NETWORK_PROBE_DENIAL_MARKER}\n",
         stderr="",
     )
     assert derive_assurance_level(executor, denied) == "EACH-P2"
@@ -48,3 +49,20 @@ def test_derive_assurance_level_downgrades_on_unexpected_probe_output() -> None:
     executor = ContainerExecutor()
     weird = ExecutionResult(command=("python", "-c", "probe"), exit_code=1, stdout="", stderr="oops")
     assert derive_assurance_level(executor, weird) == "EACH-P1"
+
+
+@pytest.mark.parametrize(
+    ("exit_code", "stdout"),
+    [
+        (2, "network probe errno: None\n"),
+        (2, "network probe errno: 111\n"),
+        (1, "connection denied as expected: timed out\n"),
+        (1, "connection denied as expected: [Errno 111] Connection refused\n"),
+        (2, f"{NETWORK_PROBE_DENIAL_MARKER}\n"),
+    ],
+)
+def test_ambiguous_socket_failures_do_not_verify_isolation(exit_code: int, stdout: str) -> None:
+    result = ExecutionResult(
+        command=("python", "-I", "-c", "probe"), exit_code=exit_code, stdout=stdout, stderr=""
+    )
+    assert derive_assurance_level(ContainerExecutor(), result) == "EACH-P1"

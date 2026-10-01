@@ -118,11 +118,8 @@ def run_hello_repair(*, run_id: str | None = None) -> dict[str, Any]:
     assurance_level = derive_assurance_level(executor, isolation_result)
     isolation_evidence = _result_to_dict(isolation_result)
 
-    baseline = executor.run(ACCEPTANCE_COMMAND, worktree)
-
     model = FixtureModel(FIXTURE_PATCH_RESPONSE)
     prompt = f"Problem: {spec_packet.problem_statement}\nAllowed paths: {spec_packet.allowed_paths}"
-    raw_completion = model.complete(prompt)
 
     common_fields = {
         "run_id": run_id,
@@ -130,13 +127,35 @@ def run_hello_repair(*, run_id: str | None = None) -> dict[str, Any]:
         "spec_hash": approved.approved_hash,
         "model_identity": model.identity(),
         "prompt": prompt,
-        "raw_completion": raw_completion,
+        "raw_completion": "",
         "materials": manifest,
         "executor_identity": executor.identity(),
         "isolation_evidence": isolation_evidence,
         "audit": audit_stub(),
         "assurance_level": assurance_level,
     }
+
+    if assurance_level != "EACH-P2":
+        outcome = "ISOLATION_UNVERIFIED"
+        receipt = Receipt(
+            patch_text="",
+            touched_paths=[],
+            baseline_result={},
+            repaired_result={},
+            outcome=outcome,
+            **common_fields,
+        )
+        json_path, md_path = receipt.write(runs_dir() / run_id)
+        return {
+            "outcome": outcome,
+            "receipt_json": str(json_path),
+            "receipt_md": str(md_path),
+            "manifest": manifest,
+        }
+
+    baseline = executor.run(ACCEPTANCE_COMMAND, worktree)
+    raw_completion = model.complete(prompt)
+    common_fields["raw_completion"] = raw_completion
 
     try:
         patch_text = extract_patch_text(raw_completion)

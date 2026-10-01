@@ -126,8 +126,12 @@ The assurance level in each receipt is derived per-run, not hardcoded: it
 is only **EACH-P2** when that run's own isolation probe (the same
 `NETWORK_PROBE_SCRIPT` used by the adversarial tests, executed through the
 run's actual executor configuration) genuinely observed a denied outbound
-connection. Any other outcome — including an unexpected probe result —
-downgrades honestly to **EACH-P1** rather than crashing or over-claiming.
+connection with Linux `ENETUNREACH` (numeric errno 101). Timeouts, remote
+connection refusals, and unexpected results do not prove no-egress. The
+probe uses Python isolated mode so target files cannot shadow its standard
+library imports. If isolation is unverified, the strong-profile demo emits
+an `ISOLATION_UNVERIFIED` receipt at **EACH-P1**, exits nonzero, and stops
+before generation or target tests.
 It does **not** claim EACH-P3, since no corpus/source similarity check or
 documented model-training provenance exists yet (the M1 audit step is an
 explicit `UNAVAILABLE` stub, never a fabricated PASS). The real,
@@ -160,4 +164,3 @@ isolation ("native host execution is not a strong-profile proxy").
   hunks (via `unidiff`); it does not yet handle binary diffs, renames, or
   mode changes. Out of scope for hello-repair; revisit if a later
   milestone's real-world fixtures require it.
-

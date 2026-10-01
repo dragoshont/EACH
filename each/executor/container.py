@@ -33,17 +33,17 @@ _PINNED_IMAGE_PATTERN = re.compile(r"^[^@\s]+@sha256:[0-9a-f]{64}$")
 # isolation-probe evidence and the adversarial-test evidence are provably the
 # same probe, not two diverging copies.
 NETWORK_PROBE_SCRIPT = (
-    "import socket, sys\n"
+    "import errno, socket, sys\n"
     "s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)\n"
     "s.settimeout(5)\n"
     "try:\n"
     "    s.connect(('1.1.1.1', 443))\n"
     "    sys.exit(0)\n"
     "except OSError as exc:\n"
-    "    print(f'connection denied as expected: {exc}')\n"
-    "    sys.exit(1)\n"
+    "    print(f'network probe errno: {exc.errno}')\n"
+    "    sys.exit(1 if exc.errno == errno.ENETUNREACH else 2)\n"
 )
-NETWORK_PROBE_DENIAL_MARKER = "connection denied as expected"
+NETWORK_PROBE_DENIAL_MARKER = "network probe errno: 101"
 
 
 class ContainerExecutorError(RuntimeError):
@@ -188,7 +188,7 @@ class ContainerExecutor(Executor):
         docker_context/image/network, not a historical or separately-run
         adversarial test pass.
         """
-        return self.run(["python", "-c", NETWORK_PROBE_SCRIPT], worktree, timeout=timeout)
+        return self.run(["python", "-I", "-c", NETWORK_PROBE_SCRIPT], worktree, timeout=timeout)
 
 
 def derive_assurance_level(executor: ContainerExecutor, isolation_result: ExecutionResult) -> str:
@@ -202,7 +202,8 @@ def derive_assurance_level(executor: ContainerExecutor, isolation_result: Execut
     isolation is not verified for this run.
     """
     probe_denied = (
-        isolation_result.exit_code == 1 and NETWORK_PROBE_DENIAL_MARKER in isolation_result.stdout
+        isolation_result.exit_code == 1
+        and isolation_result.stdout.strip() == NETWORK_PROBE_DENIAL_MARKER
     )
     if executor.network == "none" and _PINNED_IMAGE_PATTERN.match(executor.image) and probe_denied:
         return "EACH-P2"
