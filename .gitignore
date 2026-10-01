@@ -18,3 +18,7 @@ __pycache__/
 dist/
 build/
 *.egg-info/
+
+# Architrave: private run evidence and isolated worker trees stay local.
+.architrave/runtime.key
+.architrave/resources.lock
