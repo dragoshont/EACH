@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from pathlib import Path
+
 import pytest
 
 from each.executor.base import ExecutionResult
@@ -26,6 +28,13 @@ def test_accepts_default_pinned_no_network_config() -> None:
     executor = ContainerExecutor()
     assert executor.image == DEFAULT_IMAGE_DIGEST
     assert executor.network == "none"
+
+
+def test_strong_profile_uses_read_only_root_filesystem(tmp_path: Path) -> None:
+    executor = ContainerExecutor()
+    command = executor.build_docker_command(["python", "--version"], tmp_path, container_name="probe")
+    assert "--read-only" in command
+    assert executor.identity()["readOnlyRootFilesystem"] is True
 
 
 def test_derive_assurance_level_is_p2_when_probe_actually_denied() -> None:

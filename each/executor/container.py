@@ -71,13 +71,14 @@ class ContainerExecutor(Executor):
                 f"ContainerExecutor requires an image pinned by digest (name@sha256:...); got {self.image!r}"
             )
 
-    def identity(self) -> dict[str, str]:
+    def identity(self) -> dict[str, str | bool]:
         """Executor/environment identity recorded in every receipt."""
         return {
             "executor": "container",
             "dockerContext": self.docker_context,
             "image": self.image,
             "network": self.network,
+            "readOnlyRootFilesystem": True,
             "memoryLimit": self.memory_limit,
             "cpuLimit": self.cpu_limit,
         }
@@ -98,6 +99,7 @@ class ContainerExecutor(Executor):
             self.docker_context,
             "run",
             "--rm",
+            "--read-only",
             "--name",
             container_name,
             "--network",

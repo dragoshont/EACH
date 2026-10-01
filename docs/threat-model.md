@@ -115,7 +115,7 @@ evidence properties only, and every receipt restates that explicitly:
 
 ### M1 status
 
-M1 implements only the container executor profile (`--network none`,
+M1 implements only the container executor profile (`--network none`, `--read-only`,
 scrubbed environment, dropped capabilities, no host home or SSH-agent
 mount, `docker --context colima-each` against a pinned base-image digest).
 A configuration that cannot back that profile (network enabled, or an
