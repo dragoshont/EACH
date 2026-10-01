@@ -1,0 +1,9 @@
+EACH (Evidence-Audited Cleanroom Harness)
+Copyright 2026 Dragos Hont
+
+This product includes software developed as part of the EACH research
+project (https://github.com/dragoshont/EACH).
+
+EACH is an experimental authoring-provenance research harness. It does not
+certify legal clean-room status, originality, or copyright safety. See
+docs/claims-and-nonclaims.md.

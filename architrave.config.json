@@ -1,7 +1,7 @@
 {
   "kind": "knowledge",
-  "build": "git diff --check --cached",
-  "test": "git diff --check",
+  "build": "uv sync --locked",
+  "test": "uv run pytest -q && uv run each doctor",
   "learning": {
     "runArtifactsPath": ".architrave/runs",
     "repoProfilePath": ".architrave/learning/repo-profile.md",

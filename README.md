@@ -29,6 +29,31 @@ Real model downloads wait for the deterministic isolated demo to pass.
 Target patches stay private by default, and EACH will not open an upstream
 Xodus PR.
 
+## Claims and non-claims
+
+See [docs/claims-and-nonclaims.md](docs/claims-and-nonclaims.md) for the
+authoritative statement. In short: EACH can record exactly what a Builder
+model was allowed to see, which model produced a patch, how it was tested,
+and what post-generation similarity/license checks ran. It does **not**
+certify legal clean-room status, originality, or upstream acceptability.
+
+## Quick start
+
+```bash
+uv sync
+uv run pytest
+uv run each doctor
+```
+
+`each doctor` reports every check explicitly: required checks (Python
+3.12+, git, a writable `~/.each/` private store) must pass; optional checks
+(uv itself, a reachable no-network container runtime) are reported as
+`WARN` when absent rather than silently skipped or faked as passing.
+
+## License
+
+Apache-2.0. See [LICENSE](LICENSE) and [NOTICE](NOTICE).
+
 ## Development mandate
 
 - [Start here](docs/START_HERE_EACH.md)

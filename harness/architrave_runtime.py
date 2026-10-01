@@ -2710,7 +2710,9 @@ def build_parser() -> argparse.ArgumentParser:
     task_add.add_argument("--gate")
     task_add.add_argument("--max-attempts", type=int, default=1)
     task_add.add_argument("--side-effect", help="OPERATION@TARGET")
-    task_add.add_argument("--command", nargs=argparse.REMAINDER, help="deterministic shell argv (must be last)")
+    task_add.add_argument(
+        "--command", dest="task_command", nargs=argparse.REMAINDER, help="deterministic shell argv (must be last)"
+    )
 
     task_start = subparsers.add_parser("task-start")
     task_start.add_argument("run_id")
@@ -2848,11 +2850,11 @@ def cli(argv: Sequence[str] | None = None) -> int:
                     "sideEffect": side_effect,
                     "workPacket": {
                         "execution": {
-                            "command": args.command,
+                            "command": args.task_command,
                             "cwd": None,
                             "environment": [],
                         }
-                    } if args.command else None,
+                    } if args.task_command else None,
                 },
             )
             output = state_summary(state)
