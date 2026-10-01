@@ -44,6 +44,20 @@ def cache_dir() -> Path:
     return path
 
 
+def worktrees_dir() -> Path:
+    """Private scratch space for sandboxed worktrees.
+
+    Deliberately kept under ``each_home()`` (i.e. under ``$HOME``) rather
+    than the OS temp directory: Colima's default guest only bind-mounts the
+    host's ``$HOME``, so a container executor run through ``docker
+    --context colima-each`` cannot see paths under ``/tmp`` or
+    ``/var/folders``.
+    """
+    path = each_home() / "worktrees"
+    path.mkdir(parents=True, exist_ok=True)
+    return path
+
+
 def repo_root() -> Path:
     """Return the EACH repository root (this file's grandparent directory)."""
     return Path(__file__).resolve().parent.parent

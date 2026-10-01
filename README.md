@@ -16,8 +16,9 @@ generation, not the authorship of the harness.
 
 ## Current status
 
-Bootstrap documents are preserved and development is starting on an Apple
-Silicon Mac over SSH. No milestone has been declared complete yet.
+**M0** (repository/bootstrap health) and **M1** (deterministic hello-repair
+vertical slice) are complete and verified. M2-M8 are in progress under the
+user-authorized sequential program.
 
 The user-authorized program is sequential **M0-M8**:
 repository health, deterministic fixture repair, local models, issue/spec
@@ -49,6 +50,30 @@ uv run each doctor
 3.12+, git, a writable `~/.each/` private store) must pass; optional checks
 (uv itself, a reachable no-network container runtime) are reported as
 `WARN` when absent rather than silently skipped or faked as passing.
+
+### Deterministic hello-repair vertical slice (M1)
+
+```bash
+uv run each demo hello-repair
+```
+
+Runs the full M1 pipeline end to end: an approved, hash-verified immutable
+spec for a trivial local fixture bug
+(`examples/hello-repair/`) -> a sanitized worktree containing only the
+declared in-scope files -> a deterministic, non-inferential `FixtureModel`
+-> a scoped unified-diff patch, validated and applied by the harness -> a
+real no-network container executor (`docker --context colima-each`, pinned
+base-image digest, scrubbed environment) -> a deterministic failing-then-
+passing test run -> an explicit `UNAVAILABLE` audit stub (never a
+fabricated PASS) -> a private JSON + Markdown receipt under
+`~/.each/runs/<run-id>/`.
+
+Adversarial evidence (real outbound-network denial, host-secret
+non-inheritance, forbidden/scope/traversal-path rejection, symlink-escape
+rejection, malformed-diff rejection, and approved-spec hash-mismatch
+rejection) lives in `tests/unit/` and `tests/adversarial/`
+(`uv run pytest`); the container-dependent adversarial tests self-skip, not
+silently pass, when `docker --context colima-each` is unreachable.
 
 ## License
 

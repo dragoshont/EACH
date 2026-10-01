@@ -115,18 +115,39 @@ evidence properties only, and every receipt restates that explicitly:
 
 ### M1 status
 
-M1's native-macOS executor profile is explicitly capped at **EACH-P1**
-until network isolation is independently verified for that profile (see
-`docs/EACH_BOOTSTRAP_MANDATE.md` §27, Profile B). Only the container
-executor profile (`--network none`, scrubbed environment, no host home or
-SSH-agent mount), after the M1 adversarial tests pass, may claim
-**EACH-P2**.
+M1 implements only the container executor profile (`--network none`,
+scrubbed environment, dropped capabilities, no host home or SSH-agent
+mount, `docker --context colima-each` against a pinned base-image digest).
+It is used for the hello-repair vertical slice and claims **EACH-P2**:
+real outbound-network denial and host-secret non-inheritance are verified
+by the adversarial tests in `tests/adversarial/`, not merely asserted. It
+does **not** claim EACH-P3, since no corpus/source similarity check or
+documented model-training provenance exists yet (the M1 audit step is an
+explicit `UNAVAILABLE` stub, never a fabricated PASS).
 
-## Known limitations as of M0
+No native-macOS executor profile exists in M1; native host execution is
+explicitly not implemented and not used as a substitute for container
+isolation ("native host execution is not a strong-profile proxy").
 
-- No model has been integrated yet (FixtureModel only); T3 is not yet
-  exercisable and will be revisited starting at M2.
+## Known limitations as of M1
+
+- No model has been integrated yet beyond `FixtureModel` (a deterministic,
+  non-inferential canned response); T3 is not yet exercisable and will be
+  revisited starting at M2.
 - No Auditor exists yet; T4/T5/T9 mitigations are designed but not yet
-  mechanically enforced. This is tracked for M3/M4.
+  mechanically enforced — `each/audit/stub.py` returns an explicit
+  `UNAVAILABLE` result rather than a fabricated PASS. Tracked for M3/M4.
 - No attestation/signing exists yet; receipts are not yet tamper-evident.
   Tracked for M5.
+- The container executor currently runs as the image's default user
+  (root inside the container's own user namespace, not the host); a
+  non-root `--user` mapping was attempted but deferred because Colima's
+  default bind-mount UID mapping made it unreliable in this environment.
+  This does not weaken network/secret isolation (verified in
+  `tests/adversarial/test_container_isolation.py`) but is a residual
+  defense-in-depth gap, tracked for a later milestone.
+- The patch applier (`each/patch.py`) supports only textual unified-diff
+  hunks (via `unidiff`); it does not yet handle binary diffs, renames, or
+  mode changes. Out of scope for hello-repair; revisit if a later
+  milestone's real-world fixtures require it.
+

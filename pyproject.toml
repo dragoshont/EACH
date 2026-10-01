@@ -6,7 +6,7 @@ readme = "README.md"
 license = { text = "Apache-2.0" }
 requires-python = ">=3.12"
 authors = [{ name = "Dragos Hont" }]
-dependencies = []
+dependencies = ["unidiff>=0.7"]
 
 [project.scripts]
 each = "each.cli:main"
