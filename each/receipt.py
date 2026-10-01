@@ -34,6 +34,7 @@ class Receipt:
     created_at: str = field(default_factory=lambda: time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()))
     legal_certification: bool = False
     cleanroom_certification: bool = False
+    attempts: list[dict[str, Any]] = field(default_factory=list)
 
     @property
     def patch_hash(self) -> str:
@@ -67,6 +68,7 @@ class Receipt:
             "outcome": self.outcome,
             "legalCertification": self.legal_certification,
             "cleanroomCertification": self.cleanroom_certification,
+            "attempts": self.attempts,
         }
 
     def write(self, directory: Path) -> tuple[Path, Path]:
@@ -97,6 +99,7 @@ class Receipt:
             f"- Patch hash: `{self.patch_hash}`",
             f"- Trajectory hash: `{self.trajectory_hash}`",
             f"- Touched paths: {', '.join(self.touched_paths) or '(none)'}",
+            f"- Attempts recorded: {len(self.attempts)}",
             "",
             "## Declared materials (sanitized worktree manifest)",
             *(materials_lines or ["(none)"]),

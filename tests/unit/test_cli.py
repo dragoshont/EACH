@@ -26,3 +26,10 @@ def test_cli_doctor_exits_zero_when_passing(capsys) -> None:
 def test_cli_parser_has_version() -> None:
     parser = build_parser()
     assert parser.prog == "each"
+
+
+def test_cli_model_bakeoff_unavailable_model_exits_nonzero(capsys) -> None:
+    exit_code = main(["model", "bakeoff", "not-a-real-model"])
+    captured = capsys.readouterr()
+    assert exit_code == 2
+    assert "model unavailable" in captured.out

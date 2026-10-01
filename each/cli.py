@@ -25,6 +25,29 @@ def _cmd_demo_hello_repair(_args: argparse.Namespace) -> int:
     return 0 if result["outcome"] == "REPAIR_VERIFIED" else 1
 
 
+def _cmd_model_bakeoff(args: argparse.Namespace) -> int:
+    from each.bakeoff import run_model_bakeoff
+    from each.models.catalog import UnavailableModelError, load_model
+
+    try:
+        model = load_model(args.model)
+    except UnavailableModelError as exc:
+        print(f"model unavailable: {exc}")
+        return 2
+
+    try:
+        result = run_model_bakeoff(model, max_attempts=args.max_attempts)
+    except ValueError as exc:
+        print(f"invalid bake-off arguments: {exc}")
+        return 2
+    print(f"model:   {model.model_id}")
+    print(f"outcome: {result['outcome']}")
+    print(f"attempts: {result['attempts']}")
+    print(f"receipt (json): {result['receipt_json']}")
+    print(f"receipt (md):   {result['receipt_md']}")
+    return 0 if result["outcome"] == "REPAIR_VERIFIED" else 1
+
+
 def _cmd_doctor(_args: argparse.Namespace) -> int:
     checks = run_checks()
     width = max(len(check.name) for check in checks)
@@ -54,6 +77,13 @@ def build_parser() -> argparse.ArgumentParser:
         "hello-repair", help="run the M1 deterministic hello-repair vertical slice"
     )
     hello_repair.set_defaults(func=_cmd_demo_hello_repair)
+
+    model = subparsers.add_parser("model", help="local-model operations (M2)")
+    model_sub = model.add_subparsers(dest="model_command", required=True)
+    bakeoff = model_sub.add_parser("bakeoff", help="run the hello-repair fixture against a real local model")
+    bakeoff.add_argument("model", help="model catalog key, e.g. granite-3b-code-base-mlx")
+    bakeoff.add_argument("--max-attempts", type=int, default=3)
+    bakeoff.set_defaults(func=_cmd_model_bakeoff)
 
     return parser
 

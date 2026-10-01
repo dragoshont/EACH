@@ -8,6 +8,18 @@ requires-python = ">=3.12"
 authors = [{ name = "Dragos Hont" }]
 dependencies = ["unidiff>=0.7"]
 
+[project.optional-dependencies]
+# Local-model backends evaluated at M2. Deliberately optional: CI and the
+# deterministic hello-repair slice never require these (FixtureModel stays
+# CI-safe); only `uv sync --extra models` on the development Mac installs
+# them.
+models = [
+    "mlx-lm>=0.19",
+    "huggingface_hub>=0.24",
+    "transformers>=4.44",
+    "torch>=2.4",
+]
+
 [project.scripts]
 each = "each.cli:main"
 

@@ -1,0 +1,145 @@
+"""Adversarial/end-to-end evidence for the M2 bake-off orchestrator:
+isolation fail-closed, bounded-attempt trajectory recording, and real patch
+rejection/retry against the real no-network container executor.
+
+Uses a tiny stub RepairModel (never FixtureModel) so FixtureModel's own
+CI-safety/determinism claim is not entangled with this real-model-shaped
+code path.
+"""
+
+from __future__ import annotations
+
+import json
+from pathlib import Path
+
+import each.bakeoff as bakeoff_module
+from tests.adversarial._docker_guard import requires_colima_each
+
+_CORRECT_PATCH = """BEGIN_PATCH
+--- a/src/greet.py
++++ b/src/greet.py
+@@ -1,2 +1,2 @@
+ def greet(name: str) -> str:
+-    return "Hell, " + name
++    return "Hello, " + name
+END_PATCH
+"""
+
+
+class _StubRepairModel:
+    """Minimal RepairModel stand-in: not FixtureModel, not a real local
+    model -- just enough to drive the bake-off orchestrator deterministically
+    for test purposes."""
+
+    model_id = "test/stub-repair-model"
+
+    def __init__(self, replies: list[str]) -> None:
+        self._replies = list(replies)
+        self.calls = 0
+
+    def complete(self, _prompt: str) -> str:
+        reply = self._replies[min(self.calls, len(self._replies) - 1)]
+        self.calls += 1
+        return reply
+
+    def identity(self) -> dict[str, str]:
+        return {
+            "modelId": self.model_id,
+            "implementationModule": __name__,
+            "implementationSha256": "",
+        }
+
+
+@requires_colima_each
+def test_bakeoff_verifies_repair_and_records_single_attempt() -> None:
+    model = _StubRepairModel([_CORRECT_PATCH])
+    result = bakeoff_module.run_model_bakeoff(model, max_attempts=3)
+    assert result["outcome"] == "REPAIR_VERIFIED"
+    assert result["attempts"] == 1
+    receipt = json.loads(Path(result["receipt_json"]).read_text())
+    assert receipt["attempts"][0]["outcome"] == "REPAIR_VERIFIED"
+    assert receipt["modelIdentity"]["modelId"] == model.model_id
+    assert receipt["assuranceLevel"] == "EACH-P2"
+
+
+@requires_colima_each
+def test_bakeoff_records_full_trajectory_across_bounded_retries() -> None:
+    model = _StubRepairModel(["not a diff at all", _CORRECT_PATCH])
+    result = bakeoff_module.run_model_bakeoff(model, max_attempts=3)
+    assert result["outcome"] == "REPAIR_VERIFIED"
+    assert result["attempts"] == 2
+    receipt = json.loads(Path(result["receipt_json"]).read_text())
+    assert len(receipt["attempts"]) == 2
+    assert receipt["attempts"][0]["outcome"].startswith("PATCH_REJECTED")
+    assert receipt["attempts"][1]["outcome"] == "REPAIR_VERIFIED"
+    # Every attempt's own prompt/raw_completion must be recorded, not just
+    # the final one.
+    assert receipt["attempts"][0]["raw_completion"] == "not a diff at all"
+    assert receipt["attempts"][1]["raw_completion"] == _CORRECT_PATCH
+
+
+@requires_colima_each
+def test_bakeoff_bounds_attempts_and_reports_last_rejection() -> None:
+    model = _StubRepairModel(["still not a diff"])
+    result = bakeoff_module.run_model_bakeoff(model, max_attempts=2)
+    assert result["attempts"] == 2
+    receipt = json.loads(Path(result["receipt_json"]).read_text())
+    assert len(receipt["attempts"]) == 2
+    assert all(a["outcome"].startswith("PATCH_REJECTED") for a in receipt["attempts"])
+    # No patch ever applied: nothing to leak into touched_paths/materials.
+    assert receipt["touchedPaths"] == []
+
+
+@requires_colima_each
+def test_bakeoff_fails_closed_when_isolation_cannot_be_verified(monkeypatch) -> None:
+    """The probe still runs for real (needs colima); only the *derived*
+    assurance level is forced non-P2, to check the fail-closed branch
+    without depending on ever observing a real denial."""
+
+    monkeypatch.setattr(bakeoff_module, "derive_assurance_level", lambda *_a, **_k: "EACH-P1")
+
+    model = _StubRepairModel([_CORRECT_PATCH])
+    result = bakeoff_module.run_model_bakeoff(model, max_attempts=3)
+    assert result["outcome"] == "ISOLATION_UNVERIFIED"
+    assert result["attempts"] == 0
+    assert model.calls == 0
+    receipt = json.loads(Path(result["receipt_json"]).read_text())
+    assert receipt["patchText"] == ""
+    assert receipt["attempts"] == []
+
+
+def test_bakeoff_rejects_max_attempts_below_one() -> None:
+    """Regression: a zero/negative max_attempts must not silently produce a
+    receipt indistinguishable from a genuine classified repair failure."""
+    model = _StubRepairModel([_CORRECT_PATCH])
+    for bad_value in (0, -1):
+        try:
+            bakeoff_module.run_model_bakeoff(model, max_attempts=bad_value)
+        except ValueError as exc:
+            assert "max_attempts" in str(exc)
+        else:
+            raise AssertionError(f"expected ValueError for max_attempts={bad_value}")
+    assert model.calls == 0
+
+
+@requires_colima_each
+def test_bakeoff_does_not_mask_execution_classification_failures(monkeypatch) -> None:
+    """Regression: a FixtureExecutionError (container launch failure, skipped
+    tests, unrecognized output -- i.e. "not test evidence") must propagate
+    uncaught rather than being folded into the same REPAIR_NOT_VERIFIED
+    bucket a genuinely-tested failing repair would also produce, matching
+    each.demo.run_hello_repair's fail-loud precedent."""
+    from each.demo import FixtureExecutionError
+
+    def _raise(*_a, **_k):
+        raise FixtureExecutionError("container launch failed (exit 125): simulated infra failure")
+
+    monkeypatch.setattr(bakeoff_module, "_interpret_test_run", _raise)
+
+    model = _StubRepairModel([_CORRECT_PATCH])
+    try:
+        bakeoff_module.run_model_bakeoff(model, max_attempts=1)
+    except FixtureExecutionError as exc:
+        assert "container launch failed" in str(exc)
+    else:
+        raise AssertionError("expected FixtureExecutionError to propagate uncaught")
