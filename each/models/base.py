@@ -19,6 +19,8 @@ from each.hashing import sha256_file
 class RepairModel(ABC):
     """A model that proposes a unified-diff patch for a given repair context."""
 
+    last_prompt: str | None = None
+
     @property
     @abstractmethod
     def model_id(self) -> str:

@@ -86,6 +86,9 @@ def test_bakeoff_bounds_attempts_and_reports_last_rejection() -> None:
     receipt = json.loads(Path(result["receipt_json"]).read_text())
     assert len(receipt["attempts"]) == 2
     assert all(a["outcome"].startswith("PATCH_REJECTED") for a in receipt["attempts"])
+    assert set(receipt["materials"]) == {"src/greet.py", "tests/test_greet.py"}
+    assert receipt["baselineResult"]["exit_code"] == 1
+    assert all(a["materials"] == receipt["materials"] for a in receipt["attempts"])
     # No patch ever applied: nothing to leak into touched_paths/materials.
     assert receipt["touchedPaths"] == []
 
@@ -143,3 +146,20 @@ def test_bakeoff_does_not_mask_execution_classification_failures(monkeypatch) ->
         assert "container launch failed" in str(exc)
     else:
         raise AssertionError("expected FixtureExecutionError to propagate uncaught")
+    assert model.calls == 0
+
+
+@requires_colima_each
+def test_bakeoff_records_the_model_rendered_prompt() -> None:
+    class RenderedModel(_StubRepairModel):
+        last_prompt: str | None = None
+
+        def complete(self, prompt: str) -> str:
+            self.last_prompt = f"[user]{prompt}[assistant]"
+            return super().complete(prompt)
+
+    model = RenderedModel([_CORRECT_PATCH])
+    result = bakeoff_module.run_model_bakeoff(model, max_attempts=1)
+    receipt = json.loads(Path(result["receipt_json"]).read_text())
+    assert receipt["attempts"][0]["prompt"] == model.last_prompt
+    assert receipt["prompt"] == model.last_prompt

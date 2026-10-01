@@ -21,4 +21,5 @@ class FixtureModel(RepairModel):
         return self._model_id
 
     def complete(self, prompt: str) -> str:
+        self.last_prompt = prompt
         return self._response

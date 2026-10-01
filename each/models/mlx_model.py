@@ -30,6 +30,8 @@ class MLXRepairModel(RepairModel):
         *,
         max_tokens: int = 512,
     ) -> None:
+        if max_tokens < 1:
+            raise ValueError("max_tokens must be at least 1")
         try:
             import mlx_lm  # noqa: F401
         except ImportError as exc:  # pragma: no cover - exercised only with extras
@@ -65,11 +67,18 @@ class MLXRepairModel(RepairModel):
         """
         identity = super().identity()
         identity["modelManifest"] = self._manifest.to_dict()
+        identity["generationParameters"] = {
+            "maxTokens": self._max_tokens,
+            "temperature": 0.0,
+            "sampling": "greedy",
+            "seed": None,
+        }
         return identity
 
     def complete(self, prompt: str) -> str:
         self._ensure_loaded()
         import mlx_lm
+        from mlx_lm.sample_utils import make_sampler
 
         final_prompt = prompt
         chat_template = getattr(self._tokenizer, "chat_template", None)
@@ -83,10 +92,12 @@ class MLXRepairModel(RepairModel):
                 [{"role": "user", "content": prompt}], tokenize=False, add_generation_prompt=True
             )
 
+        self.last_prompt = final_prompt
         return mlx_lm.generate(
             self._model,
             self._tokenizer,
             prompt=final_prompt,
             max_tokens=self._max_tokens,
+            sampler=make_sampler(temp=0.0),
             verbose=False,
         )

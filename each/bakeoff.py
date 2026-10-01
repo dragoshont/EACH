@@ -153,11 +153,17 @@ def run_model_bakeoff(
     for attempt_num in range(1, max_attempts + 1):
         worktree, manifest = build_worktree(FIXTURE_ROOT, FIXTURE_ALLOWED_PATHS + FIXTURE_TEST_PATHS)
         baseline = executor.run(ACCEPTANCE_COMMAND, worktree)
+        baseline_verdict = _interpret_test_run(baseline, expected_tests=EXPECTED_TEST_COUNT)
+        final_materials = manifest
+        final_baseline = _result_to_dict(baseline)
         raw_completion = model.complete(prompt)
+        rendered_prompt = getattr(model, "last_prompt", None)
         attempt_record: dict[str, Any] = {
             "attempt": attempt_num,
-            "prompt": prompt,
+            "prompt": rendered_prompt if rendered_prompt is not None else prompt,
             "raw_completion": raw_completion,
+            "materials": manifest,
+            "baseline_result": final_baseline,
         }
         final_raw_completion = raw_completion
 
@@ -178,7 +184,6 @@ def run_model_bakeoff(
         # unrecognized output) -- that is not evidence the repair failed,
         # so it must not be folded into the same REPAIR_NOT_VERIFIED bucket
         # a real failing test would produce. Let it propagate uncaught.
-        baseline_verdict = _interpret_test_run(baseline, expected_tests=EXPECTED_TEST_COUNT)
         repaired_verdict = _interpret_test_run(repaired, expected_tests=EXPECTED_TEST_COUNT)
         outcome = (
             "REPAIR_VERIFIED" if (baseline_verdict == "failed" and repaired_verdict == "passed") else "REPAIR_NOT_VERIFIED"
@@ -200,6 +205,8 @@ def run_model_bakeoff(
         )
 
     common_fields["raw_completion"] = final_raw_completion
+    if attempts:
+        common_fields["prompt"] = attempts[-1]["prompt"]
     receipt = Receipt(
         patch_text=final_patch_text,
         touched_paths=final_touched,

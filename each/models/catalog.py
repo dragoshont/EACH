@@ -10,6 +10,7 @@ adapter) rather than silently omitted.
 from __future__ import annotations
 
 from collections.abc import Callable
+from importlib.metadata import PackageNotFoundError, version
 
 from each.model_manifest import build_manifest_from_snapshot
 from each.models.base import RepairModel
@@ -20,6 +21,13 @@ HF_CACHE_DIR = models_dir() / ".hf_cache"
 
 class UnavailableModelError(RuntimeError):
     """Raised with the exact, honest reason a catalog entry cannot be used."""
+
+
+def _mlx_runtime_version() -> str:
+    try:
+        return version("mlx-lm")
+    except PackageNotFoundError as exc:
+        raise UnavailableModelError("MLX-LM is not installed; run uv sync --extra models") from exc
 
 
 def _granite_3b_code_base_mlx() -> RepairModel:
@@ -37,7 +45,7 @@ def _granite_3b_code_base_mlx() -> RepairModel:
         repo_id="mlx-community/granite-3b-code-base-4bit",
         license="Apache-2.0",
         runtime_name="mlx-lm",
-        runtime_version="0.32.0",
+        runtime_version=_mlx_runtime_version(),
         # Verbatim provenance statement from the model card at this exact
         # snapshot (README.md in snapshot_dir), not an assumed chain: "The
         # Model mlx-community/granite-3b-code-base-4bit was converted to
@@ -69,7 +77,7 @@ def _granite_3b_code_instruct_mlx() -> RepairModel:
         repo_id="mlx-community/granite-3b-code-instruct-4bit",
         license="Apache-2.0",
         runtime_name="mlx-lm",
-        runtime_version="0.32.0",
+        runtime_version=_mlx_runtime_version(),
         conversion_chain=(
             "ibm-granite/granite-3b-code-instruct -> mlx-community/granite-3b-code-instruct-4bit "
             "via mlx_lm.convert (4-bit, group_size=64), per the model card's own "
