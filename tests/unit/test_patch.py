@@ -92,3 +92,44 @@ def test_apply_patch_updates_file_in_scope(tmp_path: Path) -> None:
     touched = apply_patch(patch, worktree, {"src/greet.py"})
     assert touched == ["src/greet.py"]
     assert "Hello, " in (worktree / "src" / "greet.py").read_text()
+
+
+def test_apply_patch_rejects_stale_preimage(tmp_path: Path) -> None:
+    """The removed/context line must actually be present; a fabricated or
+    stale preimage (file content already differs from what the diff claims
+    to be removing) must be rejected, never silently applied."""
+    worktree = tmp_path / "wt"
+    (worktree / "src").mkdir(parents=True)
+    # Actual file content no longer matches the patch's claimed "Hell, " preimage.
+    (worktree / "src" / "greet.py").write_text('def greet(name: str) -> str:\n    return "Howdy, " + name\n')
+
+    patch = parse_patch(extract_patch_text(VALID_PATCH))
+    with pytest.raises(PatchRejected, match="stale or mismatched"):
+        apply_patch(patch, worktree, {"src/greet.py"})
+    # The file must be left untouched.
+    assert "Howdy, " in (worktree / "src" / "greet.py").read_text()
+
+
+def test_apply_patch_inserts_at_correct_offset(tmp_path: Path) -> None:
+    """A pure insertion hunk (@@ -1,0 +2,1 @@) must insert *after* line 1,
+    not at offset zero."""
+    worktree = tmp_path / "wt"
+    worktree.mkdir(parents=True)
+    (worktree / "f.txt").write_text("alpha\nbeta\n")
+
+    insertion_patch = parse_patch("--- a/f.txt\n+++ b/f.txt\n@@ -1,0 +2,1 @@\n+inserted\n")
+    apply_patch(insertion_patch, worktree, {"f.txt"})
+    assert (worktree / "f.txt").read_text() == "alpha\ninserted\nbeta\n"
+
+
+def test_apply_patch_rejects_out_of_bounds_hunk(tmp_path: Path) -> None:
+    worktree = tmp_path / "wt"
+    worktree.mkdir(parents=True)
+    (worktree / "f.txt").write_text("only one line\n")
+
+    # Claims to replace 2 lines starting at line 5, but the file has only 1 line.
+    out_of_bounds_patch = parse_patch(
+        "--- a/f.txt\n+++ b/f.txt\n@@ -5,2 +5,1 @@\n-missing line a\n-missing line b\n+replacement\n"
+    )
+    with pytest.raises(PatchRejected, match="out of bounds"):
+        apply_patch(out_of_bounds_patch, worktree, {"f.txt"})

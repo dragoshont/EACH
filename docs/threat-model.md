@@ -118,12 +118,22 @@ evidence properties only, and every receipt restates that explicitly:
 M1 implements only the container executor profile (`--network none`,
 scrubbed environment, dropped capabilities, no host home or SSH-agent
 mount, `docker --context colima-each` against a pinned base-image digest).
-It is used for the hello-repair vertical slice and claims **EACH-P2**:
-real outbound-network denial and host-secret non-inheritance are verified
-by the adversarial tests in `tests/adversarial/`, not merely asserted. It
-does **not** claim EACH-P3, since no corpus/source similarity check or
+A configuration that cannot back that profile (network enabled, or an
+unpinned/mutable image tag) is rejected at executor-construction time
+rather than silently claimed as isolated.
+
+The assurance level in each receipt is derived per-run, not hardcoded: it
+is only **EACH-P2** when that run's own isolation probe (the same
+`NETWORK_PROBE_SCRIPT` used by the adversarial tests, executed through the
+run's actual executor configuration) genuinely observed a denied outbound
+connection. Any other outcome — including an unexpected probe result —
+downgrades honestly to **EACH-P1** rather than crashing or over-claiming.
+It does **not** claim EACH-P3, since no corpus/source similarity check or
 documented model-training provenance exists yet (the M1 audit step is an
-explicit `UNAVAILABLE` stub, never a fabricated PASS).
+explicit `UNAVAILABLE` stub, never a fabricated PASS). The real,
+historical outbound-network-denial probe recorded during bootstrap is
+evidence for *that* probe only; it is never substituted for a given run's
+own isolation evidence.
 
 No native-macOS executor profile exists in M1; native host execution is
 explicitly not implemented and not used as a substitute for container

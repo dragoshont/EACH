@@ -71,8 +71,26 @@ def validate_patch_scope(patch: PatchSet, allowed_paths: set[str]) -> list[str]:
     return sorted(set(touched))
 
 
+def _hunk_span(hunk) -> tuple[int, int]:
+    """Return (start, length): the 0-based slice of the pre-image this hunk covers.
+
+    For a pure insertion (source_length == 0), unified-diff numbers the hunk
+    by the line *after which* it is inserted (0 means "before the first
+    line"), and that number is already the correct 0-based insertion index
+    -- unlike a modify/delete hunk, it must not be decremented by one.
+    """
+    if hunk.source_length == 0:
+        return hunk.source_start, 0
+    return hunk.source_start - 1, hunk.source_length
+
+
 def apply_patch(patch: PatchSet, worktree: Path, allowed_paths: set[str]) -> list[str]:
-    """Apply a validated patch to files inside `worktree`. Returns touched paths."""
+    """Apply a validated patch to files inside `worktree`. Returns touched paths.
+
+    Every hunk's pre-image (its context + removed lines) is compared against
+    the file's actual current content before anything is written: a stale or
+    fabricated pre-image is rejected rather than blindly overwritten.
+    """
     touched = validate_patch_scope(patch, allowed_paths)
     worktree_resolved = worktree.resolve()
     for pf in patch:
@@ -87,13 +105,33 @@ def apply_patch(patch: PatchSet, worktree: Path, allowed_paths: set[str]) -> lis
             raise PatchRejected(f"resolved patch target escapes worktree: {resolved}")
 
         original_lines = target_path.read_text().splitlines(keepends=True) if target_path.exists() else []
+
+        spans: list[tuple[int, int, object]] = []
+        prev_end = 0
+        for hunk in sorted(pf, key=lambda h: h.source_start):
+            start, length = _hunk_span(hunk)
+            end = start + length
+            if start < 0 or end > len(original_lines):
+                raise PatchRejected(
+                    f"hunk out of bounds for {target_name}: lines {start + 1}-{end} but file has "
+                    f"{len(original_lines)} line(s)"
+                )
+            if start < prev_end:
+                raise PatchRejected(f"overlapping hunks in {target_name}")
+            preimage = [line.value for line in hunk if not line.is_added]
+            actual = original_lines[start:end]
+            if preimage != actual:
+                raise PatchRejected(
+                    f"patch does not apply cleanly to {target_name}: stale or mismatched "
+                    f"context/removed lines starting at line {start + 1}"
+                )
+            spans.append((start, end, hunk))
+            prev_end = end
+
         new_lines = list(original_lines)
-        # Apply hunks bottom-to-top so earlier line offsets stay valid.
-        for hunk in sorted(pf, key=lambda h: h.source_start, reverse=True):
-            start = max(hunk.source_start - 1, 0)
-            length = hunk.source_length
+        for start, end, hunk in sorted(spans, key=lambda item: item[0], reverse=True):
             replacement = [line.value for line in hunk if not line.is_removed]
-            new_lines[start : start + length] = replacement
+            new_lines[start:end] = replacement
 
         target_path.parent.mkdir(parents=True, exist_ok=True)
         target_path.write_text("".join(new_lines))

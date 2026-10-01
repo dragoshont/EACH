@@ -10,23 +10,39 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
+from each.hashing import sha256_text
+
 
 @dataclass
 class Receipt:
     run_id: str
     spec: dict[str, Any]
     spec_hash: str
-    model_id: str
+    model_identity: dict[str, Any]
     prompt: str
     raw_completion: str
     patch_text: str
     touched_paths: list[str]
+    materials: dict[str, str]
+    executor_identity: dict[str, Any]
+    isolation_evidence: dict[str, Any]
     baseline_result: dict[str, Any]
     repaired_result: dict[str, Any]
     audit: dict[str, Any]
     assurance_level: str
     outcome: str
     created_at: str = field(default_factory=lambda: time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()))
+    legal_certification: bool = False
+    cleanroom_certification: bool = False
+
+    @property
+    def patch_hash(self) -> str:
+        return sha256_text(self.patch_text)
+
+    @property
+    def trajectory_hash(self) -> str:
+        """Hash binding together everything the model saw and produced."""
+        return sha256_text(self.prompt + "\x00" + self.raw_completion)
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -34,16 +50,23 @@ class Receipt:
             "createdAt": self.created_at,
             "spec": self.spec,
             "specHash": self.spec_hash,
-            "modelId": self.model_id,
+            "modelIdentity": self.model_identity,
             "prompt": self.prompt,
             "rawCompletion": self.raw_completion,
             "patchText": self.patch_text,
+            "patchHash": self.patch_hash,
+            "trajectoryHash": self.trajectory_hash,
             "touchedPaths": self.touched_paths,
+            "materials": self.materials,
+            "executorIdentity": self.executor_identity,
+            "isolationEvidence": self.isolation_evidence,
             "baselineResult": self.baseline_result,
             "repairedResult": self.repaired_result,
             "audit": self.audit,
             "assuranceLevel": self.assurance_level,
             "outcome": self.outcome,
+            "legalCertification": self.legal_certification,
+            "cleanroomCertification": self.cleanroom_certification,
         }
 
     def write(self, directory: Path) -> tuple[Path, Path]:
@@ -55,26 +78,46 @@ class Receipt:
         return json_path, md_path
 
     def _to_markdown(self) -> str:
+        materials_lines = [f"- `{path}`: `{digest}`" for path, digest in sorted(self.materials.items())]
         lines = [
             f"# EACH repair receipt — {self.run_id}",
             "",
             f"- Created: {self.created_at}",
             f"- Outcome: **{self.outcome}**",
             f"- Assurance level: {self.assurance_level}",
-            f"- Model: `{self.model_id}`",
+            "- Legal certification: false",
+            "- Cleanroom certification: false",
+            (
+                f"- Model: `{self.model_identity.get('modelId')}` "
+                f"(`{self.model_identity.get('implementationModule')}`, "
+                f"sha256 `{self.model_identity.get('implementationSha256')}`)"
+            ),
+            f"- Executor: {self.executor_identity}",
             f"- Spec hash: `{self.spec_hash}`",
+            f"- Patch hash: `{self.patch_hash}`",
+            f"- Trajectory hash: `{self.trajectory_hash}`",
             f"- Touched paths: {', '.join(self.touched_paths) or '(none)'}",
+            "",
+            "## Declared materials (sanitized worktree manifest)",
+            *(materials_lines or ["(none)"]),
+            "",
+            "## Isolation evidence",
+            f"- Command: `{' '.join(self.isolation_evidence.get('command', []))}`",
+            f"- Exit code: {self.isolation_evidence.get('exit_code')}",
+            f"- Stdout: {self.isolation_evidence.get('stdout', '').strip()!r}",
             "",
             "## Baseline (pre-patch) result",
             "```",
             f"exit={self.baseline_result.get('exit_code')}",
             str(self.baseline_result.get("stdout", "")),
+            str(self.baseline_result.get("stderr", "")),
             "```",
             "",
             "## Repaired (post-patch) result",
             "```",
             f"exit={self.repaired_result.get('exit_code')}",
             str(self.repaired_result.get("stdout", "")),
+            str(self.repaired_result.get("stderr", "")),
             "```",
             "",
             "## Audit",

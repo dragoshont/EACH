@@ -8,7 +8,12 @@ in the run's provenance.
 
 from __future__ import annotations
 
+import inspect
 from abc import ABC, abstractmethod
+from pathlib import Path
+from typing import Any
+
+from each.hashing import sha256_file
 
 
 class RepairModel(ABC):
@@ -22,3 +27,17 @@ class RepairModel(ABC):
     @abstractmethod
     def complete(self, prompt: str) -> str:
         """Return the raw model completion text for the given prompt."""
+
+    def identity(self) -> dict[str, Any]:
+        """Binds a receipt to the exact code that produced a completion.
+
+        A free-text ``model_id`` alone is not trustworthy provenance evidence
+        (anything could claim any label); this also records the concrete
+        implementation module and its source hash.
+        """
+        module_path = Path(inspect.getfile(type(self)))
+        return {
+            "modelId": self.model_id,
+            "implementationModule": type(self).__module__,
+            "implementationSha256": sha256_file(module_path),
+        }
