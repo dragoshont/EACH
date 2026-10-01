@@ -3,6 +3,7 @@
 .architrave/runs/
 .architrave/worktrees/
 .architrave/run.json
+.architrave/evidence/
 models/weights/
 shadow/
 *.pem
