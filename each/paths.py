@@ -9,7 +9,24 @@ this tree without an explicit, deliberate publication step (see
 from __future__ import annotations
 
 import os
+import re
 from pathlib import Path
+
+_TASK_ID_RE = re.compile(r"^[A-Za-z0-9_.-]+$")
+
+
+def validate_task_id(task_id: str) -> str:
+    """Reject a task id that could escape its intended cache/spec directory.
+
+    Task ids ultimately become a filename component
+    (``<task_id>.json``/``<task_id>/draft.json``). They may come from a
+    user-supplied ``--task-id`` flag, not just the regex-derived GitHub
+    owner/repo/number default, so they must be validated independently of
+    that default's own safety.
+    """
+    if not task_id or "/" in task_id or ".." in task_id or not _TASK_ID_RE.match(task_id):
+        raise ValueError(f"invalid task id: {task_id!r} (must match {_TASK_ID_RE.pattern} with no '..' component)")
+    return task_id
 
 
 def each_home() -> Path:

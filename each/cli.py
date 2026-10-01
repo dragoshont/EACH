@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import argparse
 import sys
+from pathlib import Path
 
 from each import __version__
 from each.doctor import doctor_passed, run_checks
@@ -48,6 +49,77 @@ def _cmd_model_bakeoff(args: argparse.Namespace) -> int:
     return 0 if result["outcome"] == "REPAIR_VERIFIED" else 1
 
 
+def _cmd_issue_import(args: argparse.Namespace) -> int:
+    from each.issue_intake import IssueIntakeError, fetch_issue
+
+    try:
+        cached = fetch_issue(args.url, task_id=args.task_id)
+    except IssueIntakeError as exc:
+        print(f"issue import failed: {exc}")
+        return 2
+    print(f"task id: {Path(cached.cache_path).stem}")
+    print(f"title:   {cached.title}")
+    print(f"hash:    {cached.content_sha256}")
+    print(f"cache:   {cached.cache_path}")
+    return 0
+
+
+def _cmd_issue_show(args: argparse.Namespace) -> int:
+    from each.issue_intake import IssueIntakeError, load_cached_issue
+
+    try:
+        cached = load_cached_issue(args.task_id)
+    except IssueIntakeError as exc:
+        print(f"issue show failed: {exc}")
+        return 2
+    print("UNTRUSTED issue text (origin=PUBLIC_ISSUE); not automatically a Builder input.")
+    print(f"source:       {cached.html_url}")
+    print(f"retrieved at: {cached.retrieved_at}")
+    print(f"hash:         {cached.content_sha256}")
+    print(f"title:        {cached.title}")
+    print("body:")
+    print(cached.body)
+    return 0
+
+
+def _cmd_spec_build(args: argparse.Namespace) -> int:
+    from each.spec_workflow import SpecBuildRequest, SpecWorkflowError, build_spec_draft
+
+    request = SpecBuildRequest(
+        task_id=args.task_id,
+        target_repo=args.target_repo,
+        target_ref=args.target_ref,
+        allowed_paths=tuple(args.allowed_path),
+        build_commands=tuple(tuple(cmd.split()) for cmd in args.build_cmd),
+        acceptance_commands=tuple(tuple(cmd.split()) for cmd in args.acceptance_cmd),
+        forbidden_sources=tuple(args.forbidden_source),
+        sensitive=args.sensitive,
+    )
+    try:
+        packet = build_spec_draft(request)
+    except SpecWorkflowError as exc:
+        print(f"spec build failed: {exc}")
+        return 2
+    print(f"draft spec written for task {args.task_id!r}")
+    print(f"draft hash: {packet.sha256()}")
+    print(f"sensitive:  {packet.sensitive}")
+    return 0
+
+
+def _cmd_spec_approve(args: argparse.Namespace) -> int:
+    from each.spec_workflow import SpecWorkflowError, approve_spec
+
+    try:
+        approved = approve_spec(args.task_id, approved_by=args.human)
+    except SpecWorkflowError as exc:
+        print(f"spec approve failed: {exc}")
+        return 2
+    print(f"spec approved for task {args.task_id!r}")
+    print(f"approved by:   {approved.packet.approved_by}")
+    print(f"approved hash: {approved.approved_hash}")
+    return 0
+
+
 def _cmd_doctor(_args: argparse.Namespace) -> int:
     checks = run_checks()
     width = max(len(check.name) for check in checks)
@@ -84,6 +156,35 @@ def build_parser() -> argparse.ArgumentParser:
     bakeoff.add_argument("model", help="model catalog key, e.g. granite-3b-code-base-mlx")
     bakeoff.add_argument("--max-attempts", type=int, default=3)
     bakeoff.set_defaults(func=_cmd_model_bakeoff)
+
+    issue = subparsers.add_parser("issue", help="GitHub issue intake (M3)")
+    issue_sub = issue.add_subparsers(dest="issue_command", required=True)
+    issue_import = issue_sub.add_parser("import", help="fetch and content-hash-cache a public GitHub issue")
+    issue_import.add_argument("url", help="https://github.com/<owner>/<repo>/issues/<number>")
+    issue_import.add_argument("--task-id", default=None, help="override the derived task id")
+    issue_import.set_defaults(func=_cmd_issue_import)
+    issue_show = issue_sub.add_parser("show", help="print a previously imported issue (marked untrusted)")
+    issue_show.add_argument("task_id")
+    issue_show.set_defaults(func=_cmd_issue_show)
+
+    spec = subparsers.add_parser("spec", help="immutable spec construction and human approval (M3)")
+    spec_sub = spec.add_subparsers(dest="spec_command", required=True)
+    spec_build = spec_sub.add_parser(
+        "build", help="build an unapproved spec draft; policy fields come only from these flags, never issue text"
+    )
+    spec_build.add_argument("task_id")
+    spec_build.add_argument("--target-repo", required=True)
+    spec_build.add_argument("--target-ref", required=True)
+    spec_build.add_argument("--allowed-path", action="append", default=[], dest="allowed_path")
+    spec_build.add_argument("--build-cmd", action="append", default=[], dest="build_cmd")
+    spec_build.add_argument("--acceptance-cmd", action="append", default=[], dest="acceptance_cmd")
+    spec_build.add_argument("--forbidden-source", action="append", default=[], dest="forbidden_source")
+    spec_build.add_argument("--sensitive", action="store_true")
+    spec_build.set_defaults(func=_cmd_spec_build)
+    spec_approve = spec_sub.add_parser("approve", help="explicit human approval; binds the draft to its content hash")
+    spec_approve.add_argument("task_id")
+    spec_approve.add_argument("--human", required=True, help="approver identity (never read from issue/Scout text)")
+    spec_approve.set_defaults(func=_cmd_spec_approve)
 
     return parser
 
