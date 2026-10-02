@@ -1,0 +1,30 @@
+{
+  "label": "f3-f8-remediation-93888d2",
+  "sha": "93888d252d263f995551bb78daa232da157d6bcd",
+  "baseSha": "34b99219b941d58eeca14e181849b8a4720c38ec",
+  "capturedAt": "2026-10-02T22:18:29.402475+00:00",
+  "checks": {
+    "baseSuite": {
+      "command": "uv sync --locked && uv run pytest -q && uv run each doctor",
+      "result": "293 passed, 3 skipped (optional AST extras absent)",
+      "exitCode": 0
+    },
+    "extrasSuite": {
+      "command": "uv sync --locked --extra audit --extra models && uv run pytest -q",
+      "result": "296 passed, 0 skipped",
+      "exitCode": 0
+    },
+    "ruffOwnedCode": {
+      "command": "uv run ruff check each tests",
+      "result": "All checks passed!",
+      "exitCode": 0
+    },
+    "doctor": {
+      "command": "uv run each doctor",
+      "result": "PASS (all required checks satisfied)",
+      "exitCode": 0
+    }
+  },
+  "scope": "harness-only (F3, F4, F6, F7, F8); F5 completed earlier in same session",
+  "note": "No target candidates generated, no models downloaded, no historical ~/.each receipts re-signed or altered. Evidence is source-free (counts/exit codes/commands only)."
+}
