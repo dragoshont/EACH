@@ -25,7 +25,7 @@ from __future__ import annotations
 import uuid
 from typing import Any
 
-from each.audit.stub import audit_stub
+from each.audit.run import reject_on_audit_flag, run_audit
 from each.demo import (
     ACCEPTANCE_COMMAND,
     EXPECTED_TEST_COUNT,
@@ -73,7 +73,7 @@ _RETRY_SUFFIX = "\n\nYour previous attempt was rejected: {reason}\nTry again, fo
 
 
 def run_model_bakeoff(
-    model: RepairModel, *, max_attempts: int = 3, run_id: str | None = None
+    model: RepairModel, *, max_attempts: int = 3, run_id: str | None = None, audit_corpus: list[str] | None = None
 ) -> dict[str, Any]:
     """Run the hello-repair fixture against a real local model, bounded to
     ``max_attempts`` tries, recording the full prompt/response trajectory.
@@ -81,6 +81,11 @@ def run_model_bakeoff(
     Fails closed exactly like ``each.demo.run_hello_repair``: if this run's
     own isolation probe does not verify no-egress execution, the outcome is
     ``ISOLATION_UNVERIFIED`` and no generation/test attempt is made.
+
+    ``audit_corpus`` is the declared set of known snippets the M4 audit
+    checks compare the repaired source against (default none, which honestly
+    reports those checks UNAVAILABLE rather than a fabricated PASS -- there
+    is no production corpus wired in yet).
     """
     run_id = run_id or f"bakeoff-{uuid.uuid4().hex[:8]}"
     if max_attempts < 1:
@@ -122,7 +127,7 @@ def run_model_bakeoff(
         "raw_completion": "",
         "executor_identity": executor.identity(),
         "isolation_evidence": isolation_evidence,
-        "audit": audit_stub(),
+        "audit": run_audit(""),
         "assurance_level": assurance_level,
     }
 
@@ -149,6 +154,7 @@ def run_model_bakeoff(
     final_baseline: dict[str, Any] = {}
     final_repaired: dict[str, Any] = {}
     final_raw_completion = ""
+    final_audit = run_audit("", corpus=audit_corpus)
 
     for attempt_num in range(1, max_attempts + 1):
         worktree, manifest = build_worktree(FIXTURE_ROOT, FIXTURE_ALLOWED_PATHS + FIXTURE_TEST_PATHS)
@@ -185,28 +191,51 @@ def run_model_bakeoff(
         # so it must not be folded into the same REPAIR_NOT_VERIFIED bucket
         # a real failing test would produce. Let it propagate uncaught.
         repaired_verdict = _interpret_test_run(repaired, expected_tests=EXPECTED_TEST_COUNT)
-        outcome = (
+        test_outcome = (
             "REPAIR_VERIFIED" if (baseline_verdict == "failed" and repaired_verdict == "passed") else "REPAIR_NOT_VERIFIED"
         )
 
-        attempt_record["outcome"] = outcome
-        attempts.append(attempt_record)
         final_patch_text = patch_text
         final_touched = touched
         final_materials = manifest
         final_baseline = _result_to_dict(baseline)
         final_repaired = _result_to_dict(repaired)
+        # Audit the actual repaired source, not the unified-diff text: diff
+        # markers (+/-, @@ hunk headers, a/ b/ path prefixes) are not valid
+        # Python and are not the literal content a copy/paste would produce,
+        # so auditing the diff itself would silently defeat exact-substring
+        # and AST-structural matching against a real verbatim or renamed copy.
+        final_repaired_source = "\n".join(
+            (worktree / path).read_text(encoding="utf-8", errors="replace") for path in touched
+        )
+        final_audit = run_audit(final_repaired_source, corpus=audit_corpus)
+
+        if test_outcome == "REPAIR_VERIFIED" and reject_on_audit_flag(final_audit):
+            # Terminal boundary: a matched candidate is rejected outright,
+            # never fed back into a prompt. The retry below restarts from
+            # the original base_prompt/_RETRY_SUFFIX with only a generic
+            # classification-level reason -- never what matched or how.
+            outcome = "REPAIR_REJECTED_AUDIT"
+        else:
+            outcome = test_outcome
+
+        attempt_record["outcome"] = outcome
+        attempts.append(attempt_record)
         final_outcome = outcome
 
         if outcome == "REPAIR_VERIFIED":
             break
-        prompt = base_prompt + _RETRY_SUFFIX.format(
-            reason="patch applied but did not make the failing test pass"
+        reason = (
+            "candidate patch was rejected by provenance audit; retry begins again from the original approved spec"
+            if outcome == "REPAIR_REJECTED_AUDIT"
+            else "patch applied but did not make the failing test pass"
         )
+        prompt = base_prompt + _RETRY_SUFFIX.format(reason=reason)
 
     common_fields["raw_completion"] = final_raw_completion
     if attempts:
         common_fields["prompt"] = attempts[-1]["prompt"]
+    common_fields["audit"] = final_audit
     receipt = Receipt(
         patch_text=final_patch_text,
         touched_paths=final_touched,

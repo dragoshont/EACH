@@ -19,6 +19,14 @@ models = [
     "transformers>=4.44",
     "torch>=2.4",
 ]
+audit = [
+    # M4 AST-normalized provenance comparator. Without this extra, the
+    # ast-similarity check honestly reports UNAVAILABLE rather than
+    # silently skipping; exact-substring/n-gram/corpus-membership checks
+    # never require it.
+    "tree-sitter>=0.26.0",
+    "tree-sitter-python>=0.25.0",
+]
 
 [project.scripts]
 each = "each.cli:main"

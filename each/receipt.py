@@ -13,6 +13,27 @@ from typing import Any
 from each.hashing import sha256_text
 
 
+def _audit_markdown_lines(audit: dict[str, Any]) -> list[str]:
+    """Render either audit shape: the M1 stub (flat name -> status string,
+    plus top-level result/reason) or the M4 engine (name -> CheckResult dict,
+    plus toolVersions/corpusRevision). Never collapses per-check statuses
+    into a single score -- only reformats what is already there."""
+    if "result" in audit:
+        return [f"- Result: {audit.get('result')}", f"- Reason: {audit.get('reason', '')}"]
+    lines = []
+    for name, check in audit.get("checks", {}).items():
+        status = check["status"] if isinstance(check, dict) else check
+        detail = check.get("detail", "") if isinstance(check, dict) else ""
+        lines.append(f"- {name}: {status}" + (f" ({detail})" if detail else ""))
+    tool_versions = audit.get("toolVersions")
+    if tool_versions:
+        lines.append(f"- Tool versions: {tool_versions}")
+    corpus_revision = audit.get("corpusRevision")
+    if corpus_revision is not None:
+        lines.append(f"- Corpus revision: {corpus_revision}")
+    return lines or ["- (no audit data)"]
+
+
 @dataclass
 class Receipt:
     run_id: str
@@ -124,8 +145,7 @@ class Receipt:
             "```",
             "",
             "## Audit",
-            f"- Result: {self.audit.get('result')}",
-            f"- Reason: {self.audit.get('reason', '')}",
+            *_audit_markdown_lines(self.audit),
             "",
             "## Raw model completion",
             "```",

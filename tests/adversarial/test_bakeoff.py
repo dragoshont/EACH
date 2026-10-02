@@ -60,6 +60,14 @@ def test_bakeoff_verifies_repair_and_records_single_attempt() -> None:
     assert receipt["attempts"][0]["outcome"] == "REPAIR_VERIFIED"
     assert receipt["modelIdentity"]["modelId"] == model.model_id
     assert receipt["assuranceLevel"] == "EACH-P2"
+    assert set(receipt["audit"]["checks"]) == {
+        "exact-substring",
+        "ngram-similarity",
+        "ast-similarity",
+        "license-scan",
+        "corpus-membership",
+    }
+    assert "score" not in receipt["audit"]
 
 
 @requires_colima_each
@@ -91,6 +99,40 @@ def test_bakeoff_bounds_attempts_and_reports_last_rejection() -> None:
     assert all(a["materials"] == receipt["materials"] for a in receipt["attempts"])
     # No patch ever applied: nothing to leak into touched_paths/materials.
     assert receipt["touchedPaths"] == []
+
+
+@requires_colima_each
+def test_bakeoff_rejects_a_candidate_that_matches_the_audit_corpus() -> None:
+    """End-to-end proof that M4 wiring actually audits the real repaired
+    source (not the raw diff text): a corpus entry equal to the genuine
+    post-patch file content must cause REPAIR_REJECTED_AUDIT, not
+    REPAIR_VERIFIED, even though the patch applies cleanly and the fixture
+    test suite passes."""
+    repaired_source = 'def greet(name: str) -> str:\n    return "Hello, " + name\n'
+    model = _StubRepairModel([_CORRECT_PATCH])
+    result = bakeoff_module.run_model_bakeoff(model, max_attempts=1, audit_corpus=[repaired_source])
+    assert result["outcome"] == "REPAIR_REJECTED_AUDIT"
+    receipt = json.loads(Path(result["receipt_json"]).read_text())
+    assert receipt["attempts"][0]["outcome"] == "REPAIR_REJECTED_AUDIT"
+    assert receipt["audit"]["checks"]["exact-substring"]["status"] == "FAIL"
+    # Terminal boundary: the rejection is visible, but no matched source
+    # text leaked into the receipt's audit evidence.
+    for check in receipt["audit"]["checks"].values():
+        for value in check["evidence"].values():
+            if isinstance(value, str):
+                assert repaired_source not in value
+
+
+@requires_colima_each
+def test_bakeoff_accepts_a_candidate_with_no_audit_corpus_configured() -> None:
+    # Unconfigured corpus must never silently become a rejection: the
+    # checks honestly report UNAVAILABLE, and an unavailable check must
+    # never be treated as a FAIL by reject_on_audit_flag.
+    model = _StubRepairModel([_CORRECT_PATCH])
+    result = bakeoff_module.run_model_bakeoff(model, max_attempts=1)
+    assert result["outcome"] == "REPAIR_VERIFIED"
+    receipt = json.loads(Path(result["receipt_json"]).read_text())
+    assert receipt["audit"]["checks"]["exact-substring"]["status"] == "UNAVAILABLE"
 
 
 @requires_colima_each
