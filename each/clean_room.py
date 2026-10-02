@@ -232,14 +232,35 @@ def run_clean_room_build(
             final_outcome = outcome
             selected_attempt_record = attempts[-1]
             break
-        if expected_tests == 0:
-            combined = baseline.stdout + baseline.stderr
-            failed_match = re.search(r"(\d+) failed", combined)
-            if not failed_match:
-                raise BenchmarkExecutionError(f"could not determine baseline failing test count: {combined!r}")
-            expected_tests = int(failed_match.group(1))
-        baseline_verdict = _interpret_pytest_run(baseline, expected_tests=expected_tests)
         baseline_dict = _result_to_dict(baseline)
+        try:
+            if expected_tests == 0:
+                combined = baseline.stdout + baseline.stderr
+                failed_match = re.search(r"(\d+) failed", combined)
+                if not failed_match:
+                    raise BenchmarkExecutionError(f"could not determine baseline failing test count: {combined!r}")
+                expected_tests = int(failed_match.group(1))
+            baseline_verdict = _interpret_pytest_run(baseline, expected_tests=expected_tests)
+        except BenchmarkExecutionError as exc:
+            outcome = f"EXECUTION_ERROR: {exc}"
+            attempts.append(
+                {
+                    "attempt": attempt_num,
+                    "prompt": prompt,
+                    "raw_completion": "",
+                    "materials": manifest,
+                    "baseline_result": baseline_dict,
+                    "patch_text": "",
+                    "touched_paths": [],
+                    "repaired_result": {},
+                    "model_identity": model.identity(),
+                    "materials_integrity": "UNAVAILABLE",
+                    "outcome": outcome,
+                }
+            )
+            final_outcome = outcome
+            selected_attempt_record = attempts[-1]
+            break
         try:
             raw_completion = model.complete(prompt)
         except ContextBudgetExceeded as exc:
@@ -441,7 +462,7 @@ def run_clean_room_build(
     # candidate-mutated bytes under a pre-patch declared hash (F5).
     json_path, md_path = receipt.write(runs_dir() / run_id, materials_source=FIXTURE_ROOT)
     return {
-        "outcome": final_outcome,
+        "outcome": sanitize_outcome_class(final_outcome),
         "receipt_json": str(json_path),
         "receipt_md": str(md_path),
         "attempts": len(attempts),

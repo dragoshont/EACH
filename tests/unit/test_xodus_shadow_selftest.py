@@ -381,7 +381,9 @@ def test_a_real_container_timeout_during_the_acceptance_run_preserves_the_build_
     assert attempt["build_result"]["exit_code"] == 0
     assert attempt["run_result"] is None
     assert attempt["materials_integrity"] == "UNAVAILABLE"
-    assert attempt["outcome"] == result["outcome"]
+    assert result["outcome"] == "EXECUTION_ERROR"
+    assert "simulated fixture container timeout" not in json.dumps(result)
+    assert receipt["repairedResult"] == {}
     # A genuine network-isolation PROBE pass stays recorded as a plain fact,
     # but the broader authoring-assurance claim must still be conservatively
     # downgraded: an unperformed materials-integrity check is never "PASS".
@@ -400,6 +402,7 @@ def test_a_real_container_timeout_during_the_acceptance_run_preserves_the_build_
     summary_text = json.dumps(summary)
     assert "simulated fixture container timeout" not in summary_text
     assert summary["outcome"] == "EXECUTION_ERROR"
+    assert summary["repairedExitCode"] is None
 
 
 @requires_colima_each

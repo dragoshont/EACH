@@ -338,7 +338,8 @@ def test_a_real_container_timeout_during_the_repaired_run_finalizes_a_truthful_p
     assert attempt["baseline_result"]
     assert attempt["repaired_result"] == {}
     assert attempt["materials_integrity"] == "UNAVAILABLE"
-    assert attempt["outcome"] == result["outcome"]
+    assert result["outcome"] == "EXECUTION_ERROR"
+    assert "simulated fixture container timeout" not in json.dumps(result)
     assert receipt["networkIsolationVerified"] is True
     assert receipt["assuranceLevel"] == "EACH-P1"
 
@@ -353,4 +354,42 @@ def test_a_real_container_timeout_during_the_repaired_run_finalizes_a_truthful_p
         {k: v for k, v in receipt.items() if k not in ("outcome", "attempts")}
     )
 
+
+@requires_colima_each
+def test_later_baseline_launch_failure_preserves_previous_attempt(tmp_path, monkeypatch) -> None:
+    from each.executor.base import ExecutionResult
+    from each.executor.container import ContainerExecutor
+
+    original_run = ContainerExecutor.run
+    call_count = 0
+
+    def failed_second_baseline(self, command, worktree, **kwargs):
+        nonlocal call_count
+        call_count += 1
+        if call_count == 4:
+            return ExecutionResult(
+                command=tuple(command), exit_code=125, stdout="",
+                stderr="PRIVATE_BASELINE_DIAGNOSTIC",
+            )
+        return original_run(self, command, worktree, **kwargs)
+
+    monkeypatch.setattr(ContainerExecutor, "run", failed_second_baseline)
+    approved = _approve_selftest_spec("test-clean-room-later-baseline-failure")
+    model = FixtureModel(_APPLIES_BUT_FAILS_PATCH, model_id="fixture/clean-room-selftest-v1")
+    result = run_clean_room_build(
+        model, approved, max_attempts=3,
+        run_id=f"selftest-baseline-failure-{tmp_path.name}-{uuid.uuid4().hex[:8]}",
+    )
+    receipt = json.loads(Path(result["receipt_json"]).read_text())
+    assert call_count == 4
+    assert len(receipt["attempts"]) == 2
+    assert receipt["attempts"][0]["outcome"] == "REPAIR_NOT_VERIFIED"
+    assert receipt["attempts"][0]["repaired_result"]
+    assert receipt["attempts"][1]["baseline_result"]["exit_code"] == 125
+    assert receipt["selectedAttempt"] == 2
+    assert receipt["baselineResult"]["exit_code"] == 125
+    assert receipt["repairedResult"] == {}
+    assert receipt["assuranceLevel"] == "EACH-P1"
+    assert result["outcome"] == "EXECUTION_ERROR"
+    assert "PRIVATE_BASELINE_DIAGNOSTIC" not in json.dumps(result)
 

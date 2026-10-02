@@ -386,7 +386,6 @@ def run_xodus_shadow_build(
         # fields; ``repaired_result`` (the final reported view) is only
         # ever reassigned once classification actually succeeds below.
         attempt_record["build_result"] = _result_to_dict(candidate_build)
-        attempt_record["repaired_result"] = attempt_record["build_result"]
         try:
             candidate_run = executor.run(acceptance_command, worktree, protected_paths=harness_relative_paths)
         except ContainerExecutorError as exc:
@@ -540,7 +539,7 @@ def run_xodus_shadow_build(
     # BEFORE any attempt's patch was ever applied (F5).
     json_path, md_path = receipt.write(runs_dir() / run_id, materials_source=materialize_root)
     return {
-        "outcome": final_outcome,
+        "outcome": sanitize_outcome_class(final_outcome),
         "receipt_json": str(json_path),
         "receipt_md": str(md_path),
         "attempts": len(attempts),
