@@ -123,7 +123,7 @@ def _cmd_spec_approve(args: argparse.Namespace) -> int:
 def _cmd_verify(args: argparse.Namespace) -> int:
     import json
 
-    from each.attestation import verify_receipt
+    from each.attestation import verify_materials_root, verify_receipt
     from each.signing import public_key_path
 
     receipt_path = Path(args.receipt_json)
@@ -141,10 +141,28 @@ def _cmd_verify(args: argparse.Namespace) -> int:
         return 2
 
     result = verify_receipt(receipt, public_key_pem)
-    print(f"verification: {result['status']}")
+    print(f"signature verification: {result['status']}")
     print(f"reason: {result['reason']}")
+
+    materials_result = None
+    if args.full:
+        artifact_root = Path(args.artifact_root) if args.artifact_root else receipt_path.parent / "materials"
+        materials_result = verify_materials_root(receipt, artifact_root)
+        print(f"materials verification (--full): {materials_result['status']}")
+        print(f"materials reason: {materials_result['reason']}")
+    else:
+        print(
+            "note: this is SIGNATURE-ONLY verification -- it proves the receipt JSON's own "
+            "declarations were not altered after signing, not that the declared material files "
+            "still exist on disk with that content. Pass --full to also verify the real "
+            "retained artifact bytes."
+        )
     print("note: integrity/provenance verification is NOT legal clean-room certification.")
-    return 0 if result["status"] == "PASS" else 1
+
+    overall_pass = result["status"] == "PASS" and (
+        materials_result is None or materials_result["status"] in {"PASS", "UNAVAILABLE"}
+    )
+    return 0 if overall_pass else 1
 
 
 def _cmd_benchmark_run(args: argparse.Namespace) -> int:
@@ -242,6 +260,19 @@ def build_parser() -> argparse.ArgumentParser:
         "--public-key",
         default=None,
         help="path to the EACH signing public key PEM (default: ~/.each/keys/each-signing-ed25519-public.pem)",
+    )
+    verify.add_argument(
+        "--full",
+        action="store_true",
+        help=(
+            "additionally verify the real retained materials/ files exist and match their "
+            "declared hash, not just the receipt's own signature (F5)"
+        ),
+    )
+    verify.add_argument(
+        "--artifact-root",
+        default=None,
+        help="directory holding this receipt's materials/ subdirectory (default: receipt_json's own parent / materials)",
     )
     verify.set_defaults(func=_cmd_verify)
 

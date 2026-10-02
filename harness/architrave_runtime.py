@@ -998,6 +998,14 @@ class RunStore:
                 "path": relative,
                 "createdAt": utc_now(),
                 "sha256": content_sha256,
+                # (F7) The exact baseline commit this artifact was recorded against. An
+                # artifact is never rewritten once recorded, so this is a frozen, honest
+                # fact about when it was actually produced -- it is what lets
+                # ``record_gate`` refuse to launder an artifact recorded under an older
+                # baseline into evidence for a gate registered after the baseline moved
+                # (``resume(accept_commit=True)``), instead of trusting only the new
+                # gate's own self-reported stamp.
+                "sourceCommit": state["baseline"].get("commit"),
                 "evidenceRefs": list(dict.fromkeys(evidence_refs)),
                 "consumedByTask": None,
             }
@@ -1273,6 +1281,7 @@ class RunStore:
         *,
         reason: str,
         actor: str,
+        checkpoint_id: str,
     ) -> dict[str, Any]:
         """Grant one additional bounded attempt to a task that exhausted its retry policy.
 
@@ -1285,6 +1294,15 @@ class RunStore:
         one (never resets `attempts` or any other state), it refuses a task that is still
         RUNNING or already terminal (COMPLETED/CANCELLED), and every grant is recorded as
         its own typed, reasoned event -- never a silent retry-policy rewrite.
+
+        ``checkpoint_id`` (F7 fix) must name an actual, already-RESOLVED external
+        checkpoint bound to exactly this task (``resumeTask == task_id``), with its own
+        recorded resolution proof -- not just a free-text ``reason`` string. A caller
+        can no longer reopen an arbitrary exhausted/failed task on its own say-so; the
+        grant must point at the specific real recovery event (the genuine approval/
+        resolution) that justifies retrying this exact task, reusing the existing
+        external-checkpoint resolution record rather than inventing a second proof
+        mechanism.
         """
         if actor != "coordinator" and not actor.startswith("human:"):
             raise RuntimeFailure("UNTRUSTED_RESOLUTION", "attempt grant requires a human or coordinator actor")
@@ -1299,6 +1317,7 @@ class RunStore:
         # this same string check.
         if not reason.strip():
             raise RuntimeFailure("INVALID_REASON", "attempt grant requires a non-empty reason")
+        require_id(checkpoint_id, "recovery checkpoint id")
 
         def mutate(state: dict[str, Any]) -> dict[str, Any]:
             task = find_task(state, task_id)
@@ -1306,13 +1325,34 @@ class RunStore:
                 raise RuntimeFailure("TASK_NOT_GRANTABLE", f"task {task_id} is {task['status']}")
             if task["attempts"] < task["retryPolicy"]["maxAttempts"]:
                 raise RuntimeFailure("ATTEMPT_NOT_EXHAUSTED", f"task {task_id} has not exhausted its current attempt budget")
+            checkpoint = next(
+                (item for item in state["externalCheckpoints"] if item["id"] == checkpoint_id),
+                None,
+            )
+            if checkpoint is None:
+                raise RuntimeFailure("EXTERNAL_CHECKPOINT_NOT_FOUND", f"checkpoint not found: {checkpoint_id}")
+            if checkpoint.get("resumeTask") != task_id:
+                raise RuntimeFailure(
+                    "RECOVERY_CHECKPOINT_MISMATCH",
+                    f"checkpoint {checkpoint_id} is not bound to task {task_id}",
+                )
+            if checkpoint["status"] != "RESOLVED" or not checkpoint.get("resolutionRef"):
+                raise RuntimeFailure(
+                    "RECOVERY_CHECKPOINT_UNRESOLVED",
+                    f"checkpoint {checkpoint_id} has no recorded resolution proof; unresolved side effects stay denied",
+                )
             task["retryPolicy"]["maxAttempts"] += 1
             if task["status"] == "FAILED":
                 task["status"] = "READY" if dependencies_completed(state, task) else "NOT_READY"
             task["retryNotBefore"] = None
             refresh_task_readiness(state)
             state["status"] = derive_run_status(state)
-            return {"taskId": task_id, "maxAttempts": task["retryPolicy"]["maxAttempts"], "reason": reason}
+            return {
+                "taskId": task_id,
+                "maxAttempts": task["retryPolicy"]["maxAttempts"],
+                "reason": reason,
+                "checkpointId": checkpoint_id,
+            }
 
         return self._transaction(
             run_id,
@@ -1589,6 +1629,28 @@ class RunStore:
                         "PASS gate evidence has an untrusted producer",
                         details={"gateType": gate_type, "producers": sorted(producers)},
                     )
+                if gate_type == "deterministic":
+                    # (F7) A PASS deterministic gate's own "sourceCommit" stamp (below)
+                    # records only what commit was current WHEN THIS GATE was registered --
+                    # it proves nothing about whether the referenced artifact was actually
+                    # produced against that same source. Without this check, an artifact
+                    # recorded under an earlier baseline could be replayed as evidence for a
+                    # brand-new gate registered after `resume(accept_commit=True)` moved the
+                    # baseline, letting stale evidence look like fresh proof. Require every
+                    # referenced artifact to independently declare the CURRENT baseline
+                    # commit as its own recorded source, not merely be referenced here.
+                    current_commit = state["baseline"].get("commit")
+                    stale = sorted(
+                        artifact["id"]
+                        for artifact in state["artifacts"]
+                        if artifact["id"] in artifact_ids and artifact.get("sourceCommit") != current_commit
+                    )
+                    if stale:
+                        raise RuntimeFailure(
+                            "EVIDENCE_STALE_COMMIT",
+                            "deterministic PASS gate evidence was not produced against the current baseline commit",
+                            details={"artifacts": stale, "baseline": current_commit},
+                        )
                 if gate_type == "semantic":
                     for artifact in state["artifacts"]:
                         if artifact["id"] not in artifact_ids:
@@ -2889,6 +2951,12 @@ def build_parser() -> argparse.ArgumentParser:
     grant_attempt.add_argument("task_id")
     grant_attempt.add_argument("--reason", required=True)
     grant_attempt.add_argument("--actor", required=True, help="human:<name> or coordinator")
+    grant_attempt.add_argument(
+        "--checkpoint-id",
+        required=True,
+        help="id of an already-RESOLVED external checkpoint bound to this task (resumeTask == task_id) "
+        "with a recorded resolution proof; the grant is denied without a real matching recovery event",
+    )
 
     gate = subparsers.add_parser("gate-record")
     gate.add_argument("run_id")
@@ -3045,7 +3113,13 @@ def cli(argv: Sequence[str] | None = None) -> int:
             output = state_summary(store.fail_task(args.run_id, args.task_id, args.reason))
         elif command == "task-grant-attempt":
             output = state_summary(
-                store.grant_task_attempt(args.run_id, args.task_id, reason=args.reason, actor=args.actor)
+                store.grant_task_attempt(
+                    args.run_id,
+                    args.task_id,
+                    reason=args.reason,
+                    actor=args.actor,
+                    checkpoint_id=args.checkpoint_id,
+                )
             )
         elif command == "gate-record":
             output = state_summary(

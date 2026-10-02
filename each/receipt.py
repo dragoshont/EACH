@@ -11,7 +11,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
-from each.hashing import sha256_text
+from each.hashing import sha256_file, sha256_text
 from each.paths import repo_root
 
 
@@ -57,6 +57,14 @@ class Receipt:
     created_at: str = field(default_factory=lambda: time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()))
     legal_certification: bool = False
     cleanroom_certification: bool = False
+    # The raw network-isolation probe result, captured once before any
+    # attempt and never itself downgraded: kept deliberately separate from
+    # ``assurance_level`` (a broader authoring-assurance judgement that MAY
+    # be conservatively downgraded, e.g. on detected materials drift) so a
+    # downgrade can never silently erase or conflate the plain isolation
+    # fact with the bigger claim (F4). ``None`` for receipts written before
+    # this field existed.
+    network_isolation_verified: bool | None = None
     attempts: list[dict[str, Any]] = field(default_factory=list)
     # Which attempt's own prompt/raw_completion/model_identity the
     # top-level fields above actually came from (F6 fix): a later retry
@@ -95,6 +103,7 @@ class Receipt:
             "repairedResult": self.repaired_result,
             "audit": self.audit,
             "assuranceLevel": self.assurance_level,
+            "networkIsolationVerified": self.network_isolation_verified,
             "outcome": self.outcome,
             "legalCertification": self.legal_certification,
             "cleanroomCertification": self.cleanroom_certification,
@@ -119,7 +128,14 @@ class Receipt:
         the receipt, so a later verifier can check the real referenced
         files still exist and still match their declared hash -- not just
         that the receipt's own JSON is internally self-consistent (see
-        :func:`each.attestation.verify_artifact_root`).
+        :func:`each.attestation.verify_materials_root`). Each source file's
+        actual sha256 is checked against its declared ``materials`` hash
+        BEFORE it is copied, and before this receipt is signed: a caller
+        that passes a post-patch worktree as ``materials_source`` for a
+        path whose declared hash was recorded pre-patch (a real defect
+        this check exists to catch) gets a loud ``ValueError``, never a
+        silently-signed receipt whose declared input does not match the
+        bytes actually retained.
         """
         repo_root_resolved = repo_root().resolve()
         directory_resolved = directory.resolve()
@@ -134,6 +150,7 @@ class Receipt:
 
         if materials_source is not None:
             materials_root = directory / "materials"
+            materials_root_resolved = materials_root.resolve()
             source_resolved = materials_source.resolve()
             for rel_path in sorted(self.materials):
                 if rel_path.startswith("/") or ".." in Path(rel_path).parts:
@@ -141,10 +158,27 @@ class Receipt:
                 src = (materials_source / rel_path).resolve()
                 if src != source_resolved and source_resolved not in src.parents:
                     raise ValueError(f"materials source path escapes its root: {rel_path}")
+                if src.is_symlink():
+                    raise ValueError(f"refusing to copy materials source through a symlink: {rel_path}")
                 if not src.is_file():
                     raise ValueError(f"declared materials path is not a regular file: {rel_path}")
+                actual_hash = sha256_file(src)
+                expected_hash = self.materials[rel_path]
+                if actual_hash != expected_hash:
+                    raise ValueError(
+                        f"materials source file {rel_path!r} does not match its declared hash "
+                        f"(expected {expected_hash}, got {actual_hash}); refusing to sign a receipt "
+                        "whose declared input does not match the real retained bytes"
+                    )
                 dst = materials_root / rel_path
                 dst.parent.mkdir(parents=True, exist_ok=True)
+                dst_resolved = dst.resolve()
+                if dst_resolved != materials_root_resolved and materials_root_resolved not in dst_resolved.parents:
+                    raise ValueError(f"materials destination path escapes materials root: {rel_path}")
+                if dst.exists() or dst.is_symlink():
+                    raise ValueError(
+                        f"refusing to write through an existing materials destination or symlink: {rel_path}"
+                    )
                 shutil.copyfile(src, dst)
 
         receipt_dict = self.to_dict()
@@ -161,6 +195,7 @@ class Receipt:
             f"- Created: {self.created_at}",
             f"- Outcome: **{self.outcome}**",
             f"- Assurance level: {self.assurance_level}",
+            f"- Network isolation verified: {self.network_isolation_verified}",
             "- Legal certification: false",
             "- Cleanroom certification: false",
             (

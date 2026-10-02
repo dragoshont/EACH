@@ -1,21 +1,32 @@
 # M8 sensitive-spec review packet: each-m8-xsystem-sandboxid-opt
 
-**Status: WAITING for a genuine new human decision. Not approved.**
+**Status: APPROVED.** The user genuinely approved this exact, unchanged
+draft ("I approve the exact private M8 spec.", 2026-10-02T19:59:44+03:00).
+The coordinator independently re-verified the draft content hash was
+unchanged before sealing the approval record
+(`~/.each/specs/each-m8-xsystem-sandboxid-opt/approved.json`, approved hash
+`2c5eca88fdccb0c1a0c94541e0b612d990b7d1dfd5ccfb0389ea61fb9e669c78`). The
+real external proof is registered as `m8-user-spec-approval-20261002`; the
+`m8-genuine-human-spec-approval` checkpoint was resolved through the
+existing resolve API (no fabricated or reused approval). This packet is
+retained as the historical record of what was reviewed and approved, not a
+live pending decision.
 
-This packet exists so a human (`dragoshont`) can decide whether to approve
-or reject the exact immutable spec draft below. This is a **new, separate**
+This packet exists so a human (`dragoshont`) could decide whether to approve
+or reject the exact immutable spec draft below. This was a **new, separate**
 decision from the M3 (`pallets-itsdangerous-410-review`) and M7
 (`each-m7-clean-room-lru-cache`) approvals already on record; neither of
-those approvals extends to this spec, and no prior approval has been reused
+those approvals was extended to this spec, and no prior approval was reused
 or impersonated here.
 
 - **Task id:** `each-m8-xsystem-sandboxid-opt`
 - **Draft content hash:** `f6f5b61f6eb082eb608fedd9d00854e9aec72e401f5c17c826eb3c7cff25b33f`
+- **Approved hash:** `2c5eca88fdccb0c1a0c94541e0b612d990b7d1dfd5ccfb0389ea61fb9e669c78`
 - **Draft location (private):** `~/.each/specs/each-m8-xsystem-sandboxid-opt/draft.json`
 - **Risk:** R4 (sensitive — governed by `policies/xodus-shadow.yml`)
-- **External checkpoint:** `m8-genuine-human-spec-approval` (pending, Run `each-m0-m8`)
+- **External checkpoint:** `m8-genuine-human-spec-approval` (RESOLVED, Run `each-m0-m8`)
 
-## What this spec would authorize, if approved
+## What this spec authorizes
 
 A single, bounded EACH repair run against a public open-source target:
 
@@ -61,31 +72,34 @@ A single, bounded EACH repair run against a public open-source target:
   (pinned, re-fetched fresh — see the policy pin doc) independently
   confirms LLM-assisted code is rejected outright for repositories like
   `xgameruntime` that interact with Microsoft/XBOX services.
-- **No cloud review of the generated candidate.** If approved, the
-  candidate patch, its prompt, and its raw model completion will never be
-  printed into this conversation or reviewed by any cloud-hosted model —
-  only source-free evidence (hashes, pass/fail outcomes, policy-compliance
-  booleans) will ever surface here, exactly as enforced for M7.
+- **No cloud review of the generated candidate.** The candidate patch, its
+  prompt, and its raw model completion are never printed into this
+  conversation or reviewed by any cloud-hosted model — only source-free
+  evidence (hashes, pass/fail outcomes, policy-compliance booleans) ever
+  surfaces here, exactly as enforced for M7.
 - **No claim of full native compile/runtime proof.** The build/acceptance
   harness compiles and runs *one isolated function* against an
   independently-authored stub header — it does **not** perform a full
   Wine/winelib build, does not link against the real DLL, and does not
-  exercise a real Xbox/GDK service. Any receipt will record this plainly
-  as an explicit assurance limitation (mandate section 63: native Xodus
+  exercise a real Xbox/GDK service. The receipt records this plainly as an
+  explicit assurance limitation (mandate section 63: native Xodus
   validation is not yet proven and must not be misreported as P2).
 
-## What approval would mean
+## What approval means
 
-Approving this spec authorizes exactly this one bounded repair attempt
-against exactly this pinned source, through EACH's existing sealed,
-no-network Builder/validate/audit/attestation pipeline (the same machinery
-already proven for M1–M7) — nothing broader, and nothing that bypasses
-`policies/xodus-shadow.yml`.
+This approval authorized exactly this one bounded repair attempt against
+exactly this pinned source, through EACH's existing sealed, no-network
+Builder/validate/audit/attestation pipeline (the same machinery already
+proven for M1–M7) — nothing broader, and nothing that bypasses
+`policies/xodus-shadow.yml`. The real executed outcome is recorded in
+`docs/development-status.md`'s M8 row and in the private receipt at
+`~/.each/runs/m8-xsystem-sandboxid-opt-20261002/receipt.json`
+(`REPAIR_NOT_VERIFIED`; no verified repair).
 
-## How to approve or reject
+## How this was approved
 
-- **Approve:** `uv run python3 -m each.cli spec approve each-m8-xsystem-sandboxid-opt --human dragoshont`
-  then resolve the recorded external checkpoint through the existing Run
-  API with genuine message evidence (never fabricated).
-- **Reject:** no action needed; the draft remains unapproved and the Run
-  stays at `WAITING_EXTERNAL` for `M8` until a real decision is made.
+The approval was recorded via:
+`uv run python3 -m each.cli spec approve each-m8-xsystem-sandboxid-opt --human dragoshont`
+then resolved through the existing Run API with genuine message evidence
+(the real external proof `m8-user-spec-approval-20261002`, never
+fabricated).

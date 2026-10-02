@@ -12,9 +12,10 @@ here as a conscious, honest limitation rather than silently skipped.
 
 from __future__ import annotations
 
+from pathlib import Path
 from typing import Any
 
-from each.hashing import sha256_json, sha256_text
+from each.hashing import sha256_file, sha256_json, sha256_text
 from each.signing import generate_or_load_signing_key, public_key_fingerprint, sign_manifest, verify_manifest
 
 ALGORITHM = "ed25519"
@@ -98,3 +99,64 @@ def verify_receipt(receipt: dict[str, Any], public_key_pem: bytes) -> dict[str, 
         return {"status": "FAIL", "reason": "signature does not verify against the supplied public key"}
 
     return {"status": "PASS", "reason": "signature and every attested stage hash verify against the supplied public key"}
+
+
+def verify_materials_root(receipt: dict[str, Any], materials_root: Path) -> dict[str, Any]:
+    """Verify the REAL retained material files under ``materials_root``
+    actually exist and match their declared ``receipt["materials"]`` hash.
+
+    This is a strictly stronger, separate check from :func:`verify_receipt`:
+    a passing signature only proves the receipt JSON's own *declarations*
+    were not altered after signing -- it says nothing about whether the
+    external files those declarations describe still exist, were ever
+    retained, or genuinely have that content. A receipt can have a
+    perfectly valid signature while declaring a false material (e.g. an
+    input whose recorded hash does not match what was actually used, or a
+    file that was later deleted/mutated); this function is what actually
+    checks that, not declaration-only trust.
+
+    Returns ``status: "UNAVAILABLE"`` (not ``"FAIL"``) when
+    ``materials_root`` itself does not exist at all -- this is the honest
+    state for every receipt written before this check existed, or any
+    receipt written without a ``materials_source`` (declaration-only
+    evidence for this specific check, not proof of tampering).
+    """
+    materials = receipt.get("materials", {})
+    if not materials:
+        return {"status": "PASS", "reason": "receipt declares no materials to verify"}
+    if not materials_root.is_dir():
+        return {
+            "status": "UNAVAILABLE",
+            "reason": (
+                f"no retained materials directory at {materials_root}; this receipt is "
+                "declaration-only evidence for full artifact verification"
+            ),
+        }
+    materials_root_resolved = materials_root.resolve()
+    problems: list[str] = []
+    for rel_path, expected_hash in sorted(materials.items()):
+        if rel_path.startswith("/") or ".." in Path(rel_path).parts:
+            problems.append(f"{rel_path}: forbidden/traversal path")
+            continue
+        candidate = (materials_root / rel_path).resolve()
+        if candidate != materials_root_resolved and materials_root_resolved not in candidate.parents:
+            problems.append(f"{rel_path}: escapes materials root")
+            continue
+        if candidate.is_symlink():
+            problems.append(f"{rel_path}: is a symlink")
+            continue
+        if not candidate.is_file():
+            problems.append(f"{rel_path}: missing")
+            continue
+        actual_hash = sha256_file(candidate)
+        if actual_hash != expected_hash:
+            problems.append(f"{rel_path}: hash mismatch")
+    if problems:
+        return {
+            "status": "FAIL",
+            "reason": f"{len(problems)} declared material path(s) failed verification: {problems}",
+        }
+    return {
+        "status": "PASS",
+        "reason": f"all {len(materials)} declared material path(s) exist and match their declared hash",
+    }

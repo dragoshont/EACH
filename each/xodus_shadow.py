@@ -37,7 +37,7 @@ from each.executor.container import ContainerExecutor, derive_assurance_level
 from each.models.base import RepairModel
 from each.outcome import sanitize_outcome_class
 from each.patch import PatchRejected, apply_patch, extract_patch_text, parse_patch
-from each.paths import each_home, runs_dir, validate_task_id
+from each.paths import each_home, runs_dir, validate_private_root, validate_task_id
 from each.receipt import Receipt
 from each.spec import ApprovedSpec
 from each.worktree import build_worktree, verify_unchanged
@@ -164,6 +164,7 @@ def run_xodus_shadow_build(
     """
     approved.verify()
     verify_xodus_shadow_binding(approved)
+    validate_private_root()
     packet = approved.packet
     if len(packet.allowed_paths) != 1 or len(packet.build_commands) != 1 or len(packet.acceptance_commands) != 1:
         raise ValueError(
@@ -192,6 +193,10 @@ def run_xodus_shadow_build(
     probe_worktree, _probe_manifest = build_worktree(materialize_root, include_paths)
     isolation_result = executor.verify_isolation(probe_worktree)
     assurance_level = derive_assurance_level(executor, isolation_result)
+    # Captured once, from the real pre-run probe only, and never itself
+    # downgraded later -- see the identical fix/rationale in
+    # each.clean_room.run_clean_room_build (F4).
+    network_isolation_verified = assurance_level == "EACH-P2"
     isolation_evidence = _result_to_dict(isolation_result)
 
     source_lines = fetched_source.splitlines()
@@ -218,6 +223,7 @@ def run_xodus_shadow_build(
             "reason": "no validated candidate exists; terminal audit has not run",
         },
         "assurance_level": assurance_level,
+        "network_isolation_verified": network_isolation_verified,
         "legal_certification": False,
         "cleanroom_certification": False,
     }
@@ -261,9 +267,6 @@ def run_xodus_shadow_build(
     # mislabeled as a verified-but-failing repair that never happened.
     # Matches each.benchmark's and the fixed each.clean_room's identical rule.
     final_outcome: str | None = None
-    final_patch_text = ""
-    final_touched: list[str] = []
-    final_repaired: dict[str, Any] = {}
     final_audit = common_fields["audit"]
     # The attempt whose patch/build/run fields are actually reported as the
     # receipt's top-level trajectory. Resolved to the real classified
@@ -272,15 +275,14 @@ def run_xodus_shadow_build(
     # produces a classified-but-failing candidate, attempt 2 then retries
     # and is itself rejected before ever reaching a classified build/run:
     # the final patch/result must still be attempt 1's, not mixed with
-    # attempt 2's prompt/completion).
+    # attempt 2's prompt/completion). Every final_* field below is read
+    # back OUT of this one selected attempt's own recorded dict (F6 fix),
+    # never from a separate loop-scoped variable an unrelated later
+    # iteration could leave stale.
     selected_attempt_record: dict[str, Any] | None = None
-    selected_worktree: Path | None = None
-    last_worktree: Path | None = None
 
     for attempt_num in range(1, max_attempts + 1):
         worktree, manifest = build_worktree(materialize_root, include_paths)
-        final_materials = manifest
-        last_worktree = worktree
         raw_completion = model.complete(prompt)
         rendered_prompt = getattr(model, "last_prompt", None)
         attempt_record: dict[str, Any] = {
@@ -289,6 +291,9 @@ def run_xodus_shadow_build(
             "raw_completion": raw_completion,
             "materials": manifest,
             "baseline_result": final_baseline,
+            "patch_text": "",
+            "touched_paths": [],
+            "repaired_result": {},
             "model_identity": model.identity(),
         }
 
@@ -328,10 +333,10 @@ def run_xodus_shadow_build(
             "PASS" if not materials_drift else f"FAIL: {len(materials_drift)} path(s) drifted"
         )
 
-        final_patch_text = patch_text
-        final_touched = touched
-        final_repaired = _result_to_dict(candidate_run) if test_verdict != "build_failed" else _result_to_dict(
-            candidate_build
+        attempt_record["patch_text"] = patch_text
+        attempt_record["touched_paths"] = touched
+        attempt_record["repaired_result"] = (
+            _result_to_dict(candidate_run) if test_verdict != "build_failed" else _result_to_dict(candidate_build)
         )
         if materials_drift:
             outcome = "REPAIR_NOT_VERIFIED"
@@ -343,7 +348,7 @@ def run_xodus_shadow_build(
             # approved spec's forbidden_sources are enforced by never
             # fetching such material in the first place), so corpus-backed
             # checks honestly report UNAVAILABLE -- never a fabricated PASS.
-            final_audit = run_audit(final_patch_text)
+            final_audit = run_audit(patch_text)
             if reject_on_audit_flag(final_audit):
                 outcome = "REPAIR_REJECTED_AUDIT"
 
@@ -362,7 +367,6 @@ def run_xodus_shadow_build(
         attempts.append(attempt_record)
         final_outcome = attempt_record["outcome"]
         selected_attempt_record = attempt_record
-        selected_worktree = worktree
 
         if outcome in {"REPAIR_VERIFIED", "REPAIR_REJECTED_AUDIT"}:
             break
@@ -393,8 +397,12 @@ def run_xodus_shadow_build(
     # rejected before classification while an earlier attempt's real,
     # if failing, result remains the reported one).
     reported_attempt = selected_attempt_record or (attempts[-1] if attempts else None)
-    reported_worktree = selected_worktree if selected_attempt_record is not None else last_worktree
     if reported_attempt is not None:
+        final_patch_text = reported_attempt["patch_text"]
+        final_touched = reported_attempt["touched_paths"]
+        final_materials = reported_attempt["materials"]
+        final_baseline = reported_attempt["baseline_result"]
+        final_repaired = reported_attempt["repaired_result"]
         common_fields["prompt"] = reported_attempt["prompt"]
         common_fields["raw_completion"] = reported_attempt["raw_completion"]
         # Refresh the receipt's top-level model identity from the actual
@@ -402,6 +410,16 @@ def run_xodus_shadow_build(
         # captured in common_fields above was taken before the first
         # model.complete() call, so its lastInputTokenCount is always null.
         common_fields["model_identity"] = reported_attempt["model_identity"]
+        # See the identical rationale in each.clean_room.run_clean_room_build:
+        # a selected attempt whose own validation scaffold drifted during
+        # execution must never still be reported under the strongest
+        # assurance label, even though the raw network probe genuinely
+        # passed (F4).
+        if reported_attempt.get("materials_integrity", "PASS") != "PASS" and common_fields["assurance_level"] == "EACH-P2":
+            common_fields["assurance_level"] = "EACH-P1"
+    else:
+        final_patch_text = ""
+        final_touched = []
     common_fields["audit"] = final_audit
     common_fields["selected_attempt"] = reported_attempt["attempt"] if reported_attempt is not None else None
     receipt = Receipt(
@@ -414,7 +432,12 @@ def run_xodus_shadow_build(
         attempts=attempts,
         **common_fields,
     )
-    json_path, md_path = receipt.write(runs_dir() / run_id, materials_source=reported_worktree)
+    # materialize_root is the pristine host-side source tree: never
+    # mutated by apply_patch() (patches are applied only to a disposable
+    # per-attempt worktree copy), so it is always the correct -- and
+    # attempt-invariant -- source for the materials this receipt declared
+    # BEFORE any attempt's patch was ever applied (F5).
+    json_path, md_path = receipt.write(runs_dir() / run_id, materials_source=materialize_root)
     return {
         "outcome": final_outcome,
         "receipt_json": str(json_path),

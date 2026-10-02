@@ -63,6 +63,7 @@ def test_fixture_model_candidate_is_verified_and_signed(tmp_path) -> None:
     assert result["attempts"] == 1
     receipt = json.loads(Path(result["receipt_json"]).read_text())
     assert receipt["assuranceLevel"] == "EACH-P2"
+    assert receipt["networkIsolationVerified"] is True
     assert receipt["attempts"][0]["outcome"] == "REPAIR_VERIFIED"
     assert set(receipt["audit"]["checks"]) == {
         "exact-substring",
@@ -71,6 +72,13 @@ def test_fixture_model_candidate_is_verified_and_signed(tmp_path) -> None:
         "license-scan",
         "corpus-membership",
     }
+    # F5: the real materials/ files are actually retained and verifiable,
+    # not just declared in the receipt's own JSON.
+    from each.attestation import verify_materials_root
+
+    materials_root = Path(result["receipt_json"]).parent / "materials"
+    full_result = verify_materials_root(receipt, materials_root)
+    assert full_result["status"] == "PASS"
 
 
 @requires_colima_each
@@ -152,6 +160,29 @@ def test_exhausting_all_attempts_on_a_rejected_patch_reports_that_real_outcome_n
 
 
 @requires_colima_each
+def test_assurance_level_is_downgraded_to_p1_when_the_selected_attempts_materials_drift(tmp_path, monkeypatch) -> None:
+    """F4: the raw network-isolation probe genuinely passes (recorded,
+    unconditionally, as ``networkIsolationVerified``), but the broader
+    authoring-assurance claim (``assuranceLevel``) must be conservatively
+    downgraded when the actually-selected/reported attempt shows its own
+    validation scaffold drifted during execution -- it must never still be
+    reported under the strongest "EACH-P2" label just because the plain
+    network fact alone passed."""
+    monkeypatch.setattr(clean_room_module, "verify_unchanged", lambda *_a, **_k: ["shadow/m7/test_clean_room_lru_cache.py"])
+    approved = _approve_selftest_spec("test-clean-room-assurance-downgrade")
+    model = FixtureModel(_CORRECT_PATCH, model_id="fixture/clean-room-selftest-v1")
+
+    result = run_clean_room_build(
+        model, approved, max_attempts=1, run_id=f"selftest-drift-{tmp_path.name}-{uuid.uuid4().hex[:8]}"
+    )
+
+    receipt = json.loads(Path(result["receipt_json"]).read_text())
+    assert receipt["networkIsolationVerified"] is True
+    assert receipt["assuranceLevel"] == "EACH-P1"
+    assert receipt["outcome"] == "REPAIR_NOT_VERIFIED"
+
+
+@requires_colima_each
 def test_a_later_rejected_retry_never_overwrites_an_earlier_classified_attempts_trajectory(tmp_path) -> None:
     """F6 regression: attempt 1 applies cleanly and is classified
     (REPAIR_NOT_VERIFIED); attempt 2's completion has no patch markers at
@@ -189,4 +220,16 @@ def test_a_later_rejected_retry_never_overwrites_an_earlier_classified_attempts_
     assert receipt["selectedAttempt"] == 1
     assert receipt["rawCompletion"] == _APPLIES_BUT_FAILS_PATCH
     assert "no patch markers at all" not in receipt["rawCompletion"]
+    # F6: the final top-level materials/baseline/repaired fields must come
+    # from attempt 1 (the selected/classified attempt), never silently
+    # mixed with attempt 2's (the later PATCH_REJECTED retry, which never
+    # even reached a build/run). Attempt 1's own recorded dict is the
+    # source of truth for both.
+    assert receipt["materials"] == receipt["attempts"][0]["materials"]
+    assert receipt["baselineResult"] == receipt["attempts"][0]["baseline_result"]
+    assert receipt["repairedResult"] == receipt["attempts"][0]["repaired_result"]
+    # Every attempt's own build/repaired result is retained, not only the
+    # selected one's.
+    assert receipt["attempts"][0]["repaired_result"]
+    assert receipt["attempts"][1]["patch_text"] == ""  # PATCH_REJECTED: never applied
 

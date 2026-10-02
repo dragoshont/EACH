@@ -38,7 +38,7 @@ from each.executor.container import ContainerExecutor, derive_assurance_level
 from each.models.base import RepairModel
 from each.outcome import sanitize_outcome_class
 from each.patch import PatchRejected, apply_patch, extract_patch_text, parse_patch
-from each.paths import runs_dir, validate_task_id
+from each.paths import runs_dir, validate_private_root, validate_task_id
 from each.receipt import Receipt
 from each.spec import ApprovedSpec
 from each.worktree import build_worktree, verify_unchanged
@@ -106,6 +106,7 @@ def run_clean_room_build(
     and never read by this function's own prompt-construction code path.
     """
     approved.verify()
+    validate_private_root()
     packet = approved.packet
     if len(packet.allowed_paths) != 1 or len(packet.acceptance_commands) != 1:
         raise ValueError("run_clean_room_build currently supports exactly one allowed path and one acceptance command")
@@ -124,6 +125,14 @@ def run_clean_room_build(
     probe_worktree, _probe_manifest = build_worktree(FIXTURE_ROOT, include_paths)
     isolation_result = executor.verify_isolation(probe_worktree)
     assurance_level = derive_assurance_level(executor, isolation_result)
+    # Captured once, from the real pre-run probe only, and never itself
+    # downgraded later: this is the raw network-isolation fact. The
+    # authoring-assurance claim (``assurance_level``) is a separate,
+    # broader judgement that MAY be downgraded below if this run's own
+    # selected attempt shows materials drift -- but that downgrade must
+    # never be allowed to quietly erase or conflate the plain isolation
+    # fact itself (F4).
+    network_isolation_verified = assurance_level == "EACH-P2"
     isolation_evidence = _result_to_dict(isolation_result)
 
     stub_source = (FIXTURE_ROOT / allowed_path).read_text(encoding="utf-8")
@@ -151,6 +160,7 @@ def run_clean_room_build(
             "reason": "no validated candidate exists; terminal audit has not run",
         },
         "assurance_level": assurance_level,
+        "network_isolation_verified": network_isolation_verified,
         "legal_certification": False,
         "cleanroom_certification": False,
     }
@@ -180,23 +190,19 @@ def run_clean_room_build(
     # verified-but-failing repair that never happened. Matches each.benchmark's
     # identical fix.
     final_outcome: str | None = None
-    final_patch_text = ""
-    final_touched: list[str] = []
-    final_materials: dict[str, str] = {}
-    final_baseline: dict[str, Any] = {}
-    final_repaired: dict[str, Any] = {}
     final_audit = common_fields["audit"]
     # Resolved to the real classified attempt below -- never left to
     # default to "whatever attempt happened to run last" (see the
     # identical fix in each.xodus_shadow for the exact failure mode this
-    # guards against).
+    # guards against). Every final_* field reported below is read back OUT
+    # of this one selected attempt's own recorded dict (F6 fix), never left
+    # as a separate loop-scoped variable that an unrelated later iteration
+    # (e.g. a retry that never even reaches the point that variable was
+    # last assigned in) could leave stale or silently overwrite.
     selected_attempt_record: dict[str, Any] | None = None
-    selected_worktree: Path | None = None
-    last_worktree: Path | None = None
 
     for attempt_num in range(1, max_attempts + 1):
         worktree, manifest = build_worktree(FIXTURE_ROOT, include_paths)
-        last_worktree = worktree
         baseline = executor.run(acceptance_command, worktree)
         if expected_tests == 0:
             combined = baseline.stdout + baseline.stderr
@@ -205,8 +211,7 @@ def run_clean_room_build(
                 raise BenchmarkExecutionError(f"could not determine baseline failing test count: {combined!r}")
             expected_tests = int(failed_match.group(1))
         baseline_verdict = _interpret_pytest_run(baseline, expected_tests=expected_tests)
-        final_materials = manifest
-        final_baseline = _result_to_dict(baseline)
+        baseline_dict = _result_to_dict(baseline)
         raw_completion = model.complete(prompt)
         rendered_prompt = getattr(model, "last_prompt", None)
         attempt_record: dict[str, Any] = {
@@ -214,7 +219,10 @@ def run_clean_room_build(
             "prompt": rendered_prompt if rendered_prompt is not None else prompt,
             "raw_completion": raw_completion,
             "materials": manifest,
-            "baseline_result": final_baseline,
+            "baseline_result": baseline_dict,
+            "patch_text": "",
+            "touched_paths": [],
+            "repaired_result": {},
             "model_identity": model.identity(),
         }
 
@@ -246,11 +254,9 @@ def run_clean_room_build(
             "PASS" if not materials_drift else f"FAIL: {len(materials_drift)} path(s) drifted"
         )
 
-        final_patch_text = patch_text
-        final_touched = touched
-        final_materials = manifest
-        final_baseline = _result_to_dict(baseline)
-        final_repaired = _result_to_dict(repaired)
+        attempt_record["patch_text"] = patch_text
+        attempt_record["touched_paths"] = touched
+        attempt_record["repaired_result"] = _result_to_dict(repaired)
         outcome = test_outcome if not materials_drift else "REPAIR_NOT_VERIFIED"
         if test_outcome == "REPAIR_VERIFIED" and not materials_drift:
             # Terminal audit only after generation/validation ends; this is
@@ -267,7 +273,6 @@ def run_clean_room_build(
         attempts.append(attempt_record)
         final_outcome = outcome
         selected_attempt_record = attempt_record
-        selected_worktree = worktree
 
         if outcome in {"REPAIR_VERIFIED", "REPAIR_REJECTED_AUDIT"}:
             break
@@ -288,14 +293,35 @@ def run_clean_room_build(
         # source-free export uses.
         final_outcome = sanitize_outcome_class(attempts[-1]["outcome"]) if attempts else "REPAIR_NOT_VERIFIED"
 
-    # The trajectory fields (prompt/raw_completion/model_identity) must
-    # describe the SAME attempt the patch/result fields above came from.
+    # Every final_* field reported in this receipt is read back OUT of the
+    # one selected attempt's own recorded dict (F6 fix) -- never from a
+    # separate loop-scoped variable that an attempt which never even
+    # reached that point (e.g. a PATCH_REJECTED retry) could leave stale.
     reported_attempt = selected_attempt_record or (attempts[-1] if attempts else None)
-    reported_worktree = selected_worktree if selected_attempt_record is not None else last_worktree
+    if reported_attempt is not None:
+        final_patch_text = reported_attempt["patch_text"]
+        final_touched = reported_attempt["touched_paths"]
+        final_materials = reported_attempt["materials"]
+        final_baseline = reported_attempt["baseline_result"]
+        final_repaired = reported_attempt["repaired_result"]
+    else:
+        final_patch_text = ""
+        final_touched = []
+        final_materials = {}
+        final_baseline = {}
+        final_repaired = {}
     if reported_attempt is not None:
         common_fields["prompt"] = reported_attempt["prompt"]
         common_fields["raw_completion"] = reported_attempt["raw_completion"]
         common_fields["model_identity"] = reported_attempt["model_identity"]
+        # "EACH-P2" is a complete authoring-assurance claim, not just a
+        # network-isolation fact: a selected attempt whose own validation
+        # scaffold was found to have drifted during execution must never
+        # still be reported under the strongest assurance label, even
+        # though the raw network probe (``network_isolation_verified``
+        # above) genuinely did pass (F4).
+        if reported_attempt.get("materials_integrity", "PASS") != "PASS" and common_fields["assurance_level"] == "EACH-P2":
+            common_fields["assurance_level"] = "EACH-P1"
     common_fields["audit"] = final_audit
     common_fields["selected_attempt"] = reported_attempt["attempt"] if reported_attempt is not None else None
     receipt = Receipt(
@@ -308,7 +334,13 @@ def run_clean_room_build(
         attempts=attempts,
         **common_fields,
     )
-    json_path, md_path = receipt.write(runs_dir() / run_id, materials_source=reported_worktree)
+    # The pristine fixture root is never mutated by apply_patch() (patches
+    # are applied only to a disposable per-attempt worktree copy), so it is
+    # always the correct -- and attempt-invariant -- source for the
+    # materials this receipt declared BEFORE any attempt's patch was ever
+    # applied. Passing a post-patch worktree here (the prior bug) copied
+    # candidate-mutated bytes under a pre-patch declared hash (F5).
+    json_path, md_path = receipt.write(runs_dir() / run_id, materials_source=FIXTURE_ROOT)
     return {
         "outcome": final_outcome,
         "receipt_json": str(json_path),

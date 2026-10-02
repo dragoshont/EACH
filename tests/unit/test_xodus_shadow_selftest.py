@@ -107,6 +107,7 @@ def test_fixture_model_candidate_is_verified_and_signed(tmp_path, monkeypatch) -
     assert result["attempts"] == 1
     receipt = json.loads(Path(result["receipt_json"]).read_text())
     assert receipt["assuranceLevel"] == "EACH-P2"
+    assert receipt["networkIsolationVerified"] is True
     assert receipt["attempts"][0]["outcome"] == "REPAIR_VERIFIED"
     assert receipt["baselineResult"]["exit_code"] == 1
     assert receipt["repairedResult"]["exit_code"] == 0
@@ -117,12 +118,53 @@ def test_fixture_model_candidate_is_verified_and_signed(tmp_path, monkeypatch) -
         "license-scan",
         "corpus-membership",
     }
+    # F5: the real materials/ files are actually retained and verifiable,
+    # not just declared in the receipt's own JSON (and not a post-patch
+    # candidate-mutated copy falsely declared under the pre-patch hash).
+    from each.attestation import verify_materials_root
+
+    materials_root = Path(result["receipt_json"]).parent / "materials"
+    full_result = verify_materials_root(receipt, materials_root)
+    assert full_result["status"] == "PASS"
+    # F6: the top-level materials/baseline/repaired fields must come from
+    # the one selected/classified attempt's own recorded dict.
+    assert receipt["materials"] == receipt["attempts"][0]["materials"]
+    assert receipt["baselineResult"] == receipt["attempts"][0]["baseline_result"]
+    assert receipt["repairedResult"] == receipt["attempts"][0]["repaired_result"]
 
     summary = summarize_receipt(result["receipt_json"])
     assert summary["outcome"] == "REPAIR_VERIFIED"
     assert "prompt" not in summary
     assert "rawCompletion" not in summary
     assert "patchText" not in summary
+
+
+@requires_colima_each
+@requires_m8_native_image
+def test_xodus_shadow_assurance_level_is_downgraded_to_p1_when_the_selected_attempts_materials_drift(
+    tmp_path, monkeypatch
+) -> None:
+    """F4: the raw network-isolation probe genuinely passes, but the
+    broader authoring-assurance claim must be conservatively downgraded
+    when the selected attempt's own validation scaffold drifted during
+    execution."""
+    monkeypatch.setattr(xodus_shadow_module, "fetch_file", lambda *_a, **_k: _CACHED_SOURCE)
+    monkeypatch.setattr(
+        xodus_shadow_module,
+        "verify_unchanged",
+        lambda *_a, **_k: ["examples/xodus-m8-sandbox-id/build_check.py"],
+    )
+    approved = _approve_selftest_spec("test-xodus-shadow-assurance-downgrade")
+    model = FixtureModel(_CORRECT_PATCH, model_id="fixture/xodus-shadow-selftest-v1")
+
+    result = run_xodus_shadow_build(
+        model, approved, max_attempts=1, run_id=f"selftest-drift-{tmp_path.name}-{uuid.uuid4().hex[:8]}"
+    )
+
+    receipt = json.loads(Path(result["receipt_json"]).read_text())
+    assert receipt["networkIsolationVerified"] is True
+    assert receipt["assuranceLevel"] == "EACH-P1"
+    assert receipt["outcome"] == "REPAIR_NOT_VERIFIED"
 
 
 @requires_colima_each

@@ -78,3 +78,26 @@ def worktrees_dir() -> Path:
 def repo_root() -> Path:
     """Return the EACH repository root (this file's grandparent directory)."""
     return Path(__file__).resolve().parent.parent
+
+
+def validate_private_root() -> Path:
+    """Fail closed, BEFORE any fetch/materialize/write, if the private EACH
+    store (:func:`each_home`) would resolve inside -- or around -- this
+    repository's own working tree (e.g. an ``EACH_HOME`` override pointed
+    at a path under the checkout).
+
+    ``Receipt.write()`` independently refuses to write a receipt inside the
+    repo tree, but that check only runs at the very end of a run, after
+    real network fetches and host-side materialization of shadow/strict-run
+    source have already happened. Strict-run pipelines call this first so a
+    misconfigured private root is refused before any such side effect, not
+    only at receipt-finalization time.
+    """
+    home_resolved = each_home().resolve()
+    repo_resolved = repo_root().resolve()
+    if home_resolved == repo_resolved or repo_resolved in home_resolved.parents:
+        raise ValueError(
+            f"refusing to use EACH_HOME={home_resolved} because it is inside the repository "
+            f"working tree {repo_resolved}; set EACH_HOME to a private location outside any checkout"
+        )
+    return home_resolved

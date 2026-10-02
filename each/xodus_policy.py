@@ -92,8 +92,18 @@ def verify_xodus_shadow_binding(approved: ApprovedSpec, *, policy_path: Path = P
 
     policy = load_xodus_policy(policy_path)
     strict_repos = {_normalize_repo(repo) for repo in policy.get("strict_run_repositories", [])}
-    if _normalize_repo(packet.target_repo) not in strict_repos:
-        return
+    target_repo_normalized = _normalize_repo(packet.target_repo)
+    if target_repo_normalized not in strict_repos:
+        # Fail CLOSED, not open: for this pipeline every run is treated as
+        # strict by default. An empty/missing/drifted
+        # ``strict_run_repositories`` list must never silently let an
+        # unlisted target bypass every check below -- it must be rejected
+        # outright, the same as an explicitly out-of-policy target (F2).
+        raise PolicyViolation(
+            f"target repository {packet.target_repo!r} is not a declared strict-run repository in "
+            f"{policy_path}; refusing to run (this pipeline treats every target as strict by default, "
+            "it never fails open on an empty/missing/drifted policy list)"
+        )
 
     if not packet.sensitive:
         raise PolicyViolation(
@@ -107,3 +117,48 @@ def verify_xodus_shadow_binding(approved: ApprovedSpec, *, policy_path: Path = P
             )
     if policy.get("default_visibility") != "private":
         raise PolicyViolation(f"policy {policy_path} must declare default_visibility: private for a strict run")
+    if policy.get("terminal_audit") is not True:
+        raise PolicyViolation(f"policy {policy_path} must declare terminal_audit: true for a strict run")
+    origin_policy = policy.get("information_origin_policy", {})
+    if origin_policy.get("llm_driven_reverse_engineering") is not False:
+        raise PolicyViolation(
+            f"policy {policy_path} must declare information_origin_policy.llm_driven_reverse_engineering: "
+            "false for a strict run"
+        )
+
+    if not packet.forbidden_sources:
+        raise PolicyViolation(
+            f"approved spec for a strict-run repository must declare a non-empty forbidden_sources list, "
+            f"got {packet.forbidden_sources!r}"
+        )
+
+    pinned_targets = policy.get("pinned_targets") or {}
+    pinned = pinned_targets.get(target_repo_normalized)
+    if pinned is None:
+        raise PolicyViolation(
+            f"policy {policy_path} declares {packet.target_repo!r} as a strict-run repository but has no "
+            "pinned_targets entry for it; refusing to run against an unpinned envelope"
+        )
+    _require_exact_match(pinned, "target_ref", packet.target_ref, policy_path)
+    _require_exact_match(pinned, "allowed_paths", list(packet.allowed_paths), policy_path)
+    _require_exact_match(
+        pinned,
+        "build_commands",
+        [list(cmd) for cmd in packet.build_commands],
+        policy_path,
+    )
+    _require_exact_match(
+        pinned,
+        "acceptance_commands",
+        [list(cmd) for cmd in packet.acceptance_commands],
+        policy_path,
+    )
+
+
+def _require_exact_match(pinned: dict[str, Any], key: str, actual: Any, policy_path: Path) -> None:
+    expected = pinned.get(key)
+    if expected != actual:
+        raise PolicyViolation(
+            f"policy {policy_path}'s pinned_targets.{key} ({expected!r}) does not match the approved "
+            f"spec's declared {key} ({actual!r}); refusing to run against a drifted/spoofed envelope"
+        )

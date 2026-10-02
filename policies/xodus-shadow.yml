@@ -84,3 +84,21 @@ strict_run_repositories:
 
 no_upstream_pr: true
 single_bounded_issue: true
+
+# Per-repository pinned strict-run envelope (F2 fix): a durably-approved
+# spec whose target repository matches ``strict_run_repositories`` must
+# ALSO match this exact, independently-pinned commit/path/command envelope
+# before any side effect -- never just trust the packet's own self-declared
+# fields once it is sensitive=True and binding-matched. This is what
+# actually rejects a spoofed/drifted spec claiming, e.g., an arbitrary
+# "deadbeef" commit or unrestricted allowed paths for a repo this policy
+# otherwise treats as strict.
+pinned_targets:
+  xodus-gaming/xgameruntime:
+    target_ref: "791710510d9ba0746bbd60754215eb321800e4f0"
+    allowed_paths:
+      - "xsystem.c"
+    build_commands:
+      - ["python3", "examples/xodus-m8-sandbox-id/build_check.py", "build", "xsystem.c"]
+    acceptance_commands:
+      - ["python3", "examples/xodus-m8-sandbox-id/build_check.py", "run"]

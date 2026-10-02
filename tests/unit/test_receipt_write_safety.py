@@ -10,6 +10,7 @@ from pathlib import Path
 
 import pytest
 
+from each.hashing import sha256_text
 from each.paths import repo_root
 from each.receipt import Receipt
 
@@ -61,11 +62,62 @@ def test_writes_cleanly_to_a_fresh_private_directory(tmp_path: Path) -> None:
 def test_materials_source_copies_declared_files(tmp_path: Path) -> None:
     source = tmp_path / "worktree"
     (source / "sub").mkdir(parents=True)
-    (source / "sub" / "a.c").write_text("int main() {}\n")
-    receipt = _receipt(materials={"sub/a.c": "irrelevant-for-this-test"})
+    content = "int main() {}\n"
+    (source / "sub" / "a.c").write_text(content)
+    receipt = _receipt(materials={"sub/a.c": sha256_text(content)})
     _json_path, _md_path = receipt.write(tmp_path / "run-3", materials_source=source)
     copied = tmp_path / "run-3" / "materials" / "sub" / "a.c"
-    assert copied.read_text() == "int main() {}\n"
+    assert copied.read_text() == content
+
+
+def test_materials_source_rejects_hash_mismatch(tmp_path: Path) -> None:
+    """F5 (MOST IMPORTANT): a declared material whose real bytes do not
+    match the declared hash (e.g. because a post-patch worktree was passed
+    as ``materials_source`` for a pre-patch declared hash) must never be
+    silently signed as if the declaration were true."""
+    source = tmp_path / "worktree"
+    (source / "sub").mkdir(parents=True)
+    (source / "sub" / "a.c").write_text("int main() { return 1; }\n")  # does NOT match the declared hash below
+    receipt = _receipt(materials={"sub/a.c": sha256_text("int main() {}\n")})
+    with pytest.raises(ValueError, match="does not match its declared hash"):
+        receipt.write(tmp_path / "run-3-mismatch", materials_source=source)
+    assert not (tmp_path / "run-3-mismatch" / "receipt.json").exists()
+
+
+def test_materials_source_rejects_destination_symlink_collision(tmp_path: Path) -> None:
+    """F3: the materials destination side must be containment-checked too,
+    not only the source side -- a symlink planted at the destination path
+    must never be followed/written through."""
+    source = tmp_path / "worktree"
+    (source / "sub").mkdir(parents=True)
+    content = "int main() {}\n"
+    (source / "sub" / "a.c").write_text(content)
+    receipt = _receipt(materials={"sub/a.c": sha256_text(content)})
+    directory = tmp_path / "run-3-dst-symlink"
+    materials_root = directory / "materials"
+    (materials_root / "sub").mkdir(parents=True)
+    outside = tmp_path / "outside-dst.c"
+    outside.write_text("tampered\n")
+    (materials_root / "sub" / "a.c").symlink_to(outside)
+    with pytest.raises(ValueError, match="materials destination path escapes materials root|existing materials destination or symlink"):
+        receipt.write(directory, materials_source=source)
+
+
+def test_materials_source_rejects_preexisting_destination_file(tmp_path: Path) -> None:
+    """F3: a non-symlink pre-existing file at the exact materials
+    destination path (e.g. a leftover/collided run) must also be rejected,
+    not silently overwritten."""
+    source = tmp_path / "worktree"
+    (source / "sub").mkdir(parents=True)
+    content = "int main() {}\n"
+    (source / "sub" / "a.c").write_text(content)
+    receipt = _receipt(materials={"sub/a.c": sha256_text(content)})
+    directory = tmp_path / "run-3-dst-exists"
+    materials_root = directory / "materials"
+    (materials_root / "sub").mkdir(parents=True)
+    (materials_root / "sub" / "a.c").write_text("pre-existing\n")
+    with pytest.raises(ValueError, match="existing materials destination or symlink"):
+        receipt.write(directory, materials_source=source)
 
 
 def test_materials_source_rejects_traversal_declared_path(tmp_path: Path) -> None:
