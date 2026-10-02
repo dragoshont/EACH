@@ -61,24 +61,37 @@ catalog once given a checkpoint with adequate context.
 
 ## Repair-capability result: 0/22 applicable patches, genuine attempts of highly variable quality
 
-No task produced an applicable patch. Every one of the 66 real generation
-calls returned a completion that omitted the required exact `BEGIN_PATCH`/
+No task produced an applicable patch. 65 of the 66 real generation calls
+returned a completion that omitted the required exact `BEGIN_PATCH`/
 `END_PATCH` markers (`PATCH_REJECTED: completion missing BEGIN_PATCH/
-END_PATCH markers`, or, for one task, a diff that does not apply cleanly to
-the real file), even on retries that explicitly told the model its previous
-attempt was rejected and to "follow the format exactly." Manual inspection
-of a sample of raw completions (private; not reproduced here, per the
-no-model-output-in-sanitized-docs policy) shows the content quality is
-**highly variable across tasks, not uniformly competent**:
+END_PATCH markers`); exactly one attempt (`more-itertools-one-only-falsy-
+custom-exception`, attempt 2) instead returned a syntactically valid diff
+that parsed but contained no actual file changes -- a placeholder-template
+diff with no real edits (`PATCH_REJECTED: diff parsed but contains no file
+changes`) -- not a diff that failed to apply to real content. All 22 tasks'
+final outcomes were `PATCH_REJECTED: completion missing BEGIN_PATCH/
+END_PATCH markers`, since the non-marker rejection occurred on a non-final
+attempt that was retried. Even on retries that explicitly told the model
+its previous attempt was rejected and to "follow the format exactly," no
+attempt produced the required markers. Manual inspection of a sample of
+raw completions (private; not reproduced here, per the no-model-output-in-
+sanitized-docs policy) shows the content quality is **highly variable
+across tasks, not uniformly competent**:
 
-- A minority plausibly engage the right area of the file with a
-  syntactically coherent, on-topic edit (e.g. the `boltons` task's
-  completion correctly targets the `from_hex` classmethod referenced by the
-  failing test and proposes a plausible, if not exactly matching, condition
-  change).
+- A minority are on-topic edits within the right general area of the
+  file, but not the true fault site (e.g. two of the `packaging` task's
+  three attempts edit the condition of the `while "--" in value:`
+  hyphen-condensing loop in `canonicalize_name` -- the third only edits
+  the comment above that loop -- which is conceptually related to the
+  task's double-hyphen normalization bug and in the same file, but the
+  real bug is in the separate `is_normalized_name` function's
+  `_normalized_regex` check a few lines below, which none of the three
+  attempts touch -- so even this closest example is adjacent to, not a
+  correct fix for, the actual fault).
 - Several target clearly unrelated code (e.g. one task's completion edits
   an unrelated string/bytes-length helper far from the actual bug; another
-  edits an unrelated exception class's `__init__`).
+  edits an unrelated exception class's `__init__`; another edits an
+  unrelated classmethod in a different part of the same file).
 - Some are non-functional or degenerate edits: a literal unified-diff
   **template with placeholder text** (`<original line>` / `<fixed line>`)
   rather than real content; a no-op line that is identical before and
