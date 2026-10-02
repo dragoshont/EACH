@@ -36,6 +36,10 @@ def run_suite(
         try:
             result = run_benchmark_task(task, model, max_attempts=max_attempts, run_id=f"{report_id}-{task.task_id}")
             receipt = json.loads(Path(result["receipt_json"]).read_text(encoding="utf-8"))
+            receipt_attempts = receipt.get("attempts") or []
+            generation_call_count = sum(
+                1 for attempt in receipt_attempts if attempt.get("generation_attempted")
+            )
             task_results.append(
                 {
                     "taskId": task.task_id,
@@ -44,6 +48,15 @@ def run_suite(
                     "language": task.language,
                     "outcome": result["outcome"],
                     "attempts": result["attempts"],
+                    # A preflight/complete() context-budget rejection consumes
+                    # a loop iteration ("attempts") but never actually calls
+                    # the model: counting it as a genuine generation attempt
+                    # would misrepresent context-ineligible tasks as real
+                    # repair-capability evidence. generationCallCount is the
+                    # number of times model.complete() genuinely ran and
+                    # returned for this task (0 for an eligibility rejection).
+                    "generationCallCount": generation_call_count,
+                    "generationEligible": generation_call_count > 0,
                     "patchSizeBytes": len(receipt.get("patchText", "")),
                     "assuranceLevel": receipt.get("assuranceLevel"),
                     "isolationNetworkProbe": receipt.get("isolationEvidence", {}).get("exit_code"),
@@ -66,15 +79,27 @@ def run_suite(
                     "language": task.language,
                     "outcome": f"TASK_MATERIALIZATION_FAILED: {exc}",
                     "attempts": 0,
+                    "generationCallCount": 0,
+                    "generationEligible": False,
                 }
             )
 
     verified = sum(1 for r in task_results if r["outcome"] == "REPAIR_VERIFIED")
+    eligible = sum(1 for r in task_results if r["generationEligible"])
     report = {
         "reportId": report_id,
         "createdAt": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
         "taskCount": len(tasks),
         "verifiedCount": verified,
+        # Honest denominators: taskCount is overall catalog coverage;
+        # eligibleCount is how many of those tasks ever reached a real
+        # model.complete() call at all (the rest were rejected purely on
+        # input-construction/context-budget grounds, before any generation
+        # was attempted). verifiedCount / eligibleCount -- not
+        # verifiedCount / taskCount -- is the repair-utility rate; reporting
+        # only the latter would misleadingly fold context-ineligible tasks
+        # into a repair-capability denominator they never actually tested.
+        "eligibleCount": eligible,
         "tasks": task_results,
     }
     report_path = each_home() / "benchmarks" / f"{report_id}.json"
@@ -85,19 +110,29 @@ def run_suite(
 
 def render_sanitized_markdown(report: dict[str, Any]) -> str:
     """A conservative public-safe summary: outcomes/metrics only, no source."""
+    eligible = report.get("eligibleCount", sum(1 for t in report["tasks"] if t.get("generationEligible")))
     lines = [
         f"# EACH historical benchmark report: {report['reportId']}",
         "",
-        f"- Tasks: {report['taskCount']}",
-        f"- Verified repairs: {report['verifiedCount']} / {report['taskCount']}",
+        f"- Tasks (overall catalog coverage): {report['taskCount']}",
+        f"- Generation-eligible (fit the model's context budget for >=1 real attempt): {eligible} / {report['taskCount']}",
+        f"- Verified repairs among generation-eligible tasks: {report['verifiedCount']} / {eligible if eligible else 0}",
+        f"- Verified repairs over all catalog tasks: {report['verifiedCount']} / {report['taskCount']}",
         "",
-        "| Task | Repo | License | Outcome | Attempts | Assurance |",
-        "|---|---|---|---|---|---|",
+        (
+            "A task rejected before any model.complete() call (context-budget "
+            "ineligible) is reported as 0 generation attempts, not 1 -- it never "
+            "tested repair capability and must not be folded into a repair-utility "
+            "denominator."
+        ),
+        "",
+        "| Task | Repo | License | Outcome | Attempts | Generation calls | Assurance |",
+        "|---|---|---|---|---|---|---|",
     ]
     for task in report["tasks"]:
         lines.append(
             f"| {task['taskId']} | {task['repo']} | {task['license']} | {task['outcome']} | "
-            f"{task['attempts']} | {task.get('assuranceLevel', 'n/a')} |"
+            f"{task['attempts']} | {task.get('generationCallCount', 'n/a')} | {task.get('assuranceLevel', 'n/a')} |"
         )
     lines.append("")
     lines.append(

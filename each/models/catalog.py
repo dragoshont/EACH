@@ -62,6 +62,38 @@ def _granite_3b_code_base_mlx() -> RepairModel:
     return MLXRepairModel(snapshot_dir, manifest)
 
 
+def _granite_8b_code_instruct_128k_mlx() -> RepairModel:
+    snapshot_dir = (
+        HF_CACHE_DIR
+        / "models--ibm-granite--granite-8b-code-instruct-128k"
+        / "snapshots"
+        / "bed93d8de15bb9bb55cb1da10ae860e2883f4254"
+    )
+    if not snapshot_dir.exists():
+        raise UnavailableModelError(f"snapshot not downloaded: {snapshot_dir}")
+    manifest = build_manifest_from_snapshot(
+        snapshot_dir,
+        repo_id="ibm-granite/granite-8b-code-instruct-128k",
+        license="Apache-2.0",
+        runtime_name="mlx-lm",
+        runtime_version=_mlx_runtime_version(),
+        # These are the ORIGINAL publisher weights (ibm-granite's own repo,
+        # bf16 safetensors), not a third-party community re-conversion: no
+        # conversion chain applies. mlx_lm.utils._get_classes(config) was
+        # verified to resolve this config's declared
+        # architectures=["LlamaForCausalLM"]/model_type="llama" to
+        # mlx_lm.models.llama.{Model,ModelArgs} before this snapshot was
+        # loaded, and mlx_lm.load() loads the original safetensors directly
+        # (mlx_lm's Llama-family loader sanitizes/accepts the standard HF
+        # safetensors key layout; no separate mlx-community conversion
+        # artifact was produced or required).
+        conversion_chain="none; original ibm-granite publisher bf16 safetensors loaded directly via mlx_lm",
+    )
+    from each.models.mlx_model import MLXRepairModel
+
+    return MLXRepairModel(snapshot_dir, manifest)
+
+
 def _granite_3b_code_instruct_mlx() -> RepairModel:
     snapshot_dir = (
         HF_CACHE_DIR
@@ -121,6 +153,7 @@ def _granite_gguf_llamacpp() -> RepairModel:
 _CATALOG: dict[str, Callable[[], RepairModel]] = {
     "granite-3b-code-base-mlx": _granite_3b_code_base_mlx,
     "granite-3b-code-instruct-mlx": _granite_3b_code_instruct_mlx,
+    "granite-8b-code-instruct-128k-mlx": _granite_8b_code_instruct_128k_mlx,
     "octocoder-transformers-mps": _octocoder_transformers_mps,
     "granite-gguf-llamacpp": _granite_gguf_llamacpp,
 }

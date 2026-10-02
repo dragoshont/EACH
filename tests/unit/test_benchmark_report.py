@@ -110,6 +110,70 @@ def test_report_is_actually_written_to_disk_under_each_home(monkeypatch, tmp_pat
     assert report_path.endswith("test-report-3.json")
 
 
+def test_a_context_budget_rejection_is_reported_as_zero_generation_calls_not_one(monkeypatch, tmp_path):
+    """Regression test for the user's explicit correction: a task rejected by
+    the context-budget preflight before any model.complete() call must be
+    reported as 0 real generation calls and generationEligible=False, not
+    folded into the same denominator as a task that genuinely reached the
+    model."""
+
+    def _write_receipt(run_id: str, attempts: list[dict]) -> str:
+        receipt = {
+            "patchText": "",
+            "assuranceLevel": "EACH-P0",
+            "isolationEvidence": {"exit_code": 101},
+            "audit": {"checks": {}, "toolVersions": {}, "corpusRevision": "none"},
+            "modelIdentity": {"modelId": "test/stub"},
+            "attempts": attempts,
+        }
+        path = tmp_path / f"{run_id}.json"
+        path.write_text(json.dumps(receipt), encoding="utf-8")
+        return str(path)
+
+    def fake_run_benchmark_task(task, model, *, max_attempts, run_id):
+        del model, max_attempts
+        if task.task_id == "task-a":
+            # Context-budget-ineligible: one loop iteration, zero real
+            # model.complete() calls.
+            receipt_json = _write_receipt(
+                run_id,
+                [{"attempt": 1, "outcome": "BUILDER_CONTEXT_BUDGET_EXCEEDED: too large", "generation_attempted": False}],
+            )
+            return {
+                "task_id": task.task_id,
+                "outcome": "BUILDER_CONTEXT_BUDGET_EXCEEDED: too large",
+                "receipt_json": receipt_json,
+                "attempts": 1,
+            }
+        # Genuinely eligible: reached generation at least once.
+        receipt_json = _write_receipt(
+            run_id, [{"attempt": 1, "outcome": "REPAIR_VERIFIED", "generation_attempted": True}]
+        )
+        return {"task_id": task.task_id, "outcome": "REPAIR_VERIFIED", "receipt_json": receipt_json, "attempts": 1}
+
+    monkeypatch.setattr("each.benchmark_report.run_benchmark_task", fake_run_benchmark_task)
+    monkeypatch.setattr("each.benchmark_report.each_home", lambda: tmp_path)
+
+    outcome = run_suite([_TASK_A, _TASK_B], model=object(), report_id="test-report-eligibility")
+    report = outcome["report"]
+    task_a = next(t for t in report["tasks"] if t["taskId"] == "task-a")
+    task_b = next(t for t in report["tasks"] if t["taskId"] == "task-b")
+
+    assert task_a["generationCallCount"] == 0
+    assert task_a["generationEligible"] is False
+    assert task_b["generationCallCount"] == 1
+    assert task_b["generationEligible"] is True
+    # Overall catalog coverage is still 2, but only 1 task was ever
+    # generation-eligible -- the honest repair-utility denominator.
+    assert report["taskCount"] == 2
+    assert report["eligibleCount"] == 1
+    assert report["verifiedCount"] == 1
+
+    markdown = render_sanitized_markdown(report)
+    assert "Generation-eligible" in markdown
+    assert "1 / 2" in markdown  # eligible / taskCount
+
+
 def test_sanitized_markdown_contains_no_patch_or_audit_content():
     report = {
         "reportId": "r1",

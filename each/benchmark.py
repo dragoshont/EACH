@@ -689,7 +689,13 @@ def run_benchmark_task(
             except ContextBudgetExceeded as exc:
                 final_outcome = f"BUILDER_CONTEXT_BUDGET_EXCEEDED: {exc}"
                 attempts.append(
-                    {"attempt": attempt_num, "prompt": prompt, "raw_completion": "", "outcome": final_outcome}
+                    {
+                        "attempt": attempt_num,
+                        "prompt": prompt,
+                        "raw_completion": "",
+                        "outcome": final_outcome,
+                        "generation_attempted": False,
+                    }
                 )
                 break
         worktree, manifest = build_worktree(source_root, include_paths)
@@ -698,7 +704,15 @@ def run_benchmark_task(
             baseline_verdict = _interpret_pytest_run(baseline, expected_tests=expected_tests)
         except BenchmarkExecutionError as exc:
             final_outcome = f"BASELINE_INCONCLUSIVE: {exc}"
-            attempts.append({"attempt": attempt_num, "prompt": prompt, "raw_completion": "", "outcome": final_outcome})
+            attempts.append(
+                {
+                    "attempt": attempt_num,
+                    "prompt": prompt,
+                    "raw_completion": "",
+                    "outcome": final_outcome,
+                    "generation_attempted": False,
+                }
+            )
             break
         final_materials = {**manifest, excerpt_material_key: excerpt_sha256}
         final_baseline = _result_to_dict(baseline)
@@ -716,12 +730,19 @@ def run_benchmark_task(
             # terminal for the task rather than consuming another attempt.
             final_outcome = f"BUILDER_CONTEXT_BUDGET_EXCEEDED: {exc}"
             attempts.append(
-                {"attempt": attempt_num, "prompt": prompt, "raw_completion": "", "outcome": final_outcome}
+                {
+                    "attempt": attempt_num,
+                    "prompt": prompt,
+                    "raw_completion": "",
+                    "outcome": final_outcome,
+                    "generation_attempted": False,
+                }
             )
             break
         rendered_prompt = getattr(model, "last_prompt", None)
         attempt_record: dict[str, Any] = {
             "attempt": attempt_num,
+            "generation_attempted": True,
             "prompt": rendered_prompt if rendered_prompt is not None else prompt,
             "raw_completion": raw_completion,
             "materials": final_materials,
