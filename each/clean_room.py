@@ -261,6 +261,15 @@ def run_clean_room_build(
             final_outcome = outcome
             selected_attempt_record = attempts[-1]
             break
+        # A bounded retry loop gains genuinely exploratory value only if
+        # later attempts can sample something other than the exact same
+        # greedy-decoded continuation: the first attempt stays fully
+        # deterministic (temperature=0.0), but each subsequent attempt uses
+        # a small, fixed, attempt-indexed, recorded temperature/seed -- not
+        # a hidden/undeclared choice, and never used to retry with inferred
+        # knowledge of the rejection's actual content beyond the existing
+        # approved compiler/test-feedback reason text.
+        model.configure_sampling(temperature=0.0 if attempt_num == 1 else 0.2, seed=None if attempt_num == 1 else attempt_num)
         try:
             raw_completion = model.complete(prompt)
         except ContextBudgetExceeded as exc:

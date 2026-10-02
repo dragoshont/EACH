@@ -66,7 +66,38 @@ def extract_patch_text(completion: str) -> str:
     body = body.strip("\n")
     if not body.strip():
         raise PatchRejected("empty patch body")
-    return body + "\n"
+    return _restore_blank_context_lines(body) + "\n"
+
+
+def _restore_blank_context_lines(body: str) -> str:
+    """Restore the mandatory leading context-space character on lines a
+    model emitted as genuinely empty (length-zero) while inside a hunk.
+
+    A unified-diff hunk line always needs a leading " "/"+"/"-" classifier,
+    even for a blank source line -- but real instruction-tuned local models
+    very commonly emit a true empty line instead (trailing-whitespace
+    stripping is a near-universal text-post-processing habit). A strict
+    parser then miscounts the hunk's remaining body lines and rejects the
+    whole diff on what is, in substance, a single missing space character.
+
+    This is a purely mechanical formatting restoration: it only ever turns
+    an existing zero-length line within an already-opened hunk into a
+    single space, never adds, removes, or reinterprets any line the model
+    did not itself emit, and never touches file-header (`---`/`+++`) or
+    hunk-header (`@@`) lines or any line outside a hunk.
+    """
+    lines = body.split("\n")
+    in_hunk = False
+    for idx, line in enumerate(lines):
+        if line.startswith("@@"):
+            in_hunk = True
+            continue
+        if line.startswith(("--- ", "+++ ")):
+            in_hunk = False
+            continue
+        if in_hunk and line == "":
+            lines[idx] = " "
+    return "\n".join(lines)
 
 
 def parse_patch(patch_text: str) -> PatchSet:

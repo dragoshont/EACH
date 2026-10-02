@@ -58,6 +58,8 @@ class MLXRepairModel(RepairModel):
         # receipt's rendered prompt field, when reproducing an attempt.
         self.last_raw_prompt: str | None = None
         self.last_input_token_count: int | None = None
+        self._temperature = 0.0
+        self._seed: int | None = None
 
     def _ensure_loaded(self) -> None:
         if self._model is None:
@@ -88,9 +90,9 @@ class MLXRepairModel(RepairModel):
         identity["modelManifest"] = self._manifest.to_dict()
         identity["generationParameters"] = {
             "maxTokens": self._max_tokens,
-            "temperature": 0.0,
-            "sampling": "greedy",
-            "seed": None,
+            "temperature": self._temperature,
+            "sampling": "greedy" if self._temperature == 0.0 else "temperature",
+            "seed": self._seed,
         }
         identity["contextPolicy"] = {
             "maxPositionEmbeddings": self._manifest.max_position_embeddings,
@@ -136,6 +138,22 @@ class MLXRepairModel(RepairModel):
             )
         return rendered, input_token_count
 
+    def configure_sampling(self, *, temperature: float = 0.0, seed: int | None = None) -> None:
+        """Record the decoding parameters the NEXT ``complete()`` call should
+        use (reported verbatim in ``identity()`` so a receipt's per-attempt
+        provenance always matches what was actually sampled). A bounded
+        retry loop passing a small nonzero temperature with a distinct
+        recorded seed on later attempts gives genuine exploratory value to
+        its attempt budget -- pure temp=0.0 greedy decoding reproduces
+        nearly the same completion regardless of a short trailing retry
+        instruction, since the much larger shared prompt prefix dominates
+        the argmax choice at every step.
+        """
+        if temperature < 0.0:
+            raise ValueError(f"temperature must be >= 0.0, got {temperature}")
+        self._temperature = temperature
+        self._seed = seed
+
     def complete(self, prompt: str) -> str:
         rendered, input_token_count = self.check_context_budget(prompt)
         import mlx_lm
@@ -144,11 +162,15 @@ class MLXRepairModel(RepairModel):
         self.last_raw_prompt = prompt
         self.last_prompt = rendered
         self.last_input_token_count = input_token_count
+        if self._seed is not None:
+            import mlx.core as mx
+
+            mx.random.seed(self._seed)
         return mlx_lm.generate(
             self._model,
             self._tokenizer,
             prompt=rendered,
             max_tokens=self._max_tokens,
-            sampler=make_sampler(temp=0.0),
+            sampler=make_sampler(temp=self._temperature),
             verbose=False,
         )

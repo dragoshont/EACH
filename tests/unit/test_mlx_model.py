@@ -28,6 +28,17 @@ def _stub_optional_backend(monkeypatch: pytest.MonkeyPatch) -> None:
     sampling.make_sampler = lambda **kwargs: None
     backend.sample_utils = sampling
     monkeypatch.setitem(sys.modules, "mlx_lm", backend)
+    # Real complete() only imports mlx.core (to seed sampling) when a seed
+    # was actually configured; stub it the same way as mlx_lm above so
+    # these tests stay fast/hermetic and do not require the optional
+    # 'models' extra's real mlx package to be installed.
+    mlx_pkg = ModuleType("mlx")
+    mlx_core = ModuleType("mlx.core")
+    mlx_core.random = ModuleType("mlx.core.random")
+    mlx_core.random.seed = lambda seed: None
+    mlx_pkg.core = mlx_core
+    monkeypatch.setitem(sys.modules, "mlx", mlx_pkg)
+    monkeypatch.setitem(sys.modules, "mlx.core", mlx_core)
     monkeypatch.setitem(sys.modules, "mlx_lm.sample_utils", sampling)
 
 
@@ -118,3 +129,53 @@ def test_raw_and_rendered_prompts_are_recorded_distinctly(monkeypatch, tmp_path)
     assert model.last_raw_prompt == "raw request"
     assert model.last_prompt == "[rendered]raw request"
     assert model.last_raw_prompt != model.last_prompt
+
+
+def test_default_sampling_identity_is_unchanged_greedy(monkeypatch, tmp_path) -> None:
+    """Without ever calling configure_sampling, identity() reports exactly
+    the same deterministic greedy defaults as before this feature existed
+    -- no behavior change for a caller that never opts in."""
+    model = _model(tmp_path, max_position_embeddings=2048, max_tokens=5, monkeypatch=monkeypatch)
+    monkeypatch.setattr("mlx_lm.generate", lambda *a, **k: "canned output")
+    monkeypatch.setattr("mlx_lm.sample_utils.make_sampler", lambda **k: None)
+    model.complete("one two three")
+    params = model.identity()["generationParameters"]
+    assert params == {"maxTokens": 5, "temperature": 0.0, "sampling": "greedy", "seed": None}
+
+
+def test_configure_sampling_is_reflected_in_the_next_completions_identity(monkeypatch, tmp_path) -> None:
+    """A later retry attempt that opts into sampling diversity must see its
+    ACTUAL parameters recorded in identity(), not a stale static claim."""
+    model = _model(tmp_path, max_position_embeddings=2048, max_tokens=5, monkeypatch=monkeypatch)
+    captured_sampler_temps: list[float] = []
+    monkeypatch.setattr("mlx_lm.generate", lambda *a, **k: "canned output")
+    monkeypatch.setattr(
+        "mlx_lm.sample_utils.make_sampler", lambda **k: captured_sampler_temps.append(k["temp"]) or None
+    )
+    model.configure_sampling(temperature=0.2, seed=7)
+    model.complete("one two three")
+    params = model.identity()["generationParameters"]
+    assert params == {"maxTokens": 5, "temperature": 0.2, "sampling": "temperature", "seed": 7}
+    assert captured_sampler_temps == [0.2]
+
+
+def test_configure_sampling_rejects_a_negative_temperature(monkeypatch, tmp_path) -> None:
+    model = _model(tmp_path, max_position_embeddings=2048, max_tokens=5, monkeypatch=monkeypatch)
+    with pytest.raises(ValueError, match="temperature"):
+        model.configure_sampling(temperature=-0.1)
+
+
+def test_base_repair_model_configure_sampling_defaults_to_a_no_op() -> None:
+    """A RepairModel backend that never overrides configure_sampling (the
+    abstract base's default implementation) must not break -- callers may
+    call it unconditionally without checking backend capability."""
+    from each.models.base import RepairModel
+
+    class _Stub(RepairModel):
+        model_id = "stub"
+
+        def complete(self, prompt: str) -> str:
+            return "stub completion"
+
+    stub = _Stub()
+    stub.configure_sampling(temperature=0.5, seed=3)  # must not raise

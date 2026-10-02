@@ -42,6 +42,19 @@ class RepairModel(ABC):
     def complete(self, prompt: str) -> str:
         """Return the raw model completion text for the given prompt."""
 
+    def configure_sampling(self, *, temperature: float = 0.0, seed: int | None = None) -> None:
+        """Optionally adjust this model's decoding parameters for the NEXT
+        ``complete()`` call. The default implementation is a no-op: a
+        ``RepairModel`` backend is not required to support sampling
+        diversity, and a backend that ignores this call must keep behaving
+        exactly as it always has (deterministic callers/tests are
+        unaffected). A backend that does support it (e.g.
+        :class:`each.models.mlx_model.MLXRepairModel`) must record the
+        ACTUAL parameters it used for a given completion in its own
+        ``identity()`` -- never a static claim that no longer matches what
+        was really sampled.
+        """
+
     def identity(self) -> dict[str, Any]:
         """Binds a receipt to the exact code that produced a completion.
 

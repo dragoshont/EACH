@@ -91,6 +91,43 @@ def test_extract_patch_text_rejects_fence_without_diff_markers() -> None:
         extract_patch_text("```python\nprint('hello')\n```\n")
 
 
+def test_extract_patch_text_restores_a_genuinely_blank_context_line() -> None:
+    """Real local models frequently emit a true empty line (not a single
+    space) for a blank context line inside a hunk -- a common
+    trailing-whitespace-stripping habit. A strict parser then miscounts the
+    hunk's remaining body lines and rejects the whole diff over one missing
+    space character. extract_patch_text must mechanically restore it (never
+    inventing/altering any other line) so the diff parses and applies.
+    """
+    completion = (
+        "BEGIN_PATCH\n"
+        "--- a/src/greet.py\n"
+        "+++ b/src/greet.py\n"
+        "@@ -1,3 +1,3 @@\n"
+        " def greet(name: str) -> str:\n"
+        "\n"
+        "-    return \"Hell, \" + name\n"
+        "+    return \"Hello, \" + name\n"
+        "END_PATCH\n"
+    )
+    body = extract_patch_text(completion)
+    lines = body.splitlines()
+    assert lines[4] == " "  # restored, not still an empty string
+    patch = parse_patch(body)
+    assert len(patch) == 1
+
+
+def test_extract_patch_text_does_not_touch_blank_lines_outside_a_hunk() -> None:
+    """A blank line between file-header lines (not yet inside a hunk) is
+    left alone -- there is nothing inside a hunk yet to restore. (Leading/
+    trailing blank lines around the whole body are already separately
+    trimmed by ``.strip("\\n")``, so this exercises a blank line placed
+    between the two file-header lines instead.)"""
+    completion = "BEGIN_PATCH\n--- a/src/greet.py\n\n+++ b/src/greet.py\n@@ -1,1 +1,1 @@\n-x\n+y\nEND_PATCH\n"
+    body = extract_patch_text(completion)
+    assert body.splitlines()[1] == ""
+
+
 def test_parse_patch_rejects_malformed_diff() -> None:
     malformed = "--- a/x\n+++ b/x\n@@ -1,1 +1,1 @@\n*not a valid diff line prefix\n"
     with pytest.raises(PatchRejected, match="malformed unified diff"):

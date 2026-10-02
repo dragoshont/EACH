@@ -292,6 +292,11 @@ def run_xodus_shadow_build(
 
     for attempt_num in range(1, max_attempts + 1):
         worktree, manifest = build_worktree(materialize_root, include_paths)
+        # (see each/clean_room.py's identical comment) a bounded retry loop
+        # needs genuine sampling diversity on later attempts to be more than
+        # a repeat of the exact same greedy completion; attempt 1 stays
+        # fully deterministic.
+        model.configure_sampling(temperature=0.0 if attempt_num == 1 else 0.2, seed=None if attempt_num == 1 else attempt_num)
         try:
             raw_completion = model.complete(prompt)
         except ContextBudgetExceeded as exc:
