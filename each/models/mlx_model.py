@@ -12,7 +12,9 @@ from pathlib import Path
 from typing import Any
 
 from each.model_manifest import ModelManifest
-from each.models.base import RepairModel
+from each.models.base import ContextBudgetExceeded, RepairModel
+
+__all__ = ["ContextBudgetExceeded", "MLXRepairModel"]
 
 
 class MLXRepairModel(RepairModel):
@@ -45,6 +47,17 @@ class MLXRepairModel(RepairModel):
         self._snapshot_dir = str(snapshot_dir)
         self._model = None
         self._tokenizer = None
+        # last_prompt (inherited from RepairModel) is set to the exact
+        # backend-encoded string after chat-template rendering -- that is
+        # what callers (each.benchmark/each.bakeoff) record as a receipt's
+        # "prompt" field, because that is what the model actually received.
+        # last_raw_prompt keeps the pre-render controller request distinct,
+        # so replaying a saved receipt's (already-rendered) prompt through
+        # complete() is never silently double-wrapped by a second
+        # chat-template application -- feed last_raw_prompt back, not the
+        # receipt's rendered prompt field, when reproducing an attempt.
+        self.last_raw_prompt: str | None = None
+        self.last_input_token_count: int | None = None
 
     def _ensure_loaded(self) -> None:
         if self._model is None:
@@ -73,14 +86,15 @@ class MLXRepairModel(RepairModel):
             "sampling": "greedy",
             "seed": None,
         }
+        identity["contextPolicy"] = {
+            "maxPositionEmbeddings": self._manifest.max_position_embeddings,
+            "reservedOutputTokens": self._max_tokens,
+            "lastInputTokenCount": self.last_input_token_count,
+        }
         return identity
 
-    def complete(self, prompt: str) -> str:
+    def _render_prompt(self, prompt: str) -> str:
         self._ensure_loaded()
-        import mlx_lm
-        from mlx_lm.sample_utils import make_sampler
-
-        final_prompt = prompt
         chat_template = getattr(self._tokenizer, "chat_template", None)
         if chat_template:
             # Instruction-tuned checkpoints (e.g. granite-*-instruct) expect
@@ -88,15 +102,46 @@ class MLXRepairModel(RepairModel):
             # otherwise read as code to continue, not an instruction to
             # follow. Base (non-instruct) tokenizers have no chat_template,
             # so this is a no-op for them.
-            final_prompt = self._tokenizer.apply_chat_template(
+            return self._tokenizer.apply_chat_template(
                 [{"role": "user", "content": prompt}], tokenize=False, add_generation_prompt=True
             )
+        return prompt
 
-        self.last_prompt = final_prompt
+    def check_context_budget(self, prompt: str) -> tuple[str, int]:
+        """Render ``prompt`` and verify it fits this checkpoint's declared
+        context window before any generation is attempted.
+
+        Returns ``(rendered_prompt, input_token_count)`` on success. Raises
+        :class:`ContextBudgetExceeded` if ``input_token_count +
+        reserved_output_tokens`` would exceed ``max_position_embeddings`` --
+        never silently truncates the prompt or shrinks the output budget.
+        If the checkpoint does not declare a limit, the check is skipped
+        (recorded as ``None``, not assumed unlimited by a magic default).
+        """
+        rendered = self._render_prompt(prompt)
+        self._ensure_loaded()
+        input_token_count = len(self._tokenizer.encode(rendered))
+        limit = self._manifest.max_position_embeddings
+        if limit is not None and input_token_count + self._max_tokens > limit:
+            raise ContextBudgetExceeded(
+                f"rendered prompt ({input_token_count} tokens) + reserved output "
+                f"({self._max_tokens} tokens) = {input_token_count + self._max_tokens} tokens "
+                f"exceeds this checkpoint's declared max_position_embeddings ({limit})"
+            )
+        return rendered, input_token_count
+
+    def complete(self, prompt: str) -> str:
+        rendered, input_token_count = self.check_context_budget(prompt)
+        import mlx_lm
+        from mlx_lm.sample_utils import make_sampler
+
+        self.last_raw_prompt = prompt
+        self.last_prompt = rendered
+        self.last_input_token_count = input_token_count
         return mlx_lm.generate(
             self._model,
             self._tokenizer,
-            prompt=final_prompt,
+            prompt=rendered,
             max_tokens=self._max_tokens,
             sampler=make_sampler(temp=0.0),
             verbose=False,

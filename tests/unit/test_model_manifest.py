@@ -52,3 +52,18 @@ def test_missing_config_is_not_a_successful_manifest(tmp_path: Path) -> None:
     root.joinpath("config.json").unlink()
     with pytest.raises(ValueError, match="no config.json"):
         _manifest(root)
+
+
+def test_max_position_embeddings_is_recorded_from_config(tmp_path: Path) -> None:
+    root = _snapshot(tmp_path)
+    root.joinpath("config.json").write_text(json.dumps({"quantization": {"bits": 4}, "max_position_embeddings": 2048}))
+    manifest = _manifest(root)
+    assert manifest.max_position_embeddings == 2048
+    assert manifest.to_dict()["maxPositionEmbeddings"] == 2048
+
+
+def test_missing_max_position_embeddings_is_recorded_honestly_as_none(tmp_path: Path) -> None:
+    root = _snapshot(tmp_path)
+    manifest = _manifest(root)
+    assert manifest.max_position_embeddings is None
+    assert manifest.to_dict()["maxPositionEmbeddings"] is None

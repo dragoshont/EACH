@@ -16,6 +16,18 @@ from typing import Any
 from each.hashing import sha256_file
 
 
+class ContextBudgetExceeded(RuntimeError):
+    """Raised by a RepairModel.complete() implementation when a rendered
+    prompt plus its reserved output budget would exceed the checkpoint's
+    declared supported context window -- checked BEFORE generation is
+    attempted, never silently truncated or absorbed into a repair-failure
+    outcome. Not every RepairModel backend declares/enforces a context
+    limit (this is optional to raise), but any that does must use this
+    exact type so callers can distinguish a policy/input-construction error
+    from a genuine failed repair attempt.
+    """
+
+
 class RepairModel(ABC):
     """A model that proposes a unified-diff patch for a given repair context."""
 

@@ -41,6 +41,7 @@ class ModelManifest:
     tokenizer_sha256: str
     conversion_chain: str
     files_sha256: dict[str, str]
+    max_position_embeddings: int | None
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -55,6 +56,7 @@ class ModelManifest:
             "configSha256": self.files_sha256["config.json"],
             "filesSha256": self.files_sha256,
             "conversionChain": self.conversion_chain,
+            "maxPositionEmbeddings": self.max_position_embeddings,
         }
 
     @property
@@ -109,6 +111,11 @@ def build_manifest_from_snapshot(
         raise ValueError(f"no config.json found under {snapshot_dir}")
     config = json.loads(config_path.read_text())
     quantization: dict[str, Any] = config.get("quantization", {})
+    # The declared supported context window (mandate: never let a prompt
+    # silently exceed what the checkpoint actually supports). Honestly
+    # recorded as None if the config does not declare one, rather than
+    # guessing a default.
+    max_position_embeddings = config.get("max_position_embeddings")
 
     return ModelManifest(
         repo_id=repo_id,
@@ -121,4 +128,5 @@ def build_manifest_from_snapshot(
         tokenizer_sha256=tokenizer_sha256,
         conversion_chain=conversion_chain,
         files_sha256=files,
+        max_position_embeddings=max_position_embeddings,
     )

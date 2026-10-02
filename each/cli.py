@@ -147,6 +147,29 @@ def _cmd_verify(args: argparse.Namespace) -> int:
     return 0 if result["status"] == "PASS" else 1
 
 
+def _cmd_benchmark_run(args: argparse.Namespace) -> int:
+    from each.models.catalog import UnavailableModelError, load_model
+
+    try:
+        model = load_model(args.model)
+    except UnavailableModelError as exc:
+        print(f"model unavailable: {exc}")
+        return 2
+
+    from each.benchmark_report import render_sanitized_markdown, run_suite
+    from each.benchmark_tasks import SMOKE_TASKS, TASKS
+
+    tasks = SMOKE_TASKS if args.smoke else TASKS
+    outcome = run_suite(tasks, model, max_attempts=args.max_attempts)
+    report = outcome["report"]
+    print(f"report: {outcome['report_path']}")
+    print(f"verified: {report['verifiedCount']} / {report['taskCount']}")
+    if args.markdown_out:
+        Path(args.markdown_out).write_text(render_sanitized_markdown(report), encoding="utf-8")
+        print(f"sanitized markdown written to: {args.markdown_out}")
+    return 0 if report["verifiedCount"] > 0 else 1
+
+
 def _cmd_doctor(_args: argparse.Namespace) -> int:
     checks = run_checks()
     width = max(len(check.name) for check in checks)
@@ -221,6 +244,15 @@ def build_parser() -> argparse.ArgumentParser:
         help="path to the EACH signing public key PEM (default: ~/.each/keys/each-signing-ed25519-public.pem)",
     )
     verify.set_defaults(func=_cmd_verify)
+
+    benchmark = subparsers.add_parser("benchmark", help="historical repair benchmark suite (M6)")
+    benchmark_sub = benchmark.add_subparsers(dest="benchmark_command", required=True)
+    benchmark_run = benchmark_sub.add_parser("run", help="run the smoke or full historical benchmark suite")
+    benchmark_run.add_argument("model", help="model catalog key, e.g. granite-3b-code-instruct-mlx")
+    benchmark_run.add_argument("--smoke", action="store_true", help="run only the 5-task smoke suite")
+    benchmark_run.add_argument("--max-attempts", type=int, default=3)
+    benchmark_run.add_argument("--markdown-out", default=None, help="also write a sanitized Markdown summary here")
+    benchmark_run.set_defaults(func=_cmd_benchmark_run)
 
     return parser
 

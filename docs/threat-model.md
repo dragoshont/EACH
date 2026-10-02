@@ -164,3 +164,24 @@ isolation ("native host execution is not a strong-profile proxy").
   hunks (via `unidiff`); it does not yet handle binary diffs, renames, or
   mode changes. Out of scope for hello-repair; revisit if a later
   milestone's real-world fixtures require it.
+
+## Known limitations as of M6
+
+- The pinned `granite-3b-code-instruct-mlx` checkpoint's real
+  `max_position_embeddings=2048` is small relative to real-world
+  historical bug files. A pre-generation check now rejects any rendered
+  prompt plus reserved output that exceeds this declared limit, recording
+  the exact token counts (`BUILDER_CONTEXT_BUDGET_EXCEEDED`) instead of
+  silently truncating, mutating, or degrading the prompt. This is a
+  genuine, measured model-capability constraint, not a harness defect: in
+  the real 22-task historical benchmark only 4/22 tasks' excerpted prompts
+  fit the budget even after diff-blind AST-based narrowing
+  (`select_prompt_excerpt` in `each/benchmark.py`); see
+  `docs/benchmarks/m6-granite-3b-code-instruct-mlx-20261002.md`.
+- The excerpter narrows large files to the specific functions/methods a
+  task's pre-fix test references (plus local call-graph expansion) and
+  caps oversized leading docstrings; it never reads the fix commit, diff,
+  or known-solution content (T2 continues to hold). It is a pragmatic,
+  stdlib/AST-only input-construction aid, not a retrieval or ranking
+  system, and it does not guarantee every real-world file will fit a
+  small context window.

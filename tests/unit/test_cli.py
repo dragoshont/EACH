@@ -52,6 +52,13 @@ class _StubResponse:
         return self._body
 
 
+def test_cli_benchmark_run_unavailable_model_exits_nonzero(capsys) -> None:
+    exit_code = main(["benchmark", "run", "not-a-real-model", "--smoke"])
+    captured = capsys.readouterr()
+    assert exit_code == 2
+    assert "model unavailable" in captured.out
+
+
 def test_cli_issue_show_without_import_exits_nonzero(tmp_path, monkeypatch, capsys) -> None:
     monkeypatch.setenv("EACH_HOME", str(tmp_path / "each-home"))
     exit_code = main(["issue", "show", "never-imported"])
