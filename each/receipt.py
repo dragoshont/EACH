@@ -96,11 +96,15 @@ class Receipt:
         directory.mkdir(parents=True, exist_ok=True)
         json_path = directory / "receipt.json"
         md_path = directory / "receipt.md"
-        json_path.write_text(json.dumps(self.to_dict(), indent=2, sort_keys=True) + "\n")
-        md_path.write_text(self._to_markdown())
+        from each.attestation import attest_receipt
+
+        receipt_dict = self.to_dict()
+        receipt_dict["attestation"] = attest_receipt(receipt_dict)
+        json_path.write_text(json.dumps(receipt_dict, indent=2, sort_keys=True) + "\n")
+        md_path.write_text(self._to_markdown(receipt_dict["attestation"]))
         return json_path, md_path
 
-    def _to_markdown(self) -> str:
+    def _to_markdown(self, attestation: dict[str, Any]) -> str:
         materials_lines = [f"- `{path}`: `{digest}`" for path, digest in sorted(self.materials.items())]
         lines = [
             f"# EACH repair receipt — {self.run_id}",
@@ -156,5 +160,11 @@ class Receipt:
             "```diff",
             self.patch_text,
             "```",
+            "",
+            "## Attestation",
+            f"- Algorithm: {attestation.get('algorithm')}",
+            f"- Key fingerprint: `{attestation.get('keyFingerprint')}`",
+            "- Verify with: `each verify <this receipt.json> --public-key <path to the published EACH signing public key>`",
+            "- This signature proves artifact integrity (nothing in this receipt was altered after signing); it is NOT legal clean-room certification.",
         ]
         return "\n".join(lines) + "\n"

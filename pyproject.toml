@@ -6,7 +6,10 @@ readme = "README.md"
 license = { text = "Apache-2.0" }
 requires-python = ">=3.12"
 authors = [{ name = "Dragos Hont" }]
-dependencies = ["unidiff>=0.7"]
+dependencies = [
+    "cryptography>=50.0.2",
+    "unidiff>=0.7",
+]
 
 [project.optional-dependencies]
 # Local-model backends evaluated at M2. Deliberately optional: CI and the

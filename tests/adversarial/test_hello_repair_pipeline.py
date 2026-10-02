@@ -71,3 +71,32 @@ def test_hello_repair_rejects_malformed_model_completion(monkeypatch) -> None:
     monkeypatch.setattr(demo_module, "FixtureModel", lambda *_a, **_k: _BrokenModel())
     result = demo_module.run_hello_repair()
     assert result["outcome"].startswith("PATCH_REJECTED")
+
+
+@requires_colima_each
+def test_each_verify_cli_passes_on_a_real_unmodified_receipt_and_fails_on_a_tampered_copy(
+    tmp_path, monkeypatch
+) -> None:
+    """M5 end-to-end: `each verify` against a real receipt produced by the
+    real pipeline (not a hand-built fixture), proving the signing key that
+    was actually used to attest it, and that a real content mutation
+    (not a synthetic dict edit) is independently detected."""
+    monkeypatch.setenv("EACH_HOME", str(tmp_path / "each-home"))
+    import json
+
+    from each.cli import main
+
+    result = demo_module.run_hello_repair()
+    receipt_path = Path(result["receipt_json"])
+    assert receipt_path.exists()
+
+    exit_code = main(["verify", str(receipt_path)])
+    assert exit_code == 0
+
+    tampered_path = tmp_path / "tampered-receipt.json"
+    original = json.loads(receipt_path.read_text())
+    original["patchText"] = original["patchText"].replace("Hello", "Hellx")
+    tampered_path.write_text(json.dumps(original))
+
+    exit_code = main(["verify", str(tampered_path)])
+    assert exit_code == 1

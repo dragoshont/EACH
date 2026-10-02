@@ -120,6 +120,33 @@ def _cmd_spec_approve(args: argparse.Namespace) -> int:
     return 0
 
 
+def _cmd_verify(args: argparse.Namespace) -> int:
+    import json
+
+    from each.attestation import verify_receipt
+    from each.signing import public_key_path
+
+    receipt_path = Path(args.receipt_json)
+    try:
+        receipt = json.loads(receipt_path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as exc:
+        print(f"cannot read receipt: {exc}")
+        return 2
+
+    key_path = Path(args.public_key) if args.public_key else public_key_path()
+    try:
+        public_key_pem = key_path.read_bytes()
+    except OSError as exc:
+        print(f"cannot read public key: {exc}")
+        return 2
+
+    result = verify_receipt(receipt, public_key_pem)
+    print(f"verification: {result['status']}")
+    print(f"reason: {result['reason']}")
+    print("note: integrity/provenance verification is NOT legal clean-room certification.")
+    return 0 if result["status"] == "PASS" else 1
+
+
 def _cmd_doctor(_args: argparse.Namespace) -> int:
     checks = run_checks()
     width = max(len(check.name) for check in checks)
@@ -185,6 +212,15 @@ def build_parser() -> argparse.ArgumentParser:
     spec_approve.add_argument("task_id")
     spec_approve.add_argument("--human", required=True, help="approver identity (never read from issue/Scout text)")
     spec_approve.set_defaults(func=_cmd_spec_approve)
+
+    verify = subparsers.add_parser("verify", help="verify a receipt's integrity attestation (M5)")
+    verify.add_argument("receipt_json", help="path to a receipt.json file")
+    verify.add_argument(
+        "--public-key",
+        default=None,
+        help="path to the EACH signing public key PEM (default: ~/.each/keys/each-signing-ed25519-public.pem)",
+    )
+    verify.set_defaults(func=_cmd_verify)
 
     return parser
 
