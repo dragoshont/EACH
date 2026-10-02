@@ -35,11 +35,13 @@ from each.benchmark import BenchmarkExecutionError, fetch_file
 from each.demo import _DOCKER_LAUNCH_FAILURE_EXIT_CODES, _result_to_dict
 from each.executor.container import ContainerExecutor, derive_assurance_level
 from each.models.base import RepairModel
+from each.outcome import sanitize_outcome_class
 from each.patch import PatchRejected, apply_patch, extract_patch_text, parse_patch
-from each.paths import each_home, runs_dir
+from each.paths import each_home, runs_dir, validate_task_id
 from each.receipt import Receipt
 from each.spec import ApprovedSpec
-from each.worktree import build_worktree
+from each.worktree import build_worktree, verify_unchanged
+from each.xodus_policy import verify_xodus_shadow_binding
 
 HARNESS_ROOT = Path(__file__).resolve().parent.parent / "examples" / "xodus-m8-sandbox-id"
 HARNESS_FILES = ("build_check.py", "winstubs.h")
@@ -100,9 +102,22 @@ def _assemble_source_root(fetched_source: str, allowed_path: str, dest: Path) ->
     the exact relative layout the approved spec's build/acceptance commands
     expect. This is a host-side, pre-sealed-run materialization step (like
     M6's historical-task fetch), never performed inside the container.
+
+    ``allowed_path`` comes from an already hash-bound, durably approved
+    spec (see :func:`each.xodus_policy.verify_xodus_shadow_binding`), but a
+    write path is still independently contained here -- never simply
+    trusted -- before any host filesystem write happens.
     """
-    (dest / allowed_path).parent.mkdir(parents=True, exist_ok=True)
-    (dest / allowed_path).write_text(fetched_source, encoding="utf-8")
+    if allowed_path.startswith("/") or ".." in Path(allowed_path).parts:
+        raise ValueError(f"refusing to write forbidden/traversal path: {allowed_path}")
+    dest_resolved = dest.resolve()
+    target = (dest / allowed_path).resolve()
+    if target != dest_resolved and dest_resolved not in target.parents:
+        raise ValueError(f"resolved write target escapes destination root: {allowed_path}")
+    target.parent.mkdir(parents=True, exist_ok=True)
+    if target.is_symlink():
+        raise ValueError(f"refusing to write through symlink: {allowed_path}")
+    target.write_text(fetched_source, encoding="utf-8")
     harness_dest = dest / "examples" / "xodus-m8-sandbox-id"
     harness_dest.mkdir(parents=True, exist_ok=True)
     for name in HARNESS_FILES:
@@ -148,6 +163,7 @@ def run_xodus_shadow_build(
     deliberately source-free (outcome label + file paths only).
     """
     approved.verify()
+    verify_xodus_shadow_binding(approved)
     packet = approved.packet
     if len(packet.allowed_paths) != 1 or len(packet.build_commands) != 1 or len(packet.acceptance_commands) != 1:
         raise ValueError(
@@ -159,6 +175,7 @@ def run_xodus_shadow_build(
     acceptance_command = list(packet.acceptance_commands[0])
 
     run_id = run_id or f"xodus-shadow-{uuid.uuid4().hex[:8]}"
+    validate_task_id(run_id)
     if max_attempts < 1:
         raise ValueError(f"max_attempts must be >= 1, got {max_attempts}")
 
@@ -247,12 +264,23 @@ def run_xodus_shadow_build(
     final_patch_text = ""
     final_touched: list[str] = []
     final_repaired: dict[str, Any] = {}
-    final_raw_completion = ""
     final_audit = common_fields["audit"]
+    # The attempt whose patch/build/run fields are actually reported as the
+    # receipt's top-level trajectory. Resolved to the real classified
+    # attempt below -- never left to default to "whatever attempt happened
+    # to run last", which can silently diverge from it (e.g. attempt 1
+    # produces a classified-but-failing candidate, attempt 2 then retries
+    # and is itself rejected before ever reaching a classified build/run:
+    # the final patch/result must still be attempt 1's, not mixed with
+    # attempt 2's prompt/completion).
+    selected_attempt_record: dict[str, Any] | None = None
+    selected_worktree: Path | None = None
+    last_worktree: Path | None = None
 
     for attempt_num in range(1, max_attempts + 1):
         worktree, manifest = build_worktree(materialize_root, include_paths)
         final_materials = manifest
+        last_worktree = worktree
         raw_completion = model.complete(prompt)
         rendered_prompt = getattr(model, "last_prompt", None)
         attempt_record: dict[str, Any] = {
@@ -261,8 +289,8 @@ def run_xodus_shadow_build(
             "raw_completion": raw_completion,
             "materials": manifest,
             "baseline_result": final_baseline,
+            "model_identity": model.identity(),
         }
-        final_raw_completion = raw_completion
 
         try:
             patch_text = extract_patch_text(raw_completion)
@@ -284,13 +312,32 @@ def run_xodus_shadow_build(
             prompt = base_prompt + _RETRY_SUFFIX.format(reason="the previous patch could not be evaluated cleanly")
             continue
 
+        # Candidate-authored C runs with full read/write access to the same
+        # mount the harness scaffold files live in (see
+        # examples/xodus-m8-sandbox-id/build_check.py's docstring): a
+        # malicious/buggy candidate could in principle tamper with those
+        # scaffold files during its own build/run, not just its own patched
+        # file. Re-verify them against their build_worktree manifest
+        # immediately after execution, before any outcome can be
+        # REPAIR_VERIFIED, and conservatively downgrade on drift -- this is
+        # a narrow materials-integrity check, not a redefinition of the
+        # shared container assurance level.
+        harness_relative_paths = include_paths[1:]
+        materials_drift = verify_unchanged(worktree, manifest, harness_relative_paths)
+        attempt_record["materials_integrity"] = (
+            "PASS" if not materials_drift else f"FAIL: {len(materials_drift)} path(s) drifted"
+        )
+
         final_patch_text = patch_text
         final_touched = touched
         final_repaired = _result_to_dict(candidate_run) if test_verdict != "build_failed" else _result_to_dict(
             candidate_build
         )
-        outcome = "REPAIR_VERIFIED" if test_verdict == "passed" else "REPAIR_NOT_VERIFIED"
-        if test_verdict == "passed":
+        if materials_drift:
+            outcome = "REPAIR_NOT_VERIFIED"
+        else:
+            outcome = "REPAIR_VERIFIED" if test_verdict == "passed" else "REPAIR_NOT_VERIFIED"
+        if test_verdict == "passed" and not materials_drift:
             # Terminal audit only after generation/validation ends; no
             # proprietary/forbidden-source corpus exists for this task (the
             # approved spec's forbidden_sources are enforced by never
@@ -300,32 +347,63 @@ def run_xodus_shadow_build(
             if reject_on_audit_flag(final_audit):
                 outcome = "REPAIR_REJECTED_AUDIT"
 
-        attempt_record["outcome"] = (
-            outcome if test_verdict != "build_failed" else f"BUILD_FAILED: {_result_to_dict(candidate_build)}"
-        )
+        if test_verdict == "build_failed":
+            # The raw build-failure diagnostics (compiler stdout/stderr,
+            # which routinely echoes verbatim fragments of the candidate's
+            # own source around each error) are kept in their own private
+            # field, never embedded in the outcome label itself -- this
+            # label is a bounded class that crosses into
+            # ``run_xodus_shadow_build``'s own documented source-free
+            # return value and into ``summarize_receipt``.
+            attempt_record["outcome"] = "BUILD_FAILED"
+            attempt_record["build_failure_result"] = _result_to_dict(candidate_build)
+        else:
+            attempt_record["outcome"] = outcome
         attempts.append(attempt_record)
-        final_outcome = outcome
+        final_outcome = attempt_record["outcome"]
+        selected_attempt_record = attempt_record
+        selected_worktree = worktree
 
         if outcome in {"REPAIR_VERIFIED", "REPAIR_REJECTED_AUDIT"}:
             break
-        reason = "patch applied but did not compile" if test_verdict == "build_failed" else (
-            "patch applied and compiled but did not fix the reported bug"
-        )
+        if materials_drift:
+            reason = "patch applied but the validation harness scaffold was altered during execution"
+        else:
+            reason = "patch applied but did not compile" if test_verdict == "build_failed" else (
+                "patch applied and compiled but did not fix the reported bug"
+            )
         prompt = base_prompt + _RETRY_SUFFIX.format(reason=reason)
 
     if final_outcome is None:
         # Every attempt was exhausted on a PATCH_REJECTED/EXECUTION_ERROR
         # retry without ever reaching a classified candidate run: the honest
-        # final outcome is that last attempt's own recorded outcome (e.g.
-        # "PATCH_REJECTED: ..."), never a silent "REPAIR_NOT_VERIFIED" that
+        # final outcome is that last attempt's own recorded outcome class
+        # (e.g. "PATCH_REJECTED"), never a silent "REPAIR_NOT_VERIFIED" that
         # would misrepresent a never-applied patch as one that was applied,
-        # built, run, and simply failed to verify.
-        final_outcome = attempts[-1]["outcome"] if attempts else "REPAIR_NOT_VERIFIED"
+        # built, run, and simply failed to verify. Sanitized through the
+        # same bounded-class whitelist a source-free export uses, since
+        # this value crosses into this function's own documented
+        # source-free return value.
+        final_outcome = sanitize_outcome_class(attempts[-1]["outcome"]) if attempts else "REPAIR_NOT_VERIFIED"
 
-    common_fields["raw_completion"] = final_raw_completion
-    if attempts:
-        common_fields["prompt"] = attempts[-1]["prompt"]
+    # The trajectory fields (prompt/raw_completion/model_identity) must
+    # describe the SAME attempt the patch/result fields above came from --
+    # ``selected_attempt_record`` is that one classified attempt, not
+    # whichever attempt merely happened to run last (a later retry can be
+    # rejected before classification while an earlier attempt's real,
+    # if failing, result remains the reported one).
+    reported_attempt = selected_attempt_record or (attempts[-1] if attempts else None)
+    reported_worktree = selected_worktree if selected_attempt_record is not None else last_worktree
+    if reported_attempt is not None:
+        common_fields["prompt"] = reported_attempt["prompt"]
+        common_fields["raw_completion"] = reported_attempt["raw_completion"]
+        # Refresh the receipt's top-level model identity from the actual
+        # reported attempt's own post-inference snapshot: the identity
+        # captured in common_fields above was taken before the first
+        # model.complete() call, so its lastInputTokenCount is always null.
+        common_fields["model_identity"] = reported_attempt["model_identity"]
     common_fields["audit"] = final_audit
+    common_fields["selected_attempt"] = reported_attempt["attempt"] if reported_attempt is not None else None
     receipt = Receipt(
         patch_text=final_patch_text,
         touched_paths=final_touched,
@@ -336,7 +414,7 @@ def run_xodus_shadow_build(
         attempts=attempts,
         **common_fields,
     )
-    json_path, md_path = receipt.write(runs_dir() / run_id)
+    json_path, md_path = receipt.write(runs_dir() / run_id, materials_source=reported_worktree)
     return {
         "outcome": final_outcome,
         "receipt_json": str(json_path),
@@ -358,7 +436,7 @@ def summarize_receipt(receipt_json_path: str | Path) -> dict[str, Any]:
     return {
         "runId": data["runId"],
         "createdAt": data["createdAt"],
-        "outcome": data["outcome"],
+        "outcome": sanitize_outcome_class(data["outcome"]),
         "assuranceLevel": data["assuranceLevel"],
         "specHash": data["specHash"],
         "patchHash": data["patchHash"],
@@ -389,6 +467,7 @@ def summarize_receipt(receipt_json_path: str | Path) -> dict[str, Any]:
             },
         },
         "attemptCount": len(data.get("attempts", [])),
-        "attemptOutcomes": [a.get("outcome", "").split(":")[0] for a in data.get("attempts", [])],
+        "attemptOutcomes": [sanitize_outcome_class(a.get("outcome", "")) for a in data.get("attempts", [])],
+        "selectedAttempt": data.get("selectedAttempt"),
         "materialsManifest": data.get("materials", {}),
     }

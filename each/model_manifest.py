@@ -70,6 +70,32 @@ class ModelManifest:
         return f"{self.repo_id}@{self.revision}#sha256:{folded}"
 
 
+def verify_snapshot_matches(snapshot_dir: Path, manifest: ModelManifest) -> list[str]:
+    """Re-hash every file ``manifest.files_sha256`` declares and compare
+    against ``snapshot_dir``'s real, current on-disk bytes.
+
+    Returns the empty list if every declared file still exists with its
+    originally recorded hash. Otherwise returns a sorted list of
+    ``"<relative path>: <reason>"`` drift descriptions (missing file or hash
+    mismatch) -- never raises itself, so a caller can log/record the exact
+    drift before refusing to load. This closes the gap where a lazily
+    loaded backend (e.g. ``MLXRepairModel._ensure_loaded``) would otherwise
+    trust whatever bytes happen to be on disk at load time, never
+    re-checking them against the manifest hashes a receipt actually claims.
+    """
+    snapshot_dir = snapshot_dir.resolve()
+    drift: list[str] = []
+    for relative_path, expected_hash in sorted(manifest.files_sha256.items()):
+        candidate = snapshot_dir / relative_path
+        if not candidate.is_file():
+            drift.append(f"{relative_path}: missing")
+            continue
+        actual_hash = _sha256_file(candidate)
+        if actual_hash != expected_hash:
+            drift.append(f"{relative_path}: hash mismatch (expected {expected_hash}, got {actual_hash})")
+    return drift
+
+
 def build_manifest_from_snapshot(
     snapshot_dir: Path,
     *,

@@ -25,6 +25,7 @@ from __future__ import annotations
 import json
 import shutil
 import subprocess
+import uuid
 from pathlib import Path
 
 import pytest
@@ -32,6 +33,7 @@ import pytest
 import each.xodus_shadow as xodus_shadow_module
 from each.models.fixture import FixtureModel
 from each.spec import ApprovedSpec, make_spec_packet
+from each.spec_workflow import specs_dir
 from each.xodus_shadow import run_xodus_shadow_build, summarize_receipt
 from tests.adversarial._docker_guard import requires_colima_each
 
@@ -62,6 +64,16 @@ requires_m8_native_image = pytest.mark.skipif(
 
 
 def _approve_selftest_spec(task_id: str) -> ApprovedSpec:
+    """Build and approve a self-test spec, durably recording its approval
+    at the exact path :func:`each.xodus_policy.verify_xodus_shadow_binding`
+    reads (``~/.each/specs/<task_id>/approved.json``) -- a plain in-memory
+    ``ApprovedSpec.approve(...)`` is no longer sufficient to run the real
+    pipeline, by design (F2): it must be a genuine, durably recorded
+    approval, not a caller-constructed object nothing else ever sees.
+    ``sensitive=True`` is required because this self-test's own
+    ``target_repo`` is one of ``policies/xodus-shadow.yml``'s declared
+    strict-run repositories.
+    """
     packet = make_spec_packet(
         task_id=task_id,
         target_repo="https://github.com/xodus-gaming/xgameruntime",
@@ -72,8 +84,14 @@ def _approve_selftest_spec(task_id: str) -> ApprovedSpec:
         acceptance_commands=[["python3", "examples/xodus-m8-sandbox-id/build_check.py", "run"]],
         forbidden_sources=["proprietary-implementation", "decompiler-output", "disassembly", "unauthorized-runtime-trace"],
         approved_by="harness-selftest",
+        sensitive=True,
     )
-    return ApprovedSpec.approve(packet)
+    approved = ApprovedSpec.approve(packet)
+    task_dir = specs_dir() / task_id
+    task_dir.mkdir(parents=True, exist_ok=True)
+    approved_path = task_dir / "approved.json"
+    approved_path.write_text(json.dumps(approved.to_dict(), indent=2, sort_keys=True) + "\n", encoding="utf-8")
+    return approved
 
 
 @requires_colima_each
@@ -83,7 +101,7 @@ def test_fixture_model_candidate_is_verified_and_signed(tmp_path, monkeypatch) -
     approved = _approve_selftest_spec("test-xodus-shadow-harness-selftest")
     model = FixtureModel(_CORRECT_PATCH, model_id="fixture/xodus-shadow-selftest-v1")
 
-    result = run_xodus_shadow_build(model, approved, max_attempts=1, run_id=f"selftest-{tmp_path.name}")
+    result = run_xodus_shadow_build(model, approved, max_attempts=1, run_id=f"selftest-{tmp_path.name}-{uuid.uuid4().hex[:8]}")
 
     assert result["outcome"] == "REPAIR_VERIFIED"
     assert result["attempts"] == 1
@@ -115,7 +133,7 @@ def test_xodus_shadow_fails_closed_when_isolation_cannot_be_verified(tmp_path, m
     approved = _approve_selftest_spec("test-xodus-shadow-isolation-fail-closed")
     model = FixtureModel(_CORRECT_PATCH, model_id="fixture/xodus-shadow-selftest-v1")
 
-    result = run_xodus_shadow_build(model, approved, max_attempts=3, run_id=f"selftest-iso-{tmp_path.name}")
+    result = run_xodus_shadow_build(model, approved, max_attempts=3, run_id=f"selftest-iso-{tmp_path.name}-{uuid.uuid4().hex[:8]}")
 
     assert result["outcome"] == "ISOLATION_UNVERIFIED"
     assert result["attempts"] == 0
@@ -154,7 +172,7 @@ def test_xodus_shadow_audit_match_is_terminal_without_builder_feedback(tmp_path,
     approved = _approve_selftest_spec("test-xodus-shadow-audit-terminal")
     model = CapturingModel(_CORRECT_PATCH, model_id="fixture/xodus-shadow-selftest-v1")
 
-    result = run_xodus_shadow_build(model, approved, max_attempts=3, run_id=f"selftest-audit-{tmp_path.name}")
+    result = run_xodus_shadow_build(model, approved, max_attempts=3, run_id=f"selftest-audit-{tmp_path.name}-{uuid.uuid4().hex[:8]}")
 
     assert result["outcome"] == "REPAIR_REJECTED_AUDIT"
     assert result["attempts"] == len(calls) == 1
@@ -184,7 +202,7 @@ def test_xodus_shadow_baseline_must_genuinely_reproduce_the_bug(tmp_path, monkey
     from each.benchmark import BenchmarkExecutionError
 
     with pytest.raises(BenchmarkExecutionError):
-        run_xodus_shadow_build(model, approved, max_attempts=1, run_id=f"selftest-baseline-{tmp_path.name}")
+        run_xodus_shadow_build(model, approved, max_attempts=1, run_id=f"selftest-baseline-{tmp_path.name}-{uuid.uuid4().hex[:8]}")
 
 
 @requires_colima_each
@@ -201,7 +219,7 @@ def test_exhausting_all_attempts_on_a_rejected_patch_reports_that_real_outcome_n
     approved = _approve_selftest_spec("test-xodus-shadow-all-attempts-rejected")
     model = FixtureModel("this completion has no patch markers at all", model_id="fixture/xodus-shadow-selftest-v1")
 
-    result = run_xodus_shadow_build(model, approved, max_attempts=2, run_id=f"selftest-rejected-{tmp_path.name}")
+    result = run_xodus_shadow_build(model, approved, max_attempts=2, run_id=f"selftest-rejected-{tmp_path.name}-{uuid.uuid4().hex[:8]}")
 
     assert result["outcome"].startswith("PATCH_REJECTED")
     assert result["outcome"] != "REPAIR_NOT_VERIFIED"

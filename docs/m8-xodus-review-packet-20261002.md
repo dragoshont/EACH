@@ -24,9 +24,11 @@ A single, bounded EACH repair run against a public open-source target:
 - **Public issue:** [xgameruntime#22](https://github.com/xodus-gaming/xgameruntime/issues/22)
   — `XSystemGetXboxLiveSandboxId` returns `E_POINTER` when its documented
   *optional* `sandboxIdUsed` output parameter is NULL, breaking real,
-  commercially shipped Game Pass titles (reporter traced 9 of 10 titles
-  calling it with `sandboxIdUsed = NULL` during startup; Balatro and DREDGE
-  both fail to proceed).
+  commercially shipped Game Pass titles (the issue reporter's own traced
+  game list and failure claims -- "9 of 10 titles calling it with
+  `sandboxIdUsed = NULL` during startup; Balatro and DREDGE both fail to
+  proceed" -- are third-party reports from the public issue text, not
+  independently reproduced or verified by EACH).
 - **Independently confirmed against public Microsoft GDK docs** (fetched
   live, see `docs/m8-xodus-policy-pin-20261002.md`): `sandboxIdUsed` is
   documented `_Out_opt_` (optional); `sandboxId` is documented

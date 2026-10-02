@@ -1,0 +1,15 @@
+BEGIN_PATCH
+--- a/shadow/m7/clean_room_lru_cache.py
++++ b/shadow/m7/clean_room_lru_cache.py
+@@ -16,3 +16,7 @@
+-def lru_cache_clean_room(maxsize: int | None = 128, typed: bool = False):
+-    """See the approved EACH M7 spec for the complete required behavior."""
+-    raise NotImplementedError("lru_cache_clean_room: not yet implemented (EACH M7 Builder target)")
++def lru_cache_clean_room(maxsize: int | None = 128, typed: bool = False):
++    """Deliberately incomplete stand-in used only to exercise a
++    classifiable-but-failing (REPAIR_NOT_VERIFIED) attempt in a harness
++    self-test; it applies cleanly but does not actually cache anything."""
++    def decorator(func):
++        return func
++    return decorator
+END_PATCH

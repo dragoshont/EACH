@@ -14,6 +14,7 @@ skipped, not silently passed, when that daemon is unreachable.
 from __future__ import annotations
 
 import json
+import uuid
 from pathlib import Path
 
 import each.clean_room as clean_room_module
@@ -27,6 +28,13 @@ from tests.adversarial._docker_guard import requires_colima_each
 # to pass all 9 real acceptance tests, outside any container, before being
 # wired into this harness self-test) -- not the actual M7 Builder output.
 _CORRECT_PATCH = (Path(__file__).parent / "data" / "clean_room_selftest_patch.txt").read_text()
+
+# Applies cleanly (so the attempt is classifiable) but does not actually
+# implement caching, so the repaired-test run still fails -- used only to
+# exercise the F6 trajectory-consistency fix below.
+_APPLIES_BUT_FAILS_PATCH = (
+    Path(__file__).parent / "data" / "clean_room_selftest_patch_applies_but_fails_tests.txt"
+).read_text()
 
 
 def _approve_selftest_spec(task_id: str) -> ApprovedSpec:
@@ -49,7 +57,7 @@ def test_fixture_model_candidate_is_verified_and_signed(tmp_path) -> None:
     approved = _approve_selftest_spec("test-clean-room-harness-selftest")
     model = FixtureModel(_CORRECT_PATCH, model_id="fixture/clean-room-selftest-v1")
 
-    result = run_clean_room_build(model, approved, max_attempts=1, run_id=f"selftest-{tmp_path.name}")
+    result = run_clean_room_build(model, approved, max_attempts=1, run_id=f"selftest-{tmp_path.name}-{uuid.uuid4().hex[:8]}")
 
     assert result["outcome"] == "REPAIR_VERIFIED"
     assert result["attempts"] == 1
@@ -74,7 +82,7 @@ def test_clean_room_fails_closed_when_isolation_cannot_be_verified(tmp_path, mon
     approved = _approve_selftest_spec("test-clean-room-isolation-fail-closed")
     model = FixtureModel(_CORRECT_PATCH, model_id="fixture/clean-room-selftest-v1")
 
-    result = run_clean_room_build(model, approved, max_attempts=3, run_id=f"selftest-iso-{tmp_path.name}")
+    result = run_clean_room_build(model, approved, max_attempts=3, run_id=f"selftest-iso-{tmp_path.name}-{uuid.uuid4().hex[:8]}")
 
     assert result["outcome"] == "ISOLATION_UNVERIFIED"
     assert result["attempts"] == 0
@@ -111,7 +119,7 @@ def test_clean_room_audit_match_is_terminal_without_builder_feedback(tmp_path, m
     approved = _approve_selftest_spec("test-clean-room-audit-terminal")
     model = CapturingModel(_CORRECT_PATCH, model_id="fixture/clean-room-selftest-v1")
 
-    result = run_clean_room_build(model, approved, max_attempts=3, run_id=f"selftest-audit-{tmp_path.name}")
+    result = run_clean_room_build(model, approved, max_attempts=3, run_id=f"selftest-audit-{tmp_path.name}-{uuid.uuid4().hex[:8]}")
 
     assert result["outcome"] == "REPAIR_REJECTED_AUDIT"
     assert result["attempts"] == len(calls) == 1
@@ -133,7 +141,7 @@ def test_exhausting_all_attempts_on_a_rejected_patch_reports_that_real_outcome_n
     approved = _approve_selftest_spec("test-clean-room-all-attempts-rejected")
     model = FixtureModel("this completion has no patch markers at all", model_id="fixture/clean-room-selftest-v1")
 
-    result = run_clean_room_build(model, approved, max_attempts=2, run_id=f"selftest-rejected-{tmp_path.name}")
+    result = run_clean_room_build(model, approved, max_attempts=2, run_id=f"selftest-rejected-{tmp_path.name}-{uuid.uuid4().hex[:8]}")
 
     assert result["outcome"].startswith("PATCH_REJECTED")
     assert result["outcome"] != "REPAIR_NOT_VERIFIED"
@@ -141,4 +149,44 @@ def test_exhausting_all_attempts_on_a_rejected_patch_reports_that_real_outcome_n
     assert receipt["outcome"].startswith("PATCH_REJECTED")
     assert len(receipt["attempts"]) == 2
     assert all(a["outcome"].startswith("PATCH_REJECTED") for a in receipt["attempts"])
+
+
+@requires_colima_each
+def test_a_later_rejected_retry_never_overwrites_an_earlier_classified_attempts_trajectory(tmp_path) -> None:
+    """F6 regression: attempt 1 applies cleanly and is classified
+    (REPAIR_NOT_VERIFIED); attempt 2's completion has no patch markers at
+    all and is PATCH_REJECTED. The receipt's top-level prompt/raw_completion
+    /selectedAttempt must still describe attempt 1 -- the real classified
+    attempt -- never silently shift to describe the later rejected retry
+    just because it ran last."""
+
+    class SequenceModel(FixtureModel):
+        def __init__(self, responses: list[str], model_id: str) -> None:
+            super().__init__(responses[0], model_id=model_id)
+            self._responses = responses
+            self._call_count = 0
+
+        def complete(self, prompt: str) -> str:
+            response = self._responses[self._call_count]
+            self._call_count += 1
+            self.last_prompt = prompt
+            return response
+
+    model = SequenceModel(
+        [_APPLIES_BUT_FAILS_PATCH, "this completion has no patch markers at all"],
+        model_id="fixture/clean-room-selftest-sequence-v1",
+    )
+    approved = _approve_selftest_spec("test-clean-room-trajectory-consistency")
+
+    result = run_clean_room_build(model, approved, max_attempts=2, run_id=f"selftest-traj-{tmp_path.name}-{uuid.uuid4().hex[:8]}")
+
+    assert result["outcome"] == "REPAIR_NOT_VERIFIED"
+    assert result["attempts"] == 2
+    receipt = json.loads(Path(result["receipt_json"]).read_text())
+    assert len(receipt["attempts"]) == 2
+    assert receipt["attempts"][0]["outcome"] == "REPAIR_NOT_VERIFIED"
+    assert receipt["attempts"][1]["outcome"].startswith("PATCH_REJECTED")
+    assert receipt["selectedAttempt"] == 1
+    assert receipt["rawCompletion"] == _APPLIES_BUT_FAILS_PATCH
+    assert "no patch markers at all" not in receipt["rawCompletion"]
 

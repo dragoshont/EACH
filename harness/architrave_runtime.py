@@ -1288,6 +1288,15 @@ class RunStore:
         """
         if actor != "coordinator" and not actor.startswith("human:"):
             raise RuntimeFailure("UNTRUSTED_RESOLUTION", "attempt grant requires a human or coordinator actor")
+        # NOTE (F7, documentation-only): this is a plain string-prefix check with no
+        # cryptographic or external proof binding the caller to the claimed identity --
+        # this runtime's security boundary is "the local CLI/caller invoking it is already
+        # the single trusted operator", the same boundary every other local mutation in this
+        # module relies on. It is not, and is not intended to be, protection against an
+        # untrusted multi-tenant caller forging an `actor` string. If this runtime is ever
+        # exposed to a caller that is not already fully trusted, this check (and every other
+        # `actor=` parameter in this file) needs real authentication, not a bigger version of
+        # this same string check.
         if not reason.strip():
             raise RuntimeFailure("INVALID_REASON", "attempt grant requires a non-empty reason")
 
@@ -1676,6 +1685,13 @@ class RunStore:
                     "startedAt": now,
                     "finishedAt": now,
                     "evidenceRefs": list(dict.fromkeys(evidence_refs)),
+                    # The exact source snapshot this gate's evidence was
+                    # produced against. A later source-changing commit
+                    # (``resume(accept_commit=True)``) must not let an
+                    # earlier gate recorded against a now-superseded
+                    # commit keep being read as current proof -- see the
+                    # matching filter in ``missing_gate_requirements``.
+                    "sourceCommit": state["baseline"].get("commit"),
                 }
             )
             append_checkpoint(state, task_id, "GATE_COMPLETION")
@@ -2681,7 +2697,15 @@ def missing_gate_requirements(state: dict[str, Any], criteria: Sequence[dict[str
         passed = [
             gate
             for gate in state["gateResults"]
-            if gate["status"] == "PASS" and criterion["id"] in gate["criteria"]
+            if gate["status"] == "PASS"
+            and criterion["id"] in gate["criteria"]
+            # A gate recorded against an earlier source commit is stale
+            # proof once the baseline has moved on (``resume(accept_commit=
+            # True)``): it must not keep satisfying a requirement for the
+            # current, different source snapshot. Gates recorded before
+            # this field existed have no ``sourceCommit`` and are treated
+            # as already-stale (never silently trusted as current).
+            and gate.get("sourceCommit") == state["baseline"].get("commit")
         ]
         capabilities: set[str] = {gate["type"] for gate in passed}
         if any(gate["type"] == "semantic" for gate in passed):

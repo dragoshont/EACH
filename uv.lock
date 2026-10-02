@@ -280,6 +280,7 @@ version = "0.1.0"
 source = { editable = "." }
 dependencies = [
     { name = "cryptography" },
+    { name = "pyyaml" },
     { name = "unidiff" },
 ]
 
@@ -306,6 +307,7 @@ requires-dist = [
     { name = "cryptography", specifier = ">=50.0.2" },
     { name = "huggingface-hub", marker = "extra == 'models'", specifier = ">=0.24" },
     { name = "mlx-lm", marker = "extra == 'models'", specifier = ">=0.19" },
+    { name = "pyyaml", specifier = ">=6.0" },
     { name = "torch", marker = "extra == 'models'", specifier = ">=2.4" },
     { name = "transformers", marker = "extra == 'models'", specifier = ">=4.44" },
     { name = "tree-sitter", marker = "extra == 'audit'", specifier = ">=0.26.0" },

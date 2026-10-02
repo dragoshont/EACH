@@ -9,6 +9,7 @@ authors = [{ name = "Dragos Hont" }]
 dependencies = [
     "cryptography>=50.0.2",
     "unidiff>=0.7",
+    "pyyaml>=6.0",
 ]
 
 [project.optional-dependencies]

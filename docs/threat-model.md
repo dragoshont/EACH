@@ -222,6 +222,13 @@ isolation ("native host execution is not a strong-profile proxy").
   signal about the checkpoint's current repair capability on this task
   distribution, not evidence of a harness defect (the same diff-blind
   excerpter supplies consistent context regardless of outcome).
+  **Note (added after M7):** this describes the M6 extractor's behavior at
+  the time of that specific benchmark run only. `each.patch.extract_patch_text`
+  was later extended with a fenced-unified-diff fallback (a completion
+  using a plain ```` ``` ```` code fence instead of explicit
+  `BEGIN_PATCH`/`END_PATCH` markers is now also accepted) -- the M6 reports
+  above are not re-run against this capability and should not be read as
+  current evidence of the harness's present extraction behavior.
 
 ## Known limitations as of M7
 
@@ -249,3 +256,98 @@ isolation ("native host execution is not a strong-profile proxy").
   happy path, wrong-principal rejection, untrusted-producer rejection, an
   already-resolved checkpoint, stale-token invalidation after reissue,
   untrusted-actor rejection, and event-log/hash-chain integrity.
+
+## Corrections from an independent adversarial review (post-M7/M8 real-receipt stage)
+
+An independent GPT-family adversarial review of the real M7/M8
+`REPAIR_NOT_VERIFIED`/`PATCH_REJECTED` receipt evidence found and this
+consolidated commit fixed:
+
+- **Source-free export leakage.** `each.xodus_shadow.run_xodus_shadow_build`'s
+  per-attempt `BUILD_FAILED` handling previously embedded the raw compiler
+  stdout/stderr diagnostic (which can echo candidate-source fragments)
+  directly into the attempt's `outcome` string, and
+  `summarize_receipt`/the function's own top-level return value derived
+  `outcome` fields from that same unbounded string. Fixed by introducing a
+  shared `each.outcome.sanitize_outcome_class` whitelist: every
+  outcome/attempt-outcome value crossing a documented source-free boundary
+  (the function's own return value, `summarize_receipt`'s export) is now
+  reduced to one of a fixed, reviewed label set; the raw diagnostic is kept
+  only in a dedicated private `attempt_record["build_failure_result"]`
+  field inside the receipt. Mirrored into `each.clean_room`.
+- **Unenforced strict-run policy.** `policies/xodus-shadow.yml` previously
+  existed only as documentation -- nothing loaded or checked it, and
+  nothing bound a caller-supplied `ApprovedSpec` to the genuine, durably
+  recorded human approval in `~/.each/specs/<task_id>/approved.json`,
+  meaning a caller could in principle construct and self-approve a spoofed
+  spec. Fixed with `each.xodus_policy.verify_xodus_shadow_binding`, called
+  immediately after `approved.verify()` and before any network fetch,
+  container execution, or disk write: it re-reads the real durable approval
+  via the existing M3 `load_approved_spec` workflow function (never a new
+  approval mechanism) and, for a declared `strict_run_repositories` target,
+  requires `sensitive=True` plus the policy YAML's own required clauses
+  (`ai_source_upstream_promotion: false`, `cloud_llm_candidate_review:
+  false`, `no_upstream_pr: true`, `default_visibility: private`).
+- **Write-path containment.** `each.xodus_shadow._assemble_source_root` now
+  independently validates `allowed_path` (traversal/absolute-path/symlink,
+  resolved-containment against its destination) before any host write, even
+  though that path already comes from a hash-bound approved spec --
+  defense in depth, not trust-by-provenance alone. `run_id` is validated
+  with the existing `each.paths.validate_task_id` in both
+  `run_xodus_shadow_build` and `run_clean_room_build` before it becomes a
+  directory name. `Receipt.write()` now refuses to write inside this
+  repository's own working tree and refuses to overwrite an
+  already-written receipt (a receipt is immutable; a retried run gets a new
+  `run_id`, never an in-place rewrite).
+- **Assurance derived from network isolation alone.** The shared
+  `EACH-P2` assurance level was derived only from the container's
+  pinned-image/no-network/root-probe evidence, with no check that the
+  validation harness scaffold itself (the files a candidate's own build/run
+  step executes alongside, which that step has read-write access to) was
+  left unmodified. `each.worktree.verify_unchanged` re-hashes the
+  harness-owned paths in a worktree against the original `build_worktree`
+  manifest after each candidate build/run; `each.xodus_shadow` and
+  `each.clean_room` now both conservatively downgrade an otherwise-passing
+  attempt to `REPAIR_NOT_VERIFIED` (never `REPAIR_VERIFIED`) if that
+  check detects drift, and record the check's own pass/fail status per
+  attempt. This is a narrow, scoped materials-integrity check, not a
+  redefinition of `derive_assurance_level`'s own broader isolation
+  evidence.
+- **Declaration-only artifact integrity.** `each.attestation`'s signature
+  previously only hashed a receipt's own *declared* JSON fields (e.g. the
+  `materials` path-to-hash mapping itself), never the real files those
+  hashes claim to describe -- deleting or mutating a referenced file left
+  the signature verification passing. `Receipt.write()` can now also copy
+  the exact files the selected attempt's worktree declared under
+  `materials` into a `materials/` subdirectory next to the receipt (with
+  the same traversal/escape containment as every other write path here);
+  this is additive, source-free declaration-signature verification
+  remains valid for every receipt that predates this change.
+- **Trajectory-attempt mixing.** Both `each.xodus_shadow` and
+  `each.clean_room` previously updated the receipt's top-level
+  `prompt`/`raw_completion`/`model_identity` fields unconditionally from
+  whichever attempt merely ran *last*, independent of which attempt's own
+  `patch_text`/`baseline_result`/`repaired_result` were actually reported
+  (a later retry rejected before classification could silently pair its
+  own prompt/completion with an earlier attempt's real, if failing,
+  result). Both pipelines now track the one classified
+  `selected_attempt_record` explicitly and resolve every top-level
+  trajectory field from it consistently; `Receipt` gained a
+  `selected_attempt` field recording which attempt number is reported.
+- **Gate staleness across a source-changing `resume`.** A deterministic/
+  semantic/reality gate recorded in `harness/architrave_runtime.py`
+  (third-party Architrave kit) had no binding to the exact source commit
+  its evidence was produced against; `resume(accept_commit=True)` could
+  change the canonical baseline commit while leaving earlier-commit gate
+  PASS results readable as still-current proof. `record_gate` now stamps
+  each gate with `sourceCommit` (the baseline commit at record time), and
+  `missing_gate_requirements` only counts a PASS gate toward a
+  requirement when its `sourceCommit` matches the Run's current baseline
+  commit -- a gate recorded against a superseded commit becomes a missing
+  requirement again, by design, rather than quietly staying trusted.
+  `grant_task_attempt`'s `actor` parameter remains a plain string check
+  (`"coordinator"` or a `"human:"` prefix) with no cryptographic/external
+  proof binding; this is now explicitly documented as relying on the same
+  "the local caller is already the single trusted operator" boundary every
+  other `actor=` parameter in that module relies on, not a claim of
+  real authentication.

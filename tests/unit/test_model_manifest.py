@@ -6,7 +6,7 @@ from pathlib import Path
 import pytest
 
 from each.hashing import sha256_file
-from each.model_manifest import ModelManifest, build_manifest_from_snapshot
+from each.model_manifest import ModelManifest, build_manifest_from_snapshot, verify_snapshot_matches
 
 
 def _snapshot(tmp_path: Path) -> Path:
@@ -67,3 +67,28 @@ def test_missing_max_position_embeddings_is_recorded_honestly_as_none(tmp_path: 
     manifest = _manifest(root)
     assert manifest.max_position_embeddings is None
     assert manifest.to_dict()["maxPositionEmbeddings"] is None
+
+
+def test_verify_snapshot_matches_reports_no_drift_for_untouched_snapshot(tmp_path: Path) -> None:
+    root = _snapshot(tmp_path)
+    manifest = _manifest(root)
+    assert verify_snapshot_matches(root, manifest) == []
+
+
+def test_verify_snapshot_matches_detects_weight_file_mutation(tmp_path: Path) -> None:
+    """F6: a provisioning root must be treated as read-only -- a snapshot
+    whose weight bytes changed after the manifest was built must never be
+    silently loaded as if it still matched that manifest."""
+    root = _snapshot(tmp_path)
+    manifest = _manifest(root)
+    root.joinpath("model.safetensors").write_bytes(b"mutated weights")
+    drift = verify_snapshot_matches(root, manifest)
+    assert any("model.safetensors" in entry and "hash mismatch" in entry for entry in drift)
+
+
+def test_verify_snapshot_matches_detects_missing_file(tmp_path: Path) -> None:
+    root = _snapshot(tmp_path)
+    manifest = _manifest(root)
+    root.joinpath("tokenizer.json").unlink()
+    drift = verify_snapshot_matches(root, manifest)
+    assert any("tokenizer.json" in entry and "missing" in entry for entry in drift)

@@ -5,12 +5,14 @@ of a single repair-run trajectory, including every supplied input.
 from __future__ import annotations
 
 import json
+import shutil
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
 from each.hashing import sha256_text
+from each.paths import repo_root
 
 
 def _audit_markdown_lines(audit: dict[str, Any]) -> list[str]:
@@ -56,6 +58,13 @@ class Receipt:
     legal_certification: bool = False
     cleanroom_certification: bool = False
     attempts: list[dict[str, Any]] = field(default_factory=list)
+    # Which attempt's own prompt/raw_completion/model_identity the
+    # top-level fields above actually came from (F6 fix): a later retry
+    # can be rejected before classification while an earlier attempt's
+    # real, if failing, patch/result remains the one reported -- this
+    # makes that binding explicit and checkable instead of leaving a
+    # reader to assume it is always the last attempt in ``attempts``.
+    selected_attempt: int | None = None
 
     @property
     def patch_hash(self) -> str:
@@ -90,13 +99,53 @@ class Receipt:
             "legalCertification": self.legal_certification,
             "cleanroomCertification": self.cleanroom_certification,
             "attempts": self.attempts,
+            "selectedAttempt": self.selected_attempt,
         }
 
-    def write(self, directory: Path) -> tuple[Path, Path]:
+    def write(self, directory: Path, *, materials_source: Path | None = None) -> tuple[Path, Path]:
+        """Write ``receipt.json``/``receipt.md`` under ``directory``.
+
+        ``directory`` must not resolve inside this repository's own working
+        tree (:func:`each.paths.repo_root`) -- a receipt is always private
+        evidence and must never land somewhere a later ``git add`` could
+        accidentally publish it -- and must not already hold a receipt (a
+        receipt is immutable once written; a run that needs to retry gets a
+        new ``run_id``/directory, never an in-place overwrite of registered
+        evidence).
+
+        If ``materials_source`` is given, every path this receipt declares
+        under ``materials`` is additionally copied, byte-for-byte, from
+        ``materials_source`` into a new ``materials/`` subdirectory next to
+        the receipt, so a later verifier can check the real referenced
+        files still exist and still match their declared hash -- not just
+        that the receipt's own JSON is internally self-consistent (see
+        :func:`each.attestation.verify_artifact_root`).
+        """
+        repo_root_resolved = repo_root().resolve()
+        directory_resolved = directory.resolve()
+        if directory_resolved == repo_root_resolved or repo_root_resolved in directory_resolved.parents:
+            raise ValueError(f"refusing to write a receipt inside the repository working tree: {directory}")
         directory.mkdir(parents=True, exist_ok=True)
         json_path = directory / "receipt.json"
         md_path = directory / "receipt.md"
+        if json_path.exists() or md_path.exists():
+            raise FileExistsError(f"refusing to overwrite an already-written receipt at {directory}")
         from each.attestation import attest_receipt
+
+        if materials_source is not None:
+            materials_root = directory / "materials"
+            source_resolved = materials_source.resolve()
+            for rel_path in sorted(self.materials):
+                if rel_path.startswith("/") or ".." in Path(rel_path).parts:
+                    raise ValueError(f"refusing to copy forbidden/traversal materials path: {rel_path}")
+                src = (materials_source / rel_path).resolve()
+                if src != source_resolved and source_resolved not in src.parents:
+                    raise ValueError(f"materials source path escapes its root: {rel_path}")
+                if not src.is_file():
+                    raise ValueError(f"declared materials path is not a regular file: {rel_path}")
+                dst = materials_root / rel_path
+                dst.parent.mkdir(parents=True, exist_ok=True)
+                shutil.copyfile(src, dst)
 
         receipt_dict = self.to_dict()
         receipt_dict["attestation"] = attest_receipt(receipt_dict)

@@ -36,11 +36,12 @@ from each.benchmark import BENCHMARK_IMAGE_DIGEST, BenchmarkExecutionError, _int
 from each.demo import _result_to_dict
 from each.executor.container import ContainerExecutor, derive_assurance_level
 from each.models.base import RepairModel
+from each.outcome import sanitize_outcome_class
 from each.patch import PatchRejected, apply_patch, extract_patch_text, parse_patch
-from each.paths import runs_dir
+from each.paths import runs_dir, validate_task_id
 from each.receipt import Receipt
 from each.spec import ApprovedSpec
-from each.worktree import build_worktree
+from each.worktree import build_worktree, verify_unchanged
 
 FIXTURE_ROOT = Path(__file__).resolve().parent.parent / "examples" / "clean-room-lru-cache"
 
@@ -113,6 +114,7 @@ def run_clean_room_build(
     test_path = next(arg for arg in acceptance_command if arg.endswith(".py"))
 
     run_id = run_id or f"clean-room-{uuid.uuid4().hex[:8]}"
+    validate_task_id(run_id)
     if max_attempts < 1:
         raise ValueError(f"max_attempts must be >= 1, got {max_attempts}")
 
@@ -183,11 +185,18 @@ def run_clean_room_build(
     final_materials: dict[str, str] = {}
     final_baseline: dict[str, Any] = {}
     final_repaired: dict[str, Any] = {}
-    final_raw_completion = ""
     final_audit = common_fields["audit"]
+    # Resolved to the real classified attempt below -- never left to
+    # default to "whatever attempt happened to run last" (see the
+    # identical fix in each.xodus_shadow for the exact failure mode this
+    # guards against).
+    selected_attempt_record: dict[str, Any] | None = None
+    selected_worktree: Path | None = None
+    last_worktree: Path | None = None
 
     for attempt_num in range(1, max_attempts + 1):
         worktree, manifest = build_worktree(FIXTURE_ROOT, include_paths)
+        last_worktree = worktree
         baseline = executor.run(acceptance_command, worktree)
         if expected_tests == 0:
             combined = baseline.stdout + baseline.stderr
@@ -206,8 +215,8 @@ def run_clean_room_build(
             "raw_completion": raw_completion,
             "materials": manifest,
             "baseline_result": final_baseline,
+            "model_identity": model.identity(),
         }
-        final_raw_completion = raw_completion
 
         try:
             patch_text = extract_patch_text(raw_completion)
@@ -228,13 +237,22 @@ def run_clean_room_build(
             "REPAIR_VERIFIED" if (baseline_verdict == "failed" and repaired_verdict == "passed") else "REPAIR_NOT_VERIFIED"
         )
 
+        # The test file (``test_path``) is not Builder input -- it is part
+        # of this harness's own validation scaffold. A candidate run that
+        # altered it mid-execution must never be reported as a verified
+        # repair (see the identical fix in each.xodus_shadow).
+        materials_drift = verify_unchanged(worktree, manifest, [test_path])
+        attempt_record["materials_integrity"] = (
+            "PASS" if not materials_drift else f"FAIL: {len(materials_drift)} path(s) drifted"
+        )
+
         final_patch_text = patch_text
         final_touched = touched
         final_materials = manifest
         final_baseline = _result_to_dict(baseline)
         final_repaired = _result_to_dict(repaired)
-        outcome = test_outcome
-        if test_outcome == "REPAIR_VERIFIED":
+        outcome = test_outcome if not materials_drift else "REPAIR_NOT_VERIFIED"
+        if test_outcome == "REPAIR_VERIFIED" and not materials_drift:
             # Terminal audit only after generation/validation ends; this is
             # the one point where real reference material may be read, and
             # only for comparison -- never surfaced back to the Builder.
@@ -248,26 +266,38 @@ def run_clean_room_build(
         attempt_record["outcome"] = outcome
         attempts.append(attempt_record)
         final_outcome = outcome
+        selected_attempt_record = attempt_record
+        selected_worktree = worktree
 
         if outcome in {"REPAIR_VERIFIED", "REPAIR_REJECTED_AUDIT"}:
             break
-        prompt = base_prompt + _RETRY_SUFFIX.format(
-            reason="patch applied but did not make the failing tests pass", line_count=line_count
+        reason = (
+            "patch applied but the validation harness scaffold was altered during execution"
+            if materials_drift
+            else "patch applied but did not make the failing tests pass"
         )
+        prompt = base_prompt + _RETRY_SUFFIX.format(reason=reason, line_count=line_count)
 
     if final_outcome is None:
         # Every attempt was exhausted on a PATCH_REJECTED retry without ever
         # reaching a classified repaired-test run: the honest final outcome
-        # is that last attempt's own recorded outcome (e.g.
-        # "PATCH_REJECTED: ..."), never a silent "REPAIR_NOT_VERIFIED" that
-        # would misrepresent a never-applied patch as one that was applied,
-        # tested, and simply failed to verify.
-        final_outcome = attempts[-1]["outcome"] if attempts else "REPAIR_NOT_VERIFIED"
+        # is that last attempt's own recorded outcome class, never a silent
+        # "REPAIR_NOT_VERIFIED" that would misrepresent a never-applied
+        # patch as one that was applied, tested, and simply failed to
+        # verify. Sanitized through the same bounded-class whitelist a
+        # source-free export uses.
+        final_outcome = sanitize_outcome_class(attempts[-1]["outcome"]) if attempts else "REPAIR_NOT_VERIFIED"
 
-    common_fields["raw_completion"] = final_raw_completion
-    if attempts:
-        common_fields["prompt"] = attempts[-1]["prompt"]
+    # The trajectory fields (prompt/raw_completion/model_identity) must
+    # describe the SAME attempt the patch/result fields above came from.
+    reported_attempt = selected_attempt_record or (attempts[-1] if attempts else None)
+    reported_worktree = selected_worktree if selected_attempt_record is not None else last_worktree
+    if reported_attempt is not None:
+        common_fields["prompt"] = reported_attempt["prompt"]
+        common_fields["raw_completion"] = reported_attempt["raw_completion"]
+        common_fields["model_identity"] = reported_attempt["model_identity"]
     common_fields["audit"] = final_audit
+    common_fields["selected_attempt"] = reported_attempt["attempt"] if reported_attempt is not None else None
     receipt = Receipt(
         patch_text=final_patch_text,
         touched_paths=final_touched,
@@ -278,7 +308,7 @@ def run_clean_room_build(
         attempts=attempts,
         **common_fields,
     )
-    json_path, md_path = receipt.write(runs_dir() / run_id)
+    json_path, md_path = receipt.write(runs_dir() / run_id, materials_source=reported_worktree)
     return {
         "outcome": final_outcome,
         "receipt_json": str(json_path),

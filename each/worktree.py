@@ -53,3 +53,29 @@ def build_worktree(
         shutil.copyfile(src, dst)
         manifest[rel] = sha256_file(dst)
     return worktree, manifest
+
+
+def verify_unchanged(worktree: Path, manifest: dict[str, str], paths: list[str]) -> list[str]:
+    """Re-hash each of ``paths`` (relative to ``worktree``) and compare
+    against their originally recorded ``manifest`` hash (from the matching
+    :func:`build_worktree` call that produced this worktree).
+
+    Returns a sorted, deduplicated list of paths that drifted (missing or
+    hash mismatch) since materialization -- empty if every listed path
+    still matches. This defends against a validation-harness scaffold file
+    (e.g. the M8 native test driver, or an M7 pytest test file) being
+    tampered with mid-run by candidate-controlled code that has write
+    access to the same mount the harness scaffold lives in; it does not
+    redefine or widen the container's own network-isolation assurance
+    level, which is deliberately left unchanged.
+    """
+    drifted: list[str] = []
+    for rel in paths:
+        expected = manifest.get(rel)
+        candidate = worktree / rel
+        if expected is None or not candidate.is_file():
+            drifted.append(rel)
+            continue
+        if sha256_file(candidate) != expected:
+            drifted.append(rel)
+    return sorted(set(drifted))

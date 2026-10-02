@@ -11,7 +11,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
-from each.model_manifest import ModelManifest
+from each.model_manifest import ModelManifest, verify_snapshot_matches
 from each.models.base import ContextBudgetExceeded, RepairModel
 
 __all__ = ["ContextBudgetExceeded", "MLXRepairModel"]
@@ -61,6 +61,12 @@ class MLXRepairModel(RepairModel):
 
     def _ensure_loaded(self) -> None:
         if self._model is None:
+            drift = verify_snapshot_matches(Path(self._snapshot_dir), self._manifest)
+            if drift:
+                raise RuntimeError(
+                    "refusing to load: snapshot directory has drifted from its recorded "
+                    f"manifest since provisioning ({'; '.join(drift)})"
+                )
             import mlx_lm
 
             self._model, self._tokenizer = mlx_lm.load(self._snapshot_dir)

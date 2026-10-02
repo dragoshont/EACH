@@ -95,10 +95,12 @@ returns `E_POINTER` whenever its `sandboxIdUsed` output parameter is NULL —
 but the function's published Microsoft GDK documentation marks that
 specific parameter `_Out_opt_` (optional), meaning NULL is a documented,
 valid argument there and only the write to it should be skipped. The issue
-reporter traced this against ten real, commercially shipped Game Pass
-titles and found nine call this function with `sandboxIdUsed = NULL` during
-startup, several of which (confirmed: Balatro, DREDGE) fail to proceed past
-this call once `E_POINTER` is returned.
+reporter's own text claims this was traced against ten real, commercially
+shipped Game Pass titles and reports nine calling this function with
+`sandboxIdUsed = NULL` during startup, naming Balatro and DREDGE as
+failing to proceed past this call once `E_POINTER` is returned. This is
+the reporter's own third-party claim, quoted from the public issue; EACH
+has not independently reproduced or verified these specific game traces.
 
 ### Public vendor API documentation (independently confirmed, not reused from the issue)
 
