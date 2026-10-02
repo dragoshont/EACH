@@ -142,11 +142,11 @@ class Receipt:
         directory_resolved = directory.resolve()
         if directory_resolved == repo_root_resolved or repo_root_resolved in directory_resolved.parents:
             raise ValueError(f"refusing to write a receipt inside the repository working tree: {directory}")
-        directory.mkdir(parents=True, exist_ok=True)
         json_path = directory / "receipt.json"
         md_path = directory / "receipt.md"
-        if json_path.exists() or md_path.exists():
+        if any(path.exists() or path.is_symlink() for path in (json_path, md_path)):
             raise FileExistsError(f"refusing to overwrite an already-written receipt at {directory}")
+        directory.mkdir(parents=True, exist_ok=True)
         from each.attestation import attest_receipt
 
         if materials_source is not None:
@@ -181,7 +181,7 @@ class Receipt:
                         "whose declared input does not match the real retained bytes"
                     )
                 dst = materials_root / rel_path
-                dst.parent.mkdir(parents=True, exist_ok=True)
+                assert_no_symlink_escape(dst.parent, label="materials destination ancestor")
                 dst_resolved = dst.resolve()
                 if dst_resolved != materials_root_resolved and materials_root_resolved not in dst_resolved.parents:
                     raise ValueError(f"materials destination path escapes materials root: {rel_path}")
@@ -189,12 +189,15 @@ class Receipt:
                     raise ValueError(
                         f"refusing to write through an existing materials destination or symlink: {rel_path}"
                     )
+                dst.parent.mkdir(parents=True, exist_ok=True)
                 shutil.copyfile(src, dst)
 
         receipt_dict = self.to_dict()
         receipt_dict["attestation"] = attest_receipt(receipt_dict)
-        json_path.write_text(json.dumps(receipt_dict, indent=2, sort_keys=True) + "\n")
-        md_path.write_text(self._to_markdown(receipt_dict["attestation"]))
+        with json_path.open("x", encoding="utf-8") as handle:
+            handle.write(json.dumps(receipt_dict, indent=2, sort_keys=True) + "\n")
+        with md_path.open("x", encoding="utf-8") as handle:
+            handle.write(self._to_markdown(receipt_dict["attestation"]))
         return json_path, md_path
 
     def _to_markdown(self, attestation: dict[str, Any]) -> str:

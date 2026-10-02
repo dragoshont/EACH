@@ -31,32 +31,33 @@ def validate_task_id(task_id: str) -> str:
 
 def each_home() -> Path:
     """Return the root of the private EACH store, creating it if absent."""
-    override = os.environ.get("EACH_HOME")
-    home = Path(override).expanduser() if override else Path.home() / ".each"
-    home.mkdir(parents=True, exist_ok=True)
-    return home
+    return validate_private_root()
 
 
 def runs_dir() -> Path:
     path = each_home() / "runs"
+    assert_no_symlink_escape(path, label="runs directory")
     path.mkdir(parents=True, exist_ok=True)
     return path
 
 
 def models_dir() -> Path:
     path = each_home() / "models"
+    assert_no_symlink_escape(path, label="models directory")
     path.mkdir(parents=True, exist_ok=True)
     return path
 
 
 def keys_dir() -> Path:
     path = each_home() / "keys"
+    assert_no_symlink_escape(path, label="keys directory")
     path.mkdir(parents=True, exist_ok=True)
     return path
 
 
 def cache_dir() -> Path:
     path = each_home() / "cache"
+    assert_no_symlink_escape(path, label="cache directory")
     path.mkdir(parents=True, exist_ok=True)
     return path
 
@@ -71,6 +72,7 @@ def worktrees_dir() -> Path:
     ``/var/folders``.
     """
     path = each_home() / "worktrees"
+    assert_no_symlink_escape(path, label="worktrees directory")
     path.mkdir(parents=True, exist_ok=True)
     return path
 
@@ -120,11 +122,15 @@ def validate_private_root() -> Path:
     misconfigured private root is refused before any such side effect, not
     only at receipt-finalization time.
     """
-    home_resolved = each_home().resolve()
+    override = os.environ.get("EACH_HOME")
+    home = Path(override).expanduser() if override else Path.home() / ".each"
+    assert_no_symlink_escape(home, label="private EACH root")
+    home_resolved = home.resolve()
     repo_resolved = repo_root().resolve()
     if home_resolved == repo_resolved or repo_resolved in home_resolved.parents:
         raise ValueError(
             f"refusing to use EACH_HOME={home_resolved} because it is inside the repository "
             f"working tree {repo_resolved}; set EACH_HOME to a private location outside any checkout"
         )
+    home.mkdir(parents=True, exist_ok=True)
     return home_resolved

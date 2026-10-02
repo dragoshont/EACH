@@ -172,3 +172,30 @@ def test_refuses_a_symlinked_materials_root(tmp_path: Path) -> None:
     with pytest.raises(ValueError, match="materials destination root"):
         receipt.write(directory, materials_source=source)
     assert list(outside_materials.iterdir()) == []
+
+
+@pytest.mark.parametrize("filename", ["receipt.json", "receipt.md"])
+def test_dangling_receipt_leaf_is_not_followed(tmp_path: Path, filename: str) -> None:
+    directory = tmp_path / "run"
+    directory.mkdir()
+    outside = tmp_path / "must-not-be-created"
+    (directory / filename).symlink_to(outside)
+    with pytest.raises(FileExistsError):
+        _receipt().write(directory)
+    assert not outside.exists()
+
+
+def test_nested_material_symlink_does_not_create_external_directory(tmp_path: Path) -> None:
+    directory = tmp_path / "run"
+    (directory / "materials").mkdir(parents=True)
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    (directory / "materials" / "nested").symlink_to(outside, target_is_directory=True)
+    source = tmp_path / "input"
+    (source / "nested" / "new-child").mkdir(parents=True)
+    content = "fixture input\n"
+    (source / "nested" / "new-child" / "file.txt").write_text(content)
+    receipt = _receipt(materials={"nested/new-child/file.txt": sha256_text(content)})
+    with pytest.raises(ValueError, match="symlink"):
+        receipt.write(directory, materials_source=source)
+    assert list(outside.iterdir()) == []

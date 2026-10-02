@@ -110,13 +110,20 @@ def _assemble_source_root(fetched_source: str, allowed_path: str, dest: Path) ->
     """
     if allowed_path.startswith("/") or ".." in Path(allowed_path).parts:
         raise ValueError(f"refusing to write forbidden/traversal path: {allowed_path}")
+    assert_no_symlink_escape(dest, label="shadow source destination")
+    private_root = validate_private_root()
     dest_resolved = dest.resolve()
+    if private_root not in dest_resolved.parents:
+        raise ValueError("shadow source destination escapes the private root")
+    if dest.exists():
+        raise FileExistsError(f"refusing to reuse a shadow source destination: {dest}")
     target = (dest / allowed_path).resolve()
     if target != dest_resolved and dest_resolved not in target.parents:
         raise ValueError(f"resolved write target escapes destination root: {allowed_path}")
-    target.parent.mkdir(parents=True, exist_ok=True)
     if target.is_symlink():
         raise ValueError(f"refusing to write through symlink: {allowed_path}")
+    dest.mkdir(parents=True, exist_ok=False)
+    target.parent.mkdir(parents=True, exist_ok=True)
     target.write_text(fetched_source, encoding="utf-8")
     harness_dest = dest / "examples" / "xodus-m8-sandbox-id"
     harness_dest.mkdir(parents=True, exist_ok=True)
@@ -183,10 +190,11 @@ def run_xodus_shadow_build(
     # Host-side, pre-sealed-run materialization: fetch the exact pinned
     # public upstream file over the network (like M6's historical-task
     # fetch), never performed inside the no-network container.
-    fetched_source = fetch_file(packet.target_repo.split("github.com/")[-1], packet.target_ref, allowed_path)
     materialize_root = each_home() / "shadow" / "m8" / run_id / "source"
     assert_no_symlink_escape(materialize_root, label="shadow materialize root")
-    materialize_root.mkdir(parents=True, exist_ok=True)
+    if materialize_root.exists():
+        raise FileExistsError(f"refusing to reuse a shadow source destination: {materialize_root}")
+    fetched_source = fetch_file(packet.target_repo.split("github.com/")[-1], packet.target_ref, allowed_path)
     _assemble_source_root(fetched_source, allowed_path, materialize_root)
     include_paths = [allowed_path] + [f"examples/xodus-m8-sandbox-id/{name}" for name in HARNESS_FILES]
 
