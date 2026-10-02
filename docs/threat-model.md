@@ -222,3 +222,30 @@ isolation ("native host execution is not a strong-profile proxy").
   signal about the checkpoint's current repair capability on this task
   distribution, not evidence of a harness defect (the same diff-blind
   excerpter supplies consistent context regardless of outcome).
+
+## Known limitations as of M7
+
+- `RunStore.wait_external()` (in the third-party Architrave kit,
+  `harness/architrave_runtime.py`) deliberately persists only a one-time
+  resolution challenge's SHA-256 hash in canonical Run state; the plaintext
+  challenge is returned once to the caller and is never written to durable
+  evidence. During this project's real M7 checkpoint, that one-time return
+  value was captured only in an ephemeral shell-output temp file, which did
+  not survive a host/session transition -- leaving a genuinely human-approved
+  spec with a checkpoint that could never be resolved under the original
+  design, short of fabricating a challenge or hand-editing canonical Run
+  state (both explicitly out of bounds). Fixed with a narrow, documented
+  addition to the kit: `RunStore.reissue_challenge()` (plus an
+  `external-reissue-challenge` CLI subcommand) lets a trusted
+  coordinator/human actor obtain a fresh challenge, but only by presenting an
+  ALREADY-REGISTERED, unconsumed `external-proof` artifact that genuinely
+  matches the checkpoint's id/principal/provider -- the identical binding
+  `resolve_external()` itself enforces -- so it can never manufacture
+  approval, only re-open the door for evidence that already genuinely
+  exists; the prior challenge hash is invalidated and a new
+  `external.challenge_reissued` event is recorded. Covered by seven focused
+  regression tests
+  (`tests/unit/test_runtime_external_checkpoint_recovery.py`): matching-proof
+  happy path, wrong-principal rejection, untrusted-producer rejection, an
+  already-resolved checkpoint, stale-token invalidation after reissue,
+  untrusted-actor rejection, and event-log/hash-chain integrity.

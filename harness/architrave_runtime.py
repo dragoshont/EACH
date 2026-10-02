@@ -1774,6 +1774,77 @@ class RunStore:
         )
         return state, challenge
 
+    def reissue_challenge(
+        self,
+        run_id: str,
+        *,
+        checkpoint_id: str,
+        proof_ref: str,
+        actor: str,
+    ) -> tuple[dict[str, Any], str]:
+        """Reissue a pending external checkpoint's one-time resolution challenge.
+
+        ``wait_external`` deliberately persists only the challenge's hash, never
+        the secret itself -- so if the process holding the original challenge is
+        lost (e.g. a host/session transition before ``resolve_external`` ran),
+        the checkpoint can never be resolved again, even though a genuine
+        external-proof artifact already exists. This is the designed recovery
+        path for exactly that situation.
+
+        It is deliberately narrow: it requires a trusted coordinator/human actor
+        and an ALREADY-REGISTERED, unconsumed external-proof artifact that
+        genuinely matches this checkpoint's id/principal/provider -- the same
+        binding ``resolve_external`` itself requires -- so it can never manufacture
+        approval that was not already real; it only ever re-opens the door for
+        evidence that already exists. It never reads or needs the lost token.
+        """
+        if actor != "coordinator" and not actor.startswith("human:"):
+            raise RuntimeFailure("UNTRUSTED_RESOLUTION", "challenge reissue requires a human or coordinator actor")
+        require_id(checkpoint_id, "external checkpoint id")
+        challenge = secrets.token_urlsafe(32)
+        challenge_hash = hashlib.sha256(challenge.encode("utf-8")).hexdigest()
+
+        def mutate(state: dict[str, Any]) -> dict[str, Any]:
+            checkpoint = next(
+                (item for item in state["externalCheckpoints"] if item["id"] == checkpoint_id),
+                None,
+            )
+            if checkpoint is None:
+                raise RuntimeFailure("EXTERNAL_CHECKPOINT_NOT_FOUND", f"checkpoint not found: {checkpoint_id}")
+            if checkpoint["status"] != "PENDING":
+                raise RuntimeFailure("EXTERNAL_CHECKPOINT_TERMINAL", "checkpoint is not pending")
+            require_evidence_refs(state, [proof_ref], allowed={"artifact"})
+            proof_id = proof_ref.split(":", 1)[1]
+            proof_artifact = next(item for item in state["artifacts"] if item["id"] == proof_id)
+            if proof_artifact["producer"] != "external-proof":
+                raise RuntimeFailure("UNTRUSTED_RESOLUTION", "challenge reissue evidence is not externally attested")
+            if proof_artifact.get("consumedByTask") is not None:
+                raise RuntimeFailure("EVIDENCE_REPLAY", "external proof was already consumed")
+            proof = self._read_json_receipt(proof_artifact["path"], "external")
+            if (
+                proof.get("checkpointId") != checkpoint_id
+                or proof.get("principal") != checkpoint["principal"]
+                or proof.get("provider") != checkpoint["provider"]
+            ):
+                raise RuntimeFailure(
+                    "EXTERNAL_PROOF_MISMATCH",
+                    "challenge reissue evidence does not bind to this checkpoint's id, principal, and provider",
+                )
+            checkpoint["challengeHash"] = challenge_hash
+            checkpoint["challengeReissuedAt"] = utc_now()
+            checkpoint["challengeReissueCount"] = checkpoint.get("challengeReissueCount", 0) + 1
+            state["status"] = derive_run_status(state)
+            return {"checkpointId": checkpoint_id}
+
+        state = self._transaction(
+            run_id,
+            mutate,
+            event_type="external.challenge_reissued",
+            actor=actor,
+            evidence_refs=[proof_ref],
+        )
+        return state, challenge
+
     def resolve_external(
         self,
         run_id: str,
@@ -2771,6 +2842,15 @@ def build_parser() -> argparse.ArgumentParser:
     resolve.add_argument("--challenge", required=True)
     resolve.add_argument("--actor", required=True, help="human:<name> or coordinator")
 
+    reissue = subparsers.add_parser(
+        "external-reissue-challenge",
+        help="reissue a pending external checkpoint's lost one-time challenge, bound to an already-registered external-proof artifact",
+    )
+    reissue.add_argument("run_id")
+    reissue.add_argument("checkpoint_id")
+    reissue.add_argument("--proof-ref", required=True, help="artifact:<id> of an already-registered matching external-proof")
+    reissue.add_argument("--actor", required=True, help="human:<name> or coordinator")
+
     reconcile = subparsers.add_parser("reconcile-side-effect")
     reconcile.add_argument("run_id")
     reconcile.add_argument("task_id")
@@ -2921,6 +3001,14 @@ def cli(argv: Sequence[str] | None = None) -> int:
                     actor=args.actor,
                 )
             )
+        elif command == "external-reissue-challenge":
+            state, challenge = store.reissue_challenge(
+                args.run_id,
+                checkpoint_id=args.checkpoint_id,
+                proof_ref=args.proof_ref,
+                actor=args.actor,
+            )
+            output = {**state_summary(state), "resolutionChallenge": challenge}
         elif command == "reconcile-side-effect":
             output = state_summary(
                 store.reconcile_side_effect(
