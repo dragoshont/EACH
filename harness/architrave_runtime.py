@@ -1266,6 +1266,53 @@ class RunStore:
         with FileLock(self.repository / ".architrave" / "resources.lock"):
             return self._transaction(run_id, mutate, event_type="task.started", actor=actor, task_id=task_id)
 
+    def grant_task_attempt(
+        self,
+        run_id: str,
+        task_id: str,
+        *,
+        reason: str,
+        actor: str,
+    ) -> dict[str, Any]:
+        """Grant one additional bounded attempt to a task that exhausted its retry policy.
+
+        A task whose declared work genuinely spans an external-checkpoint pause/resume
+        cycle (e.g. a milestone task that starts, then waits on a genuine human approval,
+        then resumes) can legitimately need more attempts than a tight `maxAttempts` bound
+        anticipated -- this is an operational gap in the original task's declared budget,
+        not a reason to retry speculative or already-failed work. This is deliberately
+        narrow: a trusted coordinator/human actor only, it raises `maxAttempts` by exactly
+        one (never resets `attempts` or any other state), it refuses a task that is still
+        RUNNING or already terminal (COMPLETED/CANCELLED), and every grant is recorded as
+        its own typed, reasoned event -- never a silent retry-policy rewrite.
+        """
+        if actor != "coordinator" and not actor.startswith("human:"):
+            raise RuntimeFailure("UNTRUSTED_RESOLUTION", "attempt grant requires a human or coordinator actor")
+        if not reason.strip():
+            raise RuntimeFailure("INVALID_REASON", "attempt grant requires a non-empty reason")
+
+        def mutate(state: dict[str, Any]) -> dict[str, Any]:
+            task = find_task(state, task_id)
+            if task["status"] in {"RUNNING", "COMPLETED", "CANCELLED"}:
+                raise RuntimeFailure("TASK_NOT_GRANTABLE", f"task {task_id} is {task['status']}")
+            if task["attempts"] < task["retryPolicy"]["maxAttempts"]:
+                raise RuntimeFailure("ATTEMPT_NOT_EXHAUSTED", f"task {task_id} has not exhausted its current attempt budget")
+            task["retryPolicy"]["maxAttempts"] += 1
+            if task["status"] == "FAILED":
+                task["status"] = "READY" if dependencies_completed(state, task) else "NOT_READY"
+            task["retryNotBefore"] = None
+            refresh_task_readiness(state)
+            state["status"] = derive_run_status(state)
+            return {"taskId": task_id, "maxAttempts": task["retryPolicy"]["maxAttempts"], "reason": reason}
+
+        return self._transaction(
+            run_id,
+            mutate,
+            event_type="task.attempt_granted",
+            actor=actor,
+            task_id=task_id,
+        )
+
     def _cross_run_mutation_conflicts(self, current_run_id: str, mutable_paths: Sequence[str]) -> list[str]:
         conflicts: list[str] = []
         if not self.runs_root.is_dir():
@@ -2809,6 +2856,16 @@ def build_parser() -> argparse.ArgumentParser:
     task_fail.add_argument("task_id")
     task_fail.add_argument("--reason", required=True)
 
+    grant_attempt = subparsers.add_parser(
+        "task-grant-attempt",
+        help="grant one additional bounded attempt to a task that exhausted its declared retry policy "
+        "(e.g. a milestone task whose work genuinely spans an external-checkpoint pause/resume cycle)",
+    )
+    grant_attempt.add_argument("run_id")
+    grant_attempt.add_argument("task_id")
+    grant_attempt.add_argument("--reason", required=True)
+    grant_attempt.add_argument("--actor", required=True, help="human:<name> or coordinator")
+
     gate = subparsers.add_parser("gate-record")
     gate.add_argument("run_id")
     gate.add_argument("--id", required=True)
@@ -2962,6 +3019,10 @@ def cli(argv: Sequence[str] | None = None) -> int:
             output = state_summary(store.complete_task(args.run_id, args.task_id, evidence_refs=args.evidence))
         elif command == "task-fail":
             output = state_summary(store.fail_task(args.run_id, args.task_id, args.reason))
+        elif command == "task-grant-attempt":
+            output = state_summary(
+                store.grant_task_attempt(args.run_id, args.task_id, reason=args.reason, actor=args.actor)
+            )
         elif command == "gate-record":
             output = state_summary(
                 store.record_gate(
