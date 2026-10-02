@@ -110,8 +110,9 @@ def test_bakeoff_rejects_a_candidate_that_matches_the_audit_corpus() -> None:
     test suite passes."""
     repaired_source = 'def greet(name: str) -> str:\n    return "Hello, " + name\n'
     model = _StubRepairModel([_CORRECT_PATCH])
-    result = bakeoff_module.run_model_bakeoff(model, max_attempts=1, audit_corpus=[repaired_source])
+    result = bakeoff_module.run_model_bakeoff(model, max_attempts=3, audit_corpus=[repaired_source])
     assert result["outcome"] == "REPAIR_REJECTED_AUDIT"
+    assert result["attempts"] == model.calls == 1
     receipt = json.loads(Path(result["receipt_json"]).read_text())
     assert receipt["attempts"][0]["outcome"] == "REPAIR_REJECTED_AUDIT"
     assert receipt["audit"]["checks"]["exact-substring"]["status"] == "FAIL"
@@ -205,3 +206,36 @@ def test_bakeoff_records_the_model_rendered_prompt() -> None:
     receipt = json.loads(Path(result["receipt_json"]).read_text())
     assert receipt["attempts"][0]["prompt"] == model.last_prompt
     assert receipt["prompt"] == model.last_prompt
+
+
+@requires_colima_each
+def test_audit_match_is_terminal_without_builder_feedback(monkeypatch) -> None:
+    forbidden_hint = "FORBIDDEN_POST_GENERATION_SOURCE_MATCH"
+
+    class CapturingModel(_StubRepairModel):
+        def __init__(self) -> None:
+            super().__init__([_CORRECT_PATCH])
+            self.prompts: list[str] = []
+
+        def complete(self, prompt: str) -> str:
+            self.prompts.append(prompt)
+            return super().complete(prompt)
+
+    model = CapturingModel()
+    audited: list[str] = []
+
+    def discovered_match(source: str, *, corpus: list[str] | None = None) -> dict[str, object]:
+        assert model.calls == 1
+        assert source
+        audited.append(source)
+        return {
+            "checks": {"exact-substring": {"status": "FAIL", "sourceHint": forbidden_hint}},
+            "result": "FAIL",
+        }
+
+    monkeypatch.setattr(bakeoff_module, "run_audit", discovered_match)
+    result = bakeoff_module.run_model_bakeoff(model, max_attempts=3)
+    receipt = json.loads(Path(result["receipt_json"]).read_text())
+    assert len(audited) == model.calls == 1
+    assert receipt["audit"]["result"] == "FAIL"
+    assert all(forbidden_hint not in prompt for prompt in model.prompts)
