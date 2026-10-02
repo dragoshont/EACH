@@ -12,7 +12,7 @@ from pathlib import Path
 from typing import Any
 
 from each.hashing import sha256_file, sha256_text
-from each.paths import repo_root
+from each.paths import assert_no_symlink_escape, repo_root
 
 
 def _audit_markdown_lines(audit: dict[str, Any]) -> list[str]:
@@ -137,6 +137,7 @@ class Receipt:
         silently-signed receipt whose declared input does not match the
         bytes actually retained.
         """
+        assert_no_symlink_escape(directory, label="receipt directory")
         repo_root_resolved = repo_root().resolve()
         directory_resolved = directory.resolve()
         if directory_resolved == repo_root_resolved or repo_root_resolved in directory_resolved.parents:
@@ -150,7 +151,16 @@ class Receipt:
 
         if materials_source is not None:
             materials_root = directory / "materials"
-            materials_root_resolved = materials_root.resolve()
+            # (F3) Anchor the trusted materials root to the ALREADY
+            # validated ``directory_resolved`` rather than to
+            # ``materials_root.resolve()``: if ``materials_root`` were
+            # itself a symlink, resolving it first and using THAT as the
+            # anchor would make every subsequent "does this escape the
+            # root?" check trivially pass against the already-escaped
+            # location. ``assert_no_symlink_escape`` rejects that symlink
+            # outright, before any anchor is even computed.
+            assert_no_symlink_escape(materials_root, label="materials destination root")
+            materials_root_resolved = directory_resolved / "materials"
             source_resolved = materials_source.resolve()
             for rel_path in sorted(self.materials):
                 if rel_path.startswith("/") or ".." in Path(rel_path).parts:

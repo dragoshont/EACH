@@ -137,3 +137,38 @@ def test_materials_source_rejects_escape_via_symlink(tmp_path: Path) -> None:
     receipt = _receipt(materials={"linked.c": "x"})
     with pytest.raises(ValueError, match="escapes its root"):
         receipt.write(tmp_path / "run-5", materials_source=source)
+
+
+def test_refuses_a_symlinked_receipt_directory(tmp_path: Path) -> None:
+    """F3: a symlink planted at the exact receipt-directory name must be
+    rejected outright, never followed by ``mkdir(..., exist_ok=True)`` to
+    silently write the receipt through it into an unrelated location."""
+    outside = tmp_path / "outside-run-dir"
+    outside.mkdir()
+    receipt = _receipt()
+    linked_directory = tmp_path / "run-symlinked"
+    linked_directory.symlink_to(outside)
+    with pytest.raises(ValueError, match="receipt directory"):
+        receipt.write(linked_directory)
+    assert not (outside / "receipt.json").exists()
+
+
+def test_refuses_a_symlinked_materials_root(tmp_path: Path) -> None:
+    """F3: if ``<directory>/materials`` is itself a symlink, the anchor
+    used for every subsequent destination-containment check must not be
+    derived from resolving that symlink (which would trivially make every
+    write "inside" its own already-escaped target); the symlink must be
+    rejected before any anchor is even computed."""
+    source = tmp_path / "worktree"
+    (source / "sub").mkdir(parents=True)
+    content = "int main() {}\n"
+    (source / "sub" / "a.c").write_text(content)
+    receipt = _receipt(materials={"sub/a.c": sha256_text(content)})
+    directory = tmp_path / "run-materials-symlinked"
+    directory.mkdir()
+    outside_materials = tmp_path / "outside-materials"
+    outside_materials.mkdir()
+    (directory / "materials").symlink_to(outside_materials)
+    with pytest.raises(ValueError, match="materials destination root"):
+        receipt.write(directory, materials_source=source)
+    assert list(outside_materials.iterdir()) == []

@@ -50,8 +50,10 @@ def _record_passing_deterministic_gate(store: art.RunStore, repo: Path, *, gate_
     evidence_dir = repo / ".architrave" / "evidence"
     evidence_dir.mkdir(parents=True, exist_ok=True)
     receipt_path = evidence_dir / f"{gate_id}.json"
+    current_commit = store.load("test-run")["baseline"]["commit"]
     receipt_path.write_text(
-        json.dumps({"status": "pass", "exitCode": 0, "command": ["true"]}), encoding="utf-8"
+        json.dumps({"status": "pass", "exitCode": 0, "command": ["true"], "commit": current_commit}),
+        encoding="utf-8",
     )
     store._record_deterministic_result(
         "test-run",
@@ -125,7 +127,11 @@ def test_an_artifact_recorded_under_an_old_baseline_cannot_back_a_new_gate_after
     evidence_dir = repo / ".architrave" / "evidence"
     evidence_dir.mkdir(parents=True, exist_ok=True)
     stale_receipt = evidence_dir / "stale-artifact.json"
-    stale_receipt.write_text(json.dumps({"status": "pass", "exitCode": 0, "command": ["true"]}), encoding="utf-8")
+    initial_commit = store.load("test-run")["baseline"]["commit"]
+    stale_receipt.write_text(
+        json.dumps({"status": "pass", "exitCode": 0, "command": ["true"], "commit": initial_commit}),
+        encoding="utf-8",
+    )
     store._record_deterministic_result(
         "test-run",
         artifact_id="stale-artifact",
@@ -149,6 +155,61 @@ def test_an_artifact_recorded_under_an_old_baseline_cannot_back_a_new_gate_after
             criteria=["C1"],
         )
     assert excinfo.value.code == "EVIDENCE_STALE_COMMIT"
+
+
+def test_a_receipt_replayed_after_baseline_moves_is_denied_at_registration(store_with_run):
+    """F7: the deeper laundering gap is not just at ``record_gate`` time -- a
+    stale receipt FILE that was never registered while its commit was current
+    must not be allowed to masquerade as fresh evidence simply by calling
+    ``_record_deterministic_result`` again after the baseline has already
+    moved on. The receipt's own declared ``commit`` must match the CURRENT
+    baseline at registration time, not just get stamped with whatever "now"
+    happens to be.
+    """
+    store, repo = store_with_run
+    evidence_dir = repo / ".architrave" / "evidence"
+    evidence_dir.mkdir(parents=True, exist_ok=True)
+    old_commit = store.load("test-run")["baseline"]["commit"]
+
+    (repo / "README.md").write_text("v2\n", encoding="utf-8")
+    _git(repo, "add", "README.md")
+    _git(repo, "commit", "-q", "-m", "second commit")
+    store.resume("test-run", accept_commit=True)
+
+    # A receipt declaring the now-OLD commit, registered only AFTER the
+    # baseline moved, must be denied outright -- not silently stamped fresh.
+    replayed_receipt = evidence_dir / "replayed-artifact.json"
+    replayed_receipt.write_text(
+        json.dumps({"status": "pass", "exitCode": 0, "command": ["true"], "commit": old_commit}),
+        encoding="utf-8",
+    )
+    with pytest.raises(art.RuntimeFailure) as excinfo:
+        store._record_deterministic_result(
+            "test-run",
+            artifact_id="replayed-artifact",
+            path=str(replayed_receipt.relative_to(repo)),
+            evidence_refs=[],
+        )
+    assert excinfo.value.code == "EVIDENCE_STALE_COMMIT"
+
+    # A receipt that fails to declare any execution commit at all is rejected too.
+    undeclared_receipt = evidence_dir / "undeclared-artifact.json"
+    undeclared_receipt.write_text(
+        json.dumps({"status": "pass", "exitCode": 0, "command": ["true"]}), encoding="utf-8"
+    )
+    with pytest.raises(art.RuntimeFailure) as excinfo:
+        store._record_deterministic_result(
+            "test-run",
+            artifact_id="undeclared-artifact",
+            path=str(undeclared_receipt.relative_to(repo)),
+            evidence_refs=[],
+        )
+    assert excinfo.value.code == "DETERMINISTIC_RECEIPT"
+
+    # A genuinely fresh receipt (declaring the current, new commit) is fine.
+    _record_passing_deterministic_gate(store, repo, gate_id="genuinely-fresh-gate")
+    state = store.load("test-run")
+    assert "C1:deterministic" not in art.missing_gate_requirements(state, state["acceptanceCriteria"])
 
     # A freshly-recorded artifact (produced after the baseline moved) is fine.
     _record_passing_deterministic_gate(store, repo, gate_id="fresh-gate")

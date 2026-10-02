@@ -75,3 +75,40 @@ def test_ambiguous_socket_failures_do_not_verify_isolation(exit_code: int, stdou
         command=("python", "-I", "-c", "probe"), exit_code=exit_code, stdout=stdout, stderr=""
     )
     assert derive_assurance_level(ContainerExecutor(), result) == "EACH-P1"
+
+
+def test_protected_paths_are_mounted_read_only_over_the_writable_worktree(tmp_path: Path) -> None:
+    """F4: the harness's own validation scaffold files must be re-mounted
+    individually read-only, not merely trusted to remain unmodified because
+    a post-execution hash check happens to run afterwards."""
+    (tmp_path / "tests").mkdir()
+    (tmp_path / "tests" / "test_x.py").write_text("def test_x(): pass\n")
+    executor = ContainerExecutor()
+    command = executor.build_docker_command(
+        ["pytest", "tests/test_x.py"],
+        tmp_path,
+        container_name="probe",
+        protected_paths=("tests/test_x.py",),
+    )
+    expected_host = str((tmp_path / "tests" / "test_x.py").resolve())
+    assert f"{expected_host}:/work/tests/test_x.py:ro" in command
+    # The protected mount is additive, on top of (not instead of) the
+    # writable worktree mount the candidate's OWN editable file still
+    # needs.
+    assert f"{tmp_path.resolve()}:/work:rw" in command
+
+
+def test_protected_paths_reject_traversal(tmp_path: Path) -> None:
+    executor = ContainerExecutor()
+    with pytest.raises(ContainerExecutorError, match="traversal"):
+        executor.build_docker_command(
+            ["pytest"], tmp_path, container_name="probe", protected_paths=("../outside.py",)
+        )
+
+
+def test_protected_paths_reject_absolute_path(tmp_path: Path) -> None:
+    executor = ContainerExecutor()
+    with pytest.raises(ContainerExecutorError, match="traversal"):
+        executor.build_docker_command(
+            ["pytest"], tmp_path, container_name="probe", protected_paths=("/etc/passwd",)
+        )

@@ -203,7 +203,7 @@ def run_clean_room_build(
 
     for attempt_num in range(1, max_attempts + 1):
         worktree, manifest = build_worktree(FIXTURE_ROOT, include_paths)
-        baseline = executor.run(acceptance_command, worktree)
+        baseline = executor.run(acceptance_command, worktree, protected_paths=(test_path,))
         if expected_tests == 0:
             combined = baseline.stdout + baseline.stderr
             failed_match = re.search(r"(\d+) failed", combined)
@@ -236,17 +236,49 @@ def run_clean_room_build(
             prompt = base_prompt + _RETRY_SUFFIX.format(reason=str(exc), line_count=line_count)
             continue
 
-        repaired = executor.run(acceptance_command, worktree)
-        # A Docker-launch failure or an ambiguous (skip/error-containing)
-        # run is not repair-failure evidence; let it propagate uncaught,
-        # matching each.bakeoff's precedent exactly.
-        repaired_verdict = _interpret_pytest_run(repaired, expected_tests=expected_tests)
+        # Record the real applied patch immediately, before any
+        # run/classification step that could itself raise: a later
+        # ambiguous-run error must never lose evidence of a patch that was,
+        # in fact, successfully applied (F6).
+        attempt_record["patch_text"] = patch_text
+        attempt_record["touched_paths"] = touched
+
+        # Mounted read-only for this execution (F4): the candidate's own
+        # process cannot write through the acceptance test file even if it
+        # tries, not merely have that attempt caught afterwards below by
+        # re-hashing.
+        repaired = executor.run(acceptance_command, worktree, protected_paths=(test_path,))
+        # Record the real run result immediately too, before classification
+        # -- a run that genuinely completed must never be lost if
+        # classifying it raises (F6).
+        attempt_record["repaired_result"] = _result_to_dict(repaired)
+        try:
+            repaired_verdict = _interpret_pytest_run(repaired, expected_tests=expected_tests)
+        except BenchmarkExecutionError as exc:
+            # A Docker-launch failure or an ambiguous (skip/error-containing)
+            # run is not repair-failure evidence, but it is also not
+            # nothing -- the patch really was applied and the command
+            # really did run (both already recorded above). Record that
+            # real, truthful partial attempt and retry, instead of letting
+            # this propagate uncaught out of the whole function -- which
+            # would silently discard every attempt recorded so far and
+            # leave no receipt written at all for a run that genuinely
+            # happened (F6).
+            attempt_record["outcome"] = f"REPAIRED_RUN_INCONCLUSIVE: {exc}"
+            attempts.append(attempt_record)
+            prompt = base_prompt + _RETRY_SUFFIX.format(
+                reason="the repaired test run could not be classified; try again", line_count=line_count
+            )
+            continue
         test_outcome = (
             "REPAIR_VERIFIED" if (baseline_verdict == "failed" and repaired_verdict == "passed") else "REPAIR_NOT_VERIFIED"
         )
 
         # The test file (``test_path``) is not Builder input -- it is part
-        # of this harness's own validation scaffold. A candidate run that
+        # of this harness's own validation scaffold. The read-only mount
+        # above already prevents a candidate from WRITING to it during
+        # execution; this re-verifies the actual retained bytes immediately
+        # after execution as defense in depth, and a candidate run that
         # altered it mid-execution must never be reported as a verified
         # repair (see the identical fix in each.xodus_shadow).
         materials_drift = verify_unchanged(worktree, manifest, [test_path])
@@ -254,9 +286,6 @@ def run_clean_room_build(
             "PASS" if not materials_drift else f"FAIL: {len(materials_drift)} path(s) drifted"
         )
 
-        attempt_record["patch_text"] = patch_text
-        attempt_record["touched_paths"] = touched
-        attempt_record["repaired_result"] = _result_to_dict(repaired)
         outcome = test_outcome if not materials_drift else "REPAIR_NOT_VERIFIED"
         if test_outcome == "REPAIR_VERIFIED" and not materials_drift:
             # Terminal audit only after generation/validation ends; this is
@@ -316,11 +345,14 @@ def run_clean_room_build(
         common_fields["model_identity"] = reported_attempt["model_identity"]
         # "EACH-P2" is a complete authoring-assurance claim, not just a
         # network-isolation fact: a selected attempt whose own validation
-        # scaffold was found to have drifted during execution must never
+        # scaffold was found to have drifted during execution -- or never
+        # reached the point this check runs at all (every attempt was
+        # rejected before a candidate run ever happened) -- must never
         # still be reported under the strongest assurance label, even
         # though the raw network probe (``network_isolation_verified``
-        # above) genuinely did pass (F4).
-        if reported_attempt.get("materials_integrity", "PASS") != "PASS" and common_fields["assurance_level"] == "EACH-P2":
+        # above) genuinely did pass (F4). An unperformed check defaults to
+        # "UNAVAILABLE", never silently to "PASS".
+        if reported_attempt.get("materials_integrity", "UNAVAILABLE") != "PASS" and common_fields["assurance_level"] == "EACH-P2":
             common_fields["assurance_level"] = "EACH-P1"
     common_fields["audit"] = final_audit
     common_fields["selected_attempt"] = reported_attempt["attempt"] if reported_attempt is not None else None

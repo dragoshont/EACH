@@ -80,6 +80,33 @@ def repo_root() -> Path:
     return Path(__file__).resolve().parent.parent
 
 
+def assert_no_symlink_escape(path: Path, *, label: str = "private path") -> None:
+    """Refuse ``path`` if it, or any existing ancestor directory between it
+    and the filesystem root, is a symlink (F3).
+
+    A plain ``path.mkdir(parents=True, exist_ok=True)`` silently follows a
+    pre-planted symlink at ``path`` itself (treating the symlink's real
+    target as if it were the intended private directory) and likewise
+    follows a symlinked ANCESTOR even when the leaf component's own name
+    looks fresh and legitimate -- e.g. a ``runs/<run-id>`` directory whose
+    grandparent ``runs`` was itself replaced with a symlink after
+    :func:`runs_dir` first created it. Resolving ``path`` and only then
+    checking the resolved result against an expected root (the bug this
+    function exists to close) is not sufficient: that check would use the
+    already-escaped location as its own anchor of trust. This function
+    must run BEFORE any ``mkdir``/copy happens at or under ``path``.
+    """
+    if path.is_symlink():
+        raise ValueError(f"refusing to use {label} because it is a symlink: {path}")
+    ancestor = path.parent
+    while ancestor != ancestor.parent:
+        if ancestor.is_symlink():
+            raise ValueError(
+                f"refusing to use {label} because an existing ancestor directory is a symlink: {ancestor}"
+            )
+        ancestor = ancestor.parent
+
+
 def validate_private_root() -> Path:
     """Fail closed, BEFORE any fetch/materialize/write, if the private EACH
     store (:func:`each_home`) would resolve inside -- or around -- this

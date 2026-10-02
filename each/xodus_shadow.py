@@ -37,7 +37,7 @@ from each.executor.container import ContainerExecutor, derive_assurance_level
 from each.models.base import RepairModel
 from each.outcome import sanitize_outcome_class
 from each.patch import PatchRejected, apply_patch, extract_patch_text, parse_patch
-from each.paths import each_home, runs_dir, validate_private_root, validate_task_id
+from each.paths import assert_no_symlink_escape, each_home, runs_dir, validate_private_root, validate_task_id
 from each.receipt import Receipt
 from each.spec import ApprovedSpec
 from each.worktree import build_worktree, verify_unchanged
@@ -185,6 +185,7 @@ def run_xodus_shadow_build(
     # fetch), never performed inside the no-network container.
     fetched_source = fetch_file(packet.target_repo.split("github.com/")[-1], packet.target_ref, allowed_path)
     materialize_root = each_home() / "shadow" / "m8" / run_id / "source"
+    assert_no_symlink_escape(materialize_root, label="shadow materialize root")
     materialize_root.mkdir(parents=True, exist_ok=True)
     _assemble_source_root(fetched_source, allowed_path, materialize_root)
     include_paths = [allowed_path] + [f"examples/xodus-m8-sandbox-id/{name}" for name in HARNESS_FILES]
@@ -307,8 +308,26 @@ def run_xodus_shadow_build(
             prompt = base_prompt + _RETRY_SUFFIX.format(reason=str(exc))
             continue
 
-        candidate_build = executor.run(build_command, worktree)
-        candidate_run = executor.run(acceptance_command, worktree)
+        # Record the real applied patch immediately, before any
+        # build/run/classification step that could itself raise: a later
+        # EXECUTION_ERROR must never lose evidence of a patch that was, in
+        # fact, successfully applied (F6).
+        attempt_record["patch_text"] = patch_text
+        attempt_record["touched_paths"] = touched
+
+        # The harness's own scaffold files (everything in include_paths
+        # except the one path the candidate is actually allowed to edit)
+        # are mounted read-only for this execution (F4): the candidate's
+        # build/run process cannot write through them even if it tries,
+        # not merely have that attempt caught afterwards by re-hashing.
+        harness_relative_paths = tuple(include_paths[1:])
+        candidate_build = executor.run(build_command, worktree, protected_paths=harness_relative_paths)
+        # Record the real build result immediately too -- before the
+        # acceptance run or classification -- so a build that genuinely
+        # completed is never lost if a LATER step raises (F6).
+        attempt_record["repaired_result"] = _result_to_dict(candidate_build)
+        candidate_run = executor.run(acceptance_command, worktree, protected_paths=harness_relative_paths)
+        attempt_record["repaired_result"] = _result_to_dict(candidate_run)
         try:
             test_verdict = _interpret_native_run(candidate_build, candidate_run)
         except BenchmarkExecutionError as exc:
@@ -319,22 +338,24 @@ def run_xodus_shadow_build(
 
         # Candidate-authored C runs with full read/write access to the same
         # mount the harness scaffold files live in (see
-        # examples/xodus-m8-sandbox-id/build_check.py's docstring): a
-        # malicious/buggy candidate could in principle tamper with those
-        # scaffold files during its own build/run, not just its own patched
-        # file. Re-verify them against their build_worktree manifest
-        # immediately after execution, before any outcome can be
-        # REPAIR_VERIFIED, and conservatively downgrade on drift -- this is
-        # a narrow materials-integrity check, not a redefinition of the
-        # shared container assurance level.
-        harness_relative_paths = include_paths[1:]
+        # examples/xodus-m8-sandbox-id/build_check.py's docstring): the
+        # read-only mount above already prevents a candidate from WRITING
+        # to them during execution; this re-verifies the actual retained
+        # bytes immediately after execution as defense in depth (e.g.
+        # against a host-side or mount-layering mistake), before any
+        # outcome can be REPAIR_VERIFIED, and conservatively downgrades on
+        # drift -- this is a narrow materials-integrity check, not a
+        # redefinition of the shared container assurance level.
         materials_drift = verify_unchanged(worktree, manifest, harness_relative_paths)
         attempt_record["materials_integrity"] = (
             "PASS" if not materials_drift else f"FAIL: {len(materials_drift)} path(s) drifted"
         )
 
-        attempt_record["patch_text"] = patch_text
-        attempt_record["touched_paths"] = touched
+        # The classification-dependent choice of which raw result to report
+        # (the run result normally, but the build result when the build
+        # itself failed) is only finalized once classification has actually
+        # succeeded; the unconditional assignment above already preserves
+        # the real candidate_run result against a classification raise.
         attempt_record["repaired_result"] = (
             _result_to_dict(candidate_run) if test_verdict != "build_failed" else _result_to_dict(candidate_build)
         )
@@ -412,10 +433,15 @@ def run_xodus_shadow_build(
         common_fields["model_identity"] = reported_attempt["model_identity"]
         # See the identical rationale in each.clean_room.run_clean_room_build:
         # a selected attempt whose own validation scaffold drifted during
-        # execution must never still be reported under the strongest
-        # assurance label, even though the raw network probe genuinely
-        # passed (F4).
-        if reported_attempt.get("materials_integrity", "PASS") != "PASS" and common_fields["assurance_level"] == "EACH-P2":
+        # execution -- or never even reached the point the check runs at
+        # all (e.g. every attempt was rejected before a candidate build
+        # ever happened) -- must never still be reported under the
+        # strongest assurance label, even though the raw network probe
+        # genuinely passed (F4). An UNPERFORMED check defaults to
+        # "UNAVAILABLE", never silently to "PASS": only an explicit "PASS"
+        # keeps the configured assurance level, anything else (including a
+        # missing key) downgrades it.
+        if reported_attempt.get("materials_integrity", "UNAVAILABLE") != "PASS" and common_fields["assurance_level"] == "EACH-P2":
             common_fields["assurance_level"] = "EACH-P1"
     else:
         final_patch_text = ""

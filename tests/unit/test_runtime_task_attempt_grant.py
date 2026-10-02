@@ -313,3 +313,23 @@ def test_grant_attempt_is_recorded_as_a_genuine_hash_chained_event(store_with_ex
     state = store.load("test-run")
     assert state["eventCursor"]["lastHash"] == new_event["hash"]
     art.validate_run(state)
+
+
+def test_grant_attempt_refuses_a_replayed_checkpoint_after_the_task_fails_again(store_with_exhausted_task):
+    """F7: a single genuinely-resolved checkpoint must back exactly one
+    recovery grant -- not an unbounded number of them. Once T1 is granted,
+    runs, fails again, and re-exhausts its (now-raised) budget, the SAME
+    ``cp-t1`` resolution can no longer justify a second grant; that would let
+    one real human decision be replayed indefinitely to keep reopening a
+    task that keeps genuinely failing on its own.
+    """
+    store, _repo = store_with_exhausted_task
+    store.grant_task_attempt("test-run", "T1", reason="first genuine operational gap", actor="coordinator", checkpoint_id="cp-t1")
+    store.start_task("test-run", "T1", worker_id="w2")
+    store.fail_task("test-run", "T1", "fails again on its own, independent of any checkpoint")
+
+    with pytest.raises(art.RuntimeFailure) as excinfo:
+        store.grant_task_attempt(
+            "test-run", "T1", reason="trying to reuse the same checkpoint", actor="coordinator", checkpoint_id="cp-t1"
+        )
+    assert excinfo.value.code == "RECOVERY_GRANT_ALREADY_CONSUMED"

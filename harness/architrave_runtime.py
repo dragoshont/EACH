@@ -956,6 +956,7 @@ class RunStore:
         evidence_refs: Sequence[str],
         actor: str,
         producer: str,
+        declared_commit: str | None = None,
     ) -> dict[str, Any]:
         require_id(artifact_id, "artifact id")
         relative = safe_relative_path(path, "artifact path")
@@ -984,6 +985,20 @@ class RunStore:
         def mutate(state: dict[str, Any]) -> dict[str, Any]:
             if any(item["id"] == artifact_id for item in state["artifacts"]):
                 raise RuntimeFailure("ARTIFACT_EXISTS", f"artifact already exists: {artifact_id}")
+            # (F7) ``sourceCommit`` below only stamps "whatever the baseline reads
+            # right now" -- that alone proves nothing about when the receipt FILE
+            # was actually produced, so replaying a stale-but-unregistered receipt
+            # after the baseline has moved on would otherwise launder it as fresh
+            # evidence. Producers that require freshness (e.g. deterministic gate
+            # receipts) must have the executor stamp their OWN execution commit
+            # into the receipt content, and that declared commit must match the
+            # current baseline before the artifact is ever recorded.
+            if declared_commit is not None and declared_commit != state["baseline"].get("commit"):
+                raise RuntimeFailure(
+                    "EVIDENCE_STALE_COMMIT",
+                    "producer receipt declares a different execution commit than the current baseline",
+                    details={"declaredCommit": declared_commit, "baselineCommit": state["baseline"].get("commit")},
+                )
             content_sha256 = sha256_file(absolute)
             if producer in {"mutation", "reconciliation"} and any(
                 item["producer"] in {"mutation", "reconciliation"}
@@ -1025,7 +1040,22 @@ class RunStore:
         receipt = self._read_json_receipt(kwargs["path"], "deterministic")
         if receipt.get("status") != "pass" or receipt.get("exitCode") != 0 or not receipt.get("command"):
             raise RuntimeFailure("DETERMINISTIC_RECEIPT", "deterministic receipt does not prove a passing command")
-        return self._record_artifact(run_id, kind="deterministic-result", actor="deterministic-executor", producer="deterministic", **kwargs)
+        declared_commit = receipt.get("commit")
+        if not declared_commit or not isinstance(declared_commit, str):
+            # (F7) A deterministic gate receipt that doesn't declare the exact
+            # commit it was actually executed against cannot be trusted as fresh
+            # evidence -- it would otherwise only ever be judged by "what the
+            # baseline happens to read right now", which is exactly the
+            # laundering gap a stale, replayed receipt file could exploit.
+            raise RuntimeFailure("DETERMINISTIC_RECEIPT", "deterministic receipt does not declare its execution commit")
+        return self._record_artifact(
+            run_id,
+            kind="deterministic-result",
+            actor="deterministic-executor",
+            producer="deterministic",
+            declared_commit=declared_commit,
+            **kwargs,
+        )
 
     def _record_invariant_result(self, run_id: str, **kwargs: Any) -> dict[str, Any]:
         path = (self.repository / safe_relative_path(str(kwargs["path"]), "invariant result path")).resolve()
@@ -1341,6 +1371,17 @@ class RunStore:
                     "RECOVERY_CHECKPOINT_UNRESOLVED",
                     f"checkpoint {checkpoint_id} has no recorded resolution proof; unresolved side effects stay denied",
                 )
+            if checkpoint.get("recoveryGrantConsumed"):
+                # (F7) A stale/replayed grant: this exact resolved checkpoint
+                # already backed one attempt grant. Reusing it a second time
+                # would let one genuine recovery event justify an unbounded
+                # number of extra attempts; a NEW exhaustion needs its own NEW
+                # checkpoint/resolution, not a replay of an old one.
+                raise RuntimeFailure(
+                    "RECOVERY_GRANT_ALREADY_CONSUMED",
+                    f"checkpoint {checkpoint_id} already granted a recovery attempt and cannot be reused",
+                )
+            checkpoint["recoveryGrantConsumed"] = True
             task["retryPolicy"]["maxAttempts"] += 1
             if task["status"] == "FAILED":
                 task["status"] = "READY" if dependencies_completed(state, task) else "NOT_READY"
@@ -1879,6 +1920,12 @@ class RunStore:
                     "resumeTask": task_id,
                     "challengeHash": challenge_hash,
                     "resolutionRef": None,
+                    # (F7) Set exactly once, the first time this checkpoint's
+                    # resolution is actually spent to grant a bounded extra task
+                    # attempt -- a resolved checkpoint stays RESOLVED forever (it
+                    # is real history), but it must not be replayable to justify
+                    # an unbounded number of attempt grants.
+                    "recoveryGrantConsumed": False,
                 }
             )
             append_checkpoint(state, task_id, "EXTERNAL_WAIT")

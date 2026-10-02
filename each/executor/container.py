@@ -91,9 +91,30 @@ class ContainerExecutor(Executor):
         # (see each/demo.py) rather than trusting this label alone.
         return "EACH-P2-configured"
 
-    def build_docker_command(self, command: list[str], worktree: Path, *, container_name: str) -> list[str]:
+    def build_docker_command(
+        self,
+        command: list[str],
+        worktree: Path,
+        *,
+        container_name: str,
+        protected_paths: tuple[str, ...] = (),
+    ) -> list[str]:
+        """Build the ``docker run`` argv for one execution.
+
+        ``protected_paths`` (worktree-relative) are the harness's own
+        validation scaffold files -- e.g. the acceptance test file or the
+        M8 build/run helper scripts -- that the candidate's build/run
+        process must never be able to WRITE to during execution, not only
+        have their post-execution hash re-checked (F4): each is re-mounted
+        individually, read-only, directly over the writable ``/work`` bind
+        mount at its exact path. Docker resolves a more specific (longer,
+        nested) bind-mount destination in favor of the broader mount it
+        sits inside, so a write attempt to a protected path fails at the
+        kernel/mount level during the run itself, before any post-hoc
+        ``verify_unchanged`` check ever runs.
+        """
         worktree = worktree.resolve()
-        return [
+        docker_cmd = [
             "docker",
             "--context",
             self.docker_context,
@@ -120,11 +141,21 @@ class ContainerExecutor(Executor):
             "/dev/null",
             "-v",
             f"{worktree}:/work:rw",
+        ]
+        for rel_path in protected_paths:
+            if rel_path.startswith("/") or ".." in Path(rel_path).parts:
+                raise ContainerExecutorError(f"refusing to protect a forbidden/traversal path: {rel_path}")
+            host_path = (worktree / rel_path).resolve()
+            if host_path != worktree and worktree not in host_path.parents:
+                raise ContainerExecutorError(f"protected path escapes the worktree: {rel_path}")
+            docker_cmd += ["-v", f"{host_path}:/work/{rel_path}:ro"]
+        docker_cmd += [
             "-w",
             "/work",
             self.image,
             *command,
         ]
+        return docker_cmd
 
     def _cleanup_container(self, container_name: str) -> str | None:
         """Explicitly stop+remove the exact container this call started.
@@ -150,10 +181,18 @@ class ContainerExecutor(Executor):
         return None
 
     def run(
-        self, command: list[str], worktree: Path, *, timeout: int = 120, container_name: str | None = None
+        self,
+        command: list[str],
+        worktree: Path,
+        *,
+        timeout: int = 120,
+        container_name: str | None = None,
+        protected_paths: tuple[str, ...] = (),
     ) -> ExecutionResult:
         container_name = container_name or f"each-exec-{uuid.uuid4().hex}"
-        docker_cmd = self.build_docker_command(command, worktree, container_name=container_name)
+        docker_cmd = self.build_docker_command(
+            command, worktree, container_name=container_name, protected_paths=protected_paths
+        )
         try:
             proc = subprocess.run(
                 docker_cmd,

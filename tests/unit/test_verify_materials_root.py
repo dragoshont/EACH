@@ -83,6 +83,20 @@ def test_full_artifact_verification_rejects_traversal_declared_path(tmp_path: Pa
     assert "traversal" in result["reason"]
 
 
+def test_full_artifact_verification_fails_for_a_malformed_declared_hash(tmp_path: Path) -> None:
+    """A manifest entry declaring an obviously-malformed/arbitrary hash value
+    for a real, untouched file must FAIL -- the check always compares real
+    bytes against the declaration; it never special-cases or trusts an
+    unparseable/wrong-length declared value as if it were unverifiable."""
+    content = "int main() {}\n"
+    materials_root = tmp_path / "materials"
+    (materials_root / "sub").mkdir(parents=True)
+    (materials_root / "sub" / "a.c").write_text(content)
+    receipt = {"materials": {"sub/a.c": "not-a-real-sha256-hash"}}
+    result = verify_materials_root(receipt, materials_root)
+    assert result["status"] == "FAIL"
+
+
 def test_full_artifact_verification_rejects_symlink_escape(tmp_path: Path) -> None:
     materials_root = tmp_path / "materials"
     materials_root.mkdir()

@@ -160,7 +160,7 @@ def _cmd_verify(args: argparse.Namespace) -> int:
     print("note: integrity/provenance verification is NOT legal clean-room certification.")
 
     overall_pass = result["status"] == "PASS" and (
-        materials_result is None or materials_result["status"] in {"PASS", "UNAVAILABLE"}
+        materials_result is None or materials_result["status"] == "PASS"
     )
     return 0 if overall_pass else 1
 

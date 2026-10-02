@@ -269,3 +269,54 @@ def test_exhausting_all_attempts_on_a_rejected_patch_reports_that_real_outcome_n
     assert receipt["outcome"].startswith("PATCH_REJECTED")
     assert len(receipt["attempts"]) == 2
     assert all(a["outcome"].startswith("PATCH_REJECTED") for a in receipt["attempts"])
+    # F4: no attempt ever reached the point the materials-integrity check
+    # runs at all (every attempt was rejected before any candidate
+    # build/run) -- an UNPERFORMED required check must never be silently
+    # treated as PASS, so the receipt must never claim the strongest
+    # EACH-P2 authoring-assurance label here even though the raw network
+    # probe genuinely passed.
+    assert receipt["networkIsolationVerified"] is True
+    assert receipt["assuranceLevel"] != "EACH-P2"
+
+
+@requires_colima_each
+@requires_m8_native_image
+def test_an_execution_error_still_preserves_the_applied_patch_and_real_build_run_results(tmp_path, monkeypatch) -> None:
+    """F6 regression: a patch that genuinely applies, builds, and runs, but
+    whose (build, run) pair ``_interpret_native_run`` cannot classify, must
+    never lose that real applied patch / real build / real run evidence --
+    both must be recorded on the attempt BEFORE classification runs, so
+    they survive a classification-time raise rather than being left at
+    their initial empty defaults."""
+    monkeypatch.setattr(xodus_shadow_module, "fetch_file", lambda *_a, **_k: _CACHED_SOURCE)
+    real_interpret = xodus_shadow_module._interpret_native_run
+    call_count = 0
+
+    def _flaky_interpret(build_result, run_result):
+        nonlocal call_count
+        call_count += 1
+        # Call 1 is the pre-loop BASELINE classification (must stay real);
+        # call 2 is the per-attempt candidate classification this test
+        # exercises.
+        if call_count == 2:
+            raise xodus_shadow_module.BenchmarkExecutionError("simulated ambiguous native build/run output")
+        return real_interpret(build_result, run_result)
+
+    monkeypatch.setattr(xodus_shadow_module, "_interpret_native_run", _flaky_interpret)
+    approved = _approve_selftest_spec("test-xodus-shadow-execution-error-preserves-evidence")
+    model = FixtureModel(_CORRECT_PATCH, model_id="fixture/xodus-shadow-selftest-v1")
+
+    result = run_xodus_shadow_build(
+        model, approved, max_attempts=1, run_id=f"selftest-execerr-{tmp_path.name}-{uuid.uuid4().hex[:8]}"
+    )
+
+    assert result["outcome"].startswith("EXECUTION_ERROR")
+    receipt = json.loads(Path(result["receipt_json"]).read_text())
+    assert receipt["outcome"].startswith("EXECUTION_ERROR")
+    assert len(receipt["attempts"]) == 1
+    attempt = receipt["attempts"][0]
+    assert attempt["patch_text"]
+    assert attempt["touched_paths"]
+    assert attempt["repaired_result"]
+    assert attempt["repaired_result"]["exit_code"] is not None
+    assert real_interpret is not None  # the genuine function, unused here, confirms monkeypatch replaced it

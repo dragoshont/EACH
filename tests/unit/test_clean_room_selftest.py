@@ -18,6 +18,7 @@ import uuid
 from pathlib import Path
 
 import each.clean_room as clean_room_module
+from each.benchmark import BenchmarkExecutionError
 from each.clean_room import run_clean_room_build
 from each.models.fixture import FixtureModel
 from each.spec import ApprovedSpec, make_spec_packet
@@ -157,6 +158,11 @@ def test_exhausting_all_attempts_on_a_rejected_patch_reports_that_real_outcome_n
     assert receipt["outcome"].startswith("PATCH_REJECTED")
     assert len(receipt["attempts"]) == 2
     assert all(a["outcome"].startswith("PATCH_REJECTED") for a in receipt["attempts"])
+    # F4: no attempt ever reached the point the materials-integrity check
+    # runs at all -- an UNPERFORMED required check must never be silently
+    # treated as PASS.
+    assert receipt["networkIsolationVerified"] is True
+    assert receipt["assuranceLevel"] != "EACH-P2"
 
 
 @requires_colima_each
@@ -232,4 +238,53 @@ def test_a_later_rejected_retry_never_overwrites_an_earlier_classified_attempts_
     # selected one's.
     assert receipt["attempts"][0]["repaired_result"]
     assert receipt["attempts"][1]["patch_text"] == ""  # PATCH_REJECTED: never applied
+
+
+@requires_colima_each
+def test_an_ambiguous_repaired_run_still_preserves_the_applied_patch_and_real_run_result(tmp_path, monkeypatch) -> None:
+    """F6 regression: a patch that genuinely applies and genuinely runs, but
+    whose repaired-test run is ambiguous (e.g. a skip/collection-error
+    pytest output ``_interpret_pytest_run`` refuses to classify), must
+    never propagate that classification error uncaught and lose every
+    attempt's evidence with no receipt ever written at all. The real
+    applied patch and the real run's own exit code/output must be recorded
+    on the attempt BEFORE classification -- not after -- so they survive a
+    classification-time raise, and a truthful receipt must still exist at
+    the end describing that inconclusive attempt honestly."""
+    real_interpret = clean_room_module._interpret_pytest_run
+    call_count = 0
+
+    def _flaky_interpret(result, *, expected_tests):
+        nonlocal call_count
+        call_count += 1
+        # Call 1 is the per-attempt BASELINE interpretation (must stay
+        # real so expected_tests/baseline_verdict are genuine); call 2 is
+        # the REPAIRED-run interpretation this test exercises.
+        if call_count == 2:
+            raise BenchmarkExecutionError("simulated ambiguous repaired-run output")
+        return real_interpret(result, expected_tests=expected_tests)
+
+    monkeypatch.setattr(clean_room_module, "_interpret_pytest_run", _flaky_interpret)
+    approved = _approve_selftest_spec("test-clean-room-ambiguous-repaired-run")
+    model = FixtureModel(_CORRECT_PATCH, model_id="fixture/clean-room-selftest-v1")
+
+    result = run_clean_room_build(
+        model, approved, max_attempts=1, run_id=f"selftest-ambiguous-{tmp_path.name}-{uuid.uuid4().hex[:8]}"
+    )
+
+    assert result["outcome"].startswith("REPAIRED_RUN_INCONCLUSIVE")
+    receipt = json.loads(Path(result["receipt_json"]).read_text())
+    assert receipt["outcome"].startswith("REPAIRED_RUN_INCONCLUSIVE")
+    assert len(receipt["attempts"]) == 1
+    attempt = receipt["attempts"][0]
+    # The real applied patch must be recorded even though classification
+    # itself raised -- not an empty default.
+    assert attempt["patch_text"]
+    assert attempt["patch_text"] != ""
+    assert attempt["touched_paths"]
+    # The real run's own exit code/output must be recorded too, not an
+    # empty success-shaped default.
+    assert attempt["repaired_result"]
+    assert attempt["repaired_result"]["exit_code"] is not None
+
 

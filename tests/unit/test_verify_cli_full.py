@@ -67,15 +67,40 @@ def test_each_verify_full_fails_when_a_real_material_file_is_deleted(tmp_path: P
     assert main(["verify", str(json_path), "--full"]) == 1
 
 
-def test_each_verify_without_full_still_passes_on_signature_alone_for_a_missing_materials_dir(
-    tmp_path: Path,
-) -> None:
-    """Signature-only verification (the pre-existing, default behavior)
-    must keep working unchanged for a receipt with no retained materials/
-    directory at all -- the new check is additive, opt-in via --full."""
+def test_each_verify_full_fails_when_the_entire_materials_directory_is_deleted(tmp_path: Path) -> None:
     json_path = _write_receipt_with_materials(tmp_path / "run", tmp_path / "source", "int main() {}\n")
     shutil.rmtree(json_path.parent / "materials")
+    assert main(["verify", str(json_path), "--full"]) == 1
+    # Signature-only (default, non-full) verification is unaffected.
     assert main(["verify", str(json_path)]) == 0
-    # --full on the SAME receipt now honestly reports UNAVAILABLE (not a
-    # fabricated PASS or a false FAIL) since the materials/ directory is gone.
-    assert main(["verify", str(json_path), "--full"]) == 0
+
+
+def test_each_verify_full_fails_for_a_malformed_declared_material_hash(tmp_path: Path) -> None:
+    """A receipt whose own ``materials`` manifest declares a malformed/
+    arbitrary hash value for a real, otherwise-untouched file must FAIL full
+    verification -- the check compares real bytes against the declaration,
+    it does not special-case or skip an obviously-wrong declared value."""
+    run_dir = tmp_path / "run"
+    source_dir = tmp_path / "source"
+    (source_dir / "sub").mkdir(parents=True)
+    (source_dir / "sub" / "a.c").write_text("int main() {}\n")
+    receipt = Receipt(
+        run_id="full-verify-cli-malformed-hash",
+        spec={},
+        spec_hash="deadbeef",
+        model_identity={},
+        prompt="p",
+        raw_completion="r",
+        patch_text="",
+        touched_paths=[],
+        materials={"sub/a.c": "not-a-real-sha256-hash"},
+        executor_identity={},
+        isolation_evidence={},
+        baseline_result={},
+        repaired_result={},
+        audit={"result": "UNAVAILABLE", "checks": {}},
+        assurance_level="EACH-P2",
+        outcome="REPAIR_NOT_VERIFIED",
+    )
+    with pytest.raises(ValueError, match="does not match its declared hash"):
+        receipt.write(run_dir, materials_source=source_dir)
