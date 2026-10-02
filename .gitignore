@@ -30,3 +30,4 @@ build/
 # Architrave: private run evidence and isolated worker trees stay local.
 .architrave/runtime.key
 .architrave/resources.lock
+examples/xodus-m8-sandbox-id/.build/
