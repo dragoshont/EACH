@@ -89,11 +89,12 @@ ARTIFACT_PRODUCERS = {
     "security-review",
     "policy-engine",
     "external-proof",
+    "target-repair",
 }
 GATE_EVIDENCE_PRODUCERS = {
     "deterministic": {"deterministic", "invariant"},
     "e2e": {"legibility"},
-    "reality": {"legibility", "mutation", "external-proof"},
+    "reality": {"legibility", "mutation", "external-proof", "target-repair"},
     "semantic": {"semantic-judge"},
     "policy": {"policy-engine"},
     "security": {"security-review"},
@@ -109,6 +110,7 @@ PRODUCER_ARTIFACT_KINDS = {
     "security-review": {"security-verdict"},
     "policy-engine": {"policy-decision"},
     "external-proof": {"external-proof"},
+    "target-repair": {"target-repair-receipt"},
 }
 # Acceptance criteria declare a `verificationType`; this reconciles it with which gate `type`s
 # may legitimately satisfy it (e2e and reality are treated as mutually satisfying, mirroring the
@@ -1174,6 +1176,60 @@ class RunStore:
             raise RuntimeFailure("EXTERNAL_PROOF", "external proof does not match a pending checkpoint")
         return self._record_artifact(run_id, kind="external-proof", actor="external-checkpoint", producer="external-proof", **kwargs)
 
+    def _record_target_repair_receipt(self, run_id: str, **kwargs: Any) -> dict[str, Any]:
+        """Register honest, reality-gate evidence that a declared local model produced a
+        genuinely verified target repair (M7/M8-style): the receipt itself (prompts,
+        completions, patch text, target source) must stay private under ``runs_dir()`` and
+        is never copied into this artifact. This records only a sanitized, source-free
+        summary -- outcome classification, independently re-checked signature/materials
+        verification results, and the approved spec hash -- so the Run's acceptance
+        evidence can never silently assert a PASS the summary itself does not actually show.
+        """
+        summary = self._read_json_receipt(kwargs["path"], "target-repair")
+        required = ("specId", "specHash", "targetRunId", "outcome", "signatureVerification", "materialsVerification")
+        missing = [field for field in required if not summary.get(field)]
+        if missing:
+            raise RuntimeFailure(
+                "TARGET_REPAIR_RECEIPT",
+                "target-repair summary lacks required fields",
+                details={"missing": missing},
+            )
+        if summary["outcome"] != "REPAIR_VERIFIED":
+            raise RuntimeFailure(
+                "TARGET_REPAIR_RECEIPT",
+                "target-repair summary does not declare a verified repair outcome",
+                details={"outcome": summary["outcome"]},
+            )
+        if summary["signatureVerification"] != "PASS" or summary["materialsVerification"] != "PASS":
+            raise RuntimeFailure(
+                "TARGET_REPAIR_RECEIPT",
+                "target-repair summary does not show independently re-checked PASS signature/materials verification",
+                details={
+                    "signatureVerification": summary["signatureVerification"],
+                    "materialsVerification": summary["materialsVerification"],
+                },
+            )
+        if not summary.get("networkIsolationVerified"):
+            raise RuntimeFailure("TARGET_REPAIR_RECEIPT", "target-repair summary does not show network isolation verified")
+        # Reject anything that looks like it accidentally copied real target source,
+        # prompt, or completion content into this (public-repo-adjacent) summary file:
+        # it must only ever carry classification-level fields, never raw strict material.
+        forbidden_keys = {"prompt", "rawCompletion", "patchText", "numberedSource", "diff"}
+        leaked = forbidden_keys & set(summary.keys())
+        if leaked:
+            raise RuntimeFailure(
+                "TARGET_REPAIR_RECEIPT",
+                "target-repair summary must not carry raw private material",
+                details={"leakedFields": sorted(leaked)},
+            )
+        return self._record_artifact(
+            run_id,
+            kind="target-repair-receipt",
+            actor="target-repair-runner",
+            producer="target-repair",
+            **kwargs,
+        )
+
     def _read_json_receipt(self, path_value: str, label: str) -> dict[str, Any]:
         path = (self.repository / safe_relative_path(str(path_value), f"{label} receipt path")).resolve()
         try:
@@ -1740,6 +1796,8 @@ class RunStore:
                         if producer == "mutation":
                             return "deployment"
                         if producer == "external-proof":
+                            return "runtime"
+                        if producer == "target-repair":
                             return "runtime"
                         return None
 
