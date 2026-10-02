@@ -664,7 +664,13 @@ def run_benchmark_task(
 
     attempts: list[dict[str, Any]] = []
     prompt = base_prompt
-    final_outcome = "REPAIR_NOT_VERIFIED"
+    # No sentinel default: REPAIR_NOT_VERIFIED is only a valid final outcome
+    # once a patch actually applied and the repaired-test run was classified.
+    # If every attempt is exhausted on a PATCH_REJECTED/REPAIRED_RUN_INCONCLUSIVE
+    # retry (never reaching that point), this stays None and is resolved from
+    # the real last attempt's own outcome after the loop -- never silently
+    # mislabeled as a verified-but-failing repair that never happened.
+    final_outcome: str | None = None
     final_patch_text = ""
     final_touched: list[str] = []
     final_materials: dict[str, str] = {}
@@ -798,6 +804,15 @@ def run_benchmark_task(
         if outcome in {"REPAIR_VERIFIED", "REPAIR_REJECTED_AUDIT"}:
             break
         prompt = base_prompt + _RETRY_SUFFIX.format(reason="patch applied but did not make the failing test pass")
+
+    if final_outcome is None:
+        # Every attempt was exhausted on a PATCH_REJECTED or
+        # REPAIRED_RUN_INCONCLUSIVE retry without ever reaching a classified
+        # repaired-test run: the honest final outcome is that last attempt's
+        # own recorded outcome (e.g. "PATCH_REJECTED: ..."), never a silent
+        # "REPAIR_NOT_VERIFIED" that would misrepresent a never-applied
+        # patch as one that was applied, tested, and simply failed to verify.
+        final_outcome = attempts[-1]["outcome"] if attempts else "REPAIR_NOT_VERIFIED"
 
     common_fields["raw_completion"] = final_raw_completion
     if attempts and "prompt" in attempts[-1]:

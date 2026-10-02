@@ -100,6 +100,32 @@ def test_a_real_historical_style_repair_is_verified_through_the_pytest_image(mon
 
 
 @requires_colima_each
+def test_exhausting_all_attempts_on_a_rejected_patch_reports_that_real_outcome_not_a_false_repair_not_verified(
+    monkeypatch, tmp_path
+) -> None:
+    """Regression test: if every attempt is exhausted on a malformed/rejected
+    completion (never reaching a classified repaired-test run), the receipt's
+    final outcome must be the real last attempt's own outcome (e.g.
+    "PATCH_REJECTED: ..."), not a sentinel "REPAIR_NOT_VERIFIED" that falsely
+    implies a patch was applied and the repaired tests were run and failed."""
+    monkeypatch.setattr(benchmark_module, "cache_dir", lambda: tmp_path)
+    monkeypatch.setattr(benchmark_module, "fetch_file", _stub_fetch_file)
+    monkeypatch.setattr(benchmark_module, "_extract_repo_tree", _stub_extract_repo_tree)
+    model = _StubRepairModel(["this completion has no patch markers at all"])
+    result = run_benchmark_task(_TASK, model, max_attempts=2)
+    assert result["outcome"].startswith("PATCH_REJECTED")
+    assert result["outcome"] != "REPAIR_NOT_VERIFIED"
+    receipt = json.loads(Path(result["receipt_json"]).read_text())
+    assert receipt["outcome"].startswith("PATCH_REJECTED")
+    assert len(receipt["attempts"]) == 2
+    assert all(a["outcome"].startswith("PATCH_REJECTED") for a in receipt["attempts"])
+    # The baseline test run is a real container execution for each attempt
+    # that got this far (preflight budget check passed); confirm that
+    # evidence is preserved even though no patch ever applied.
+    assert receipt["baselineResult"]
+
+
+@requires_colima_each
 def test_the_known_fix_content_never_leaks_into_the_prompt_or_any_attempt(monkeypatch, tmp_path) -> None:
     monkeypatch.setattr(benchmark_module, "cache_dir", lambda: tmp_path)
     monkeypatch.setattr(benchmark_module, "fetch_file", _stub_fetch_file)
