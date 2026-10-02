@@ -33,8 +33,8 @@ from typing import Any
 from each.audit.run import reject_on_audit_flag, run_audit
 from each.benchmark import BenchmarkExecutionError, fetch_file
 from each.demo import _DOCKER_LAUNCH_FAILURE_EXIT_CODES, _result_to_dict
-from each.executor.container import ContainerExecutor, derive_assurance_level
-from each.models.base import RepairModel
+from each.executor.container import ContainerExecutor, ContainerExecutorError, derive_assurance_level
+from each.models.base import ContextBudgetExceeded, RepairModel
 from each.outcome import sanitize_outcome_class
 from each.patch import PatchRejected, apply_patch, extract_patch_text, parse_patch
 from each.paths import assert_no_symlink_escape, each_home, runs_dir, validate_private_root, validate_task_id
@@ -292,7 +292,35 @@ def run_xodus_shadow_build(
 
     for attempt_num in range(1, max_attempts + 1):
         worktree, manifest = build_worktree(materialize_root, include_paths)
-        raw_completion = model.complete(prompt)
+        try:
+            raw_completion = model.complete(prompt)
+        except ContextBudgetExceeded as exc:
+            # A policy/input-construction error, not a repair-attempt
+            # failure: retrying would only make the prompt larger (the
+            # retry suffix appends to base_prompt), so this is terminal
+            # for the run rather than a consumable attempt -- the same
+            # established fix as each.benchmark.run_benchmark (F6). Must
+            # never propagate uncaught out of this function and discard
+            # every attempt already recorded.
+            outcome = f"BUILDER_CONTEXT_BUDGET_EXCEEDED: {exc}"
+            attempts.append(
+                {
+                    "attempt": attempt_num,
+                    "prompt": prompt,
+                    "raw_completion": "",
+                    "materials": manifest,
+                    "baseline_result": final_baseline,
+                    "patch_text": "",
+                    "touched_paths": [],
+                    "repaired_result": {},
+                    "model_identity": model.identity(),
+                    "materials_integrity": "UNAVAILABLE",
+                    "outcome": outcome,
+                }
+            )
+            final_outcome = outcome
+            selected_attempt_record = attempts[-1]
+            break
         rendered_prompt = getattr(model, "last_prompt", None)
         attempt_record: dict[str, Any] = {
             "attempt": attempt_num,
@@ -302,6 +330,8 @@ def run_xodus_shadow_build(
             "baseline_result": final_baseline,
             "patch_text": "",
             "touched_paths": [],
+            "build_result": None,
+            "run_result": None,
             "repaired_result": {},
             "model_identity": model.identity(),
         }
@@ -329,13 +359,50 @@ def run_xodus_shadow_build(
         # build/run process cannot write through them even if it tries,
         # not merely have that attempt caught afterwards by re-hashing.
         harness_relative_paths = tuple(include_paths[1:])
-        candidate_build = executor.run(build_command, worktree, protected_paths=harness_relative_paths)
-        # Record the real build result immediately too -- before the
+        try:
+            candidate_build = executor.run(build_command, worktree, protected_paths=harness_relative_paths)
+        except ContainerExecutorError as exc:
+            # A genuine container-launch/timeout failure during the build
+            # step itself (not a classification of its result) is an infra
+            # failure, not test feedback to retry against: the applied
+            # patch is already recorded above, but the build step never
+            # produced real pass/fail evidence at all. Finalize this
+            # attempt with the real (absent) stage recorded honestly and
+            # stop the bounded run -- this must never propagate out of the
+            # whole function uncaught and discard every attempt already
+            # recorded (F6). The private diagnostic text stays in this
+            # attempt's own outcome field only; it never crosses into a
+            # source-free export.
+            attempt_record["materials_integrity"] = "UNAVAILABLE"
+            attempt_record["outcome"] = f"EXECUTION_ERROR: {exc}"
+            attempts.append(attempt_record)
+            final_outcome = attempt_record["outcome"]
+            selected_attempt_record = attempt_record
+            break
+        # Record the real build result immediately -- before the
         # acceptance run or classification -- so a build that genuinely
-        # completed is never lost if a LATER step raises (F6).
-        attempt_record["repaired_result"] = _result_to_dict(candidate_build)
-        candidate_run = executor.run(acceptance_command, worktree, protected_paths=harness_relative_paths)
-        attempt_record["repaired_result"] = _result_to_dict(candidate_run)
+        # completed is never lost if a LATER step raises (F6). Both the
+        # build and run command results are kept in their own distinct
+        # fields; ``repaired_result`` (the final reported view) is only
+        # ever reassigned once classification actually succeeds below.
+        attempt_record["build_result"] = _result_to_dict(candidate_build)
+        attempt_record["repaired_result"] = attempt_record["build_result"]
+        try:
+            candidate_run = executor.run(acceptance_command, worktree, protected_paths=harness_relative_paths)
+        except ContainerExecutorError as exc:
+            # The build genuinely completed (already recorded above and
+            # preserved as ``build_result``); the run step itself never
+            # produced evidence. ``run_result`` stays an explicit None --
+            # never a fabricated exit-code-0 result -- and the attempt is
+            # finalized the same way as a build-step failure (F6).
+            attempt_record["materials_integrity"] = "UNAVAILABLE"
+            attempt_record["outcome"] = f"EXECUTION_ERROR: {exc}"
+            attempts.append(attempt_record)
+            final_outcome = attempt_record["outcome"]
+            selected_attempt_record = attempt_record
+            break
+        attempt_record["run_result"] = _result_to_dict(candidate_run)
+        attempt_record["repaired_result"] = attempt_record["run_result"]
         try:
             test_verdict = _interpret_native_run(candidate_build, candidate_run)
         except BenchmarkExecutionError as exc:

@@ -34,8 +34,8 @@ from typing import Any
 from each.audit.run import reject_on_audit_flag, run_audit
 from each.benchmark import BENCHMARK_IMAGE_DIGEST, BenchmarkExecutionError, _interpret_pytest_run
 from each.demo import _result_to_dict
-from each.executor.container import ContainerExecutor, derive_assurance_level
-from each.models.base import RepairModel
+from each.executor.container import ContainerExecutor, ContainerExecutorError, derive_assurance_level
+from each.models.base import ContextBudgetExceeded, RepairModel
 from each.outcome import sanitize_outcome_class
 from each.patch import PatchRejected, apply_patch, extract_patch_text, parse_patch
 from each.paths import runs_dir, validate_private_root, validate_task_id
@@ -203,7 +203,35 @@ def run_clean_room_build(
 
     for attempt_num in range(1, max_attempts + 1):
         worktree, manifest = build_worktree(FIXTURE_ROOT, include_paths)
-        baseline = executor.run(acceptance_command, worktree, protected_paths=(test_path,))
+        try:
+            baseline = executor.run(acceptance_command, worktree, protected_paths=(test_path,))
+        except ContainerExecutorError as exc:
+            # A genuine container-launch/timeout failure on the baseline
+            # run itself (not a classification of its result) is an infra
+            # failure, not test feedback to retry against. No patch has
+            # even been generated yet this iteration; record that honestly
+            # and finalize the bounded run with whatever attempts already
+            # exist, rather than letting this propagate uncaught out of the
+            # whole function and discard them (F6, "Likewise clean_room").
+            outcome = f"EXECUTION_ERROR: {exc}"
+            attempts.append(
+                {
+                    "attempt": attempt_num,
+                    "prompt": prompt,
+                    "raw_completion": "",
+                    "materials": manifest,
+                    "baseline_result": {},
+                    "patch_text": "",
+                    "touched_paths": [],
+                    "repaired_result": {},
+                    "model_identity": model.identity(),
+                    "materials_integrity": "UNAVAILABLE",
+                    "outcome": outcome,
+                }
+            )
+            final_outcome = outcome
+            selected_attempt_record = attempts[-1]
+            break
         if expected_tests == 0:
             combined = baseline.stdout + baseline.stderr
             failed_match = re.search(r"(\d+) failed", combined)
@@ -212,7 +240,33 @@ def run_clean_room_build(
             expected_tests = int(failed_match.group(1))
         baseline_verdict = _interpret_pytest_run(baseline, expected_tests=expected_tests)
         baseline_dict = _result_to_dict(baseline)
-        raw_completion = model.complete(prompt)
+        try:
+            raw_completion = model.complete(prompt)
+        except ContextBudgetExceeded as exc:
+            # A policy/input-construction error, not a repair-attempt
+            # failure: retrying would only make the prompt larger (the
+            # retry suffix appends to base_prompt), so this is terminal
+            # for the run rather than a consumable attempt -- the same
+            # established fix as each.benchmark.run_benchmark (F6).
+            outcome = f"BUILDER_CONTEXT_BUDGET_EXCEEDED: {exc}"
+            attempts.append(
+                {
+                    "attempt": attempt_num,
+                    "prompt": prompt,
+                    "raw_completion": "",
+                    "materials": manifest,
+                    "baseline_result": baseline_dict,
+                    "patch_text": "",
+                    "touched_paths": [],
+                    "repaired_result": {},
+                    "model_identity": model.identity(),
+                    "materials_integrity": "UNAVAILABLE",
+                    "outcome": outcome,
+                }
+            )
+            final_outcome = outcome
+            selected_attempt_record = attempts[-1]
+            break
         rendered_prompt = getattr(model, "last_prompt", None)
         attempt_record: dict[str, Any] = {
             "attempt": attempt_num,
@@ -247,7 +301,20 @@ def run_clean_room_build(
         # process cannot write through the acceptance test file even if it
         # tries, not merely have that attempt caught afterwards below by
         # re-hashing.
-        repaired = executor.run(acceptance_command, worktree, protected_paths=(test_path,))
+        try:
+            repaired = executor.run(acceptance_command, worktree, protected_paths=(test_path,))
+        except ContainerExecutorError as exc:
+            # The applied patch is already recorded above; the repaired
+            # run itself never produced evidence. Finalize this attempt
+            # with the real (absent) run stage recorded honestly and stop
+            # the bounded run -- an infra failure, not test feedback to
+            # retry against (F6).
+            attempt_record["materials_integrity"] = "UNAVAILABLE"
+            attempt_record["outcome"] = f"EXECUTION_ERROR: {exc}"
+            attempts.append(attempt_record)
+            final_outcome = attempt_record["outcome"]
+            selected_attempt_record = attempt_record
+            break
         # Record the real run result immediately too, before classification
         # -- a run that genuinely completed must never be lost if
         # classifying it raises (F6).

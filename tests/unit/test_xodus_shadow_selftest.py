@@ -39,6 +39,12 @@ from tests.adversarial._docker_guard import requires_colima_each
 
 _CORRECT_PATCH = (Path(__file__).parent / "data" / "xodus_shadow_selftest_patch.txt").read_text()
 _CACHED_SOURCE = (Path(__file__).parent / "data" / "xsystem_selftest_source.c").read_text()
+# Applies cleanly and compiles (so the attempt is classifiable) but only
+# fixes one of the two bugged lines, so the repaired acceptance run still
+# fails -- used only to exercise the F6 trajectory-consistency fix below.
+_APPLIES_BUT_LEAVES_BUG_PATCH = (
+    Path(__file__).parent / "data" / "xodus_shadow_selftest_patch_applies_but_leaves_bug.txt"
+).read_text()
 
 
 def _native_image_available() -> bool:
@@ -320,3 +326,149 @@ def test_an_execution_error_still_preserves_the_applied_patch_and_real_build_run
     assert attempt["repaired_result"]
     assert attempt["repaired_result"]["exit_code"] is not None
     assert real_interpret is not None  # the genuine function, unused here, confirms monkeypatch replaced it
+
+
+@requires_colima_each
+@requires_m8_native_image
+def test_a_real_container_timeout_during_the_acceptance_run_preserves_the_build_result_and_finalizes_a_partial_receipt(
+    tmp_path, monkeypatch
+) -> None:
+    """F6 regression: a patch that genuinely applies and builds, but whose
+    acceptance-run ``executor.run`` call itself raises ``ContainerExecutorError``
+    (a real container-launch/timeout failure, not merely an ambiguous
+    classification), must never propagate uncaught out of the whole
+    function -- it must finalize a truthful, signed, partial receipt with
+    the real build result preserved, the run result explicitly absent (no
+    fabricated exit code), a conservative EACH-P1 assurance level, and the
+    private diagnostic text kept out of the source-free summary view.
+
+    Calls 1-4 (the isolation probe, the real baseline build, the real
+    baseline run, and this attempt's real candidate build) are allowed to
+    execute for real against the dedicated colima-each executor; only call
+    5 (this attempt's acceptance run) is forced to raise."""
+    import each.executor.container as container_module
+
+    monkeypatch.setattr(xodus_shadow_module, "fetch_file", lambda *_a, **_k: _CACHED_SOURCE)
+    original_run = container_module.ContainerExecutor.run
+    call_count = 0
+
+    def _flaky_run(self, command, worktree, **kwargs):
+        nonlocal call_count
+        call_count += 1
+        if call_count == 5:
+            raise container_module.ContainerExecutorError("simulated fixture container timeout")
+        return original_run(self, command, worktree, **kwargs)
+
+    monkeypatch.setattr(container_module.ContainerExecutor, "run", _flaky_run)
+    approved = _approve_selftest_spec("test-xodus-shadow-real-container-timeout")
+    model = FixtureModel(_CORRECT_PATCH, model_id="fixture/xodus-shadow-selftest-v1")
+
+    result = run_xodus_shadow_build(
+        model, approved, max_attempts=1, run_id=f"selftest-timeout-{tmp_path.name}-{uuid.uuid4().hex[:8]}"
+    )
+
+    assert call_count == 5
+    assert result["outcome"].startswith("EXECUTION_ERROR")
+    receipt_path = Path(result["receipt_json"])
+    assert receipt_path.is_file()
+    receipt = json.loads(receipt_path.read_text())
+    assert receipt["outcome"].startswith("EXECUTION_ERROR")
+    assert len(receipt["attempts"]) == 1
+    attempt = receipt["attempts"][0]
+    assert attempt["patch_text"]
+    assert attempt["touched_paths"]
+    assert attempt["build_result"] is not None
+    assert attempt["build_result"]["exit_code"] == 0
+    assert attempt["run_result"] is None
+    assert attempt["materials_integrity"] == "UNAVAILABLE"
+    assert attempt["outcome"] == result["outcome"]
+    # A genuine network-isolation PROBE pass stays recorded as a plain fact,
+    # but the broader authoring-assurance claim must still be conservatively
+    # downgraded: an unperformed materials-integrity check is never "PASS".
+    assert receipt["networkIsolationVerified"] is True
+    assert receipt["assuranceLevel"] == "EACH-P1"
+
+    # Signature-only verification must still PASS for this honest, signed
+    # partial receipt.
+    from each.cli import main as each_cli_main
+
+    assert each_cli_main(["verify", str(receipt_path)]) == 0
+
+    # The private diagnostic text ("simulated fixture container timeout")
+    # must never cross into the source-free summary view.
+    summary = summarize_receipt(result["receipt_json"])
+    summary_text = json.dumps(summary)
+    assert "simulated fixture container timeout" not in summary_text
+    assert summary["outcome"] == "EXECUTION_ERROR"
+
+
+@requires_colima_each
+@requires_m8_native_image
+def test_an_earlier_completed_attempt_is_preserved_when_a_later_attempt_hits_a_real_container_error(
+    tmp_path, monkeypatch
+) -> None:
+    """F6 regression: attempt 1 applies cleanly but does not fix the bug
+    (REPAIR_NOT_VERIFIED, a real classified attempt); attempt 2's
+    acceptance run hits a real ``ContainerExecutorError``. The receipt must
+    retain BOTH attempts (never silently drop attempt 1's real evidence),
+    and the top-level/selected-attempt fields must consistently describe
+    whichever attempt is actually reported as final -- never a mix of the
+    two."""
+    import each.executor.container as container_module
+
+    monkeypatch.setattr(xodus_shadow_module, "fetch_file", lambda *_a, **_k: _CACHED_SOURCE)
+    # A patch that applies and compiles cleanly but only fixes one of the
+    # two bugged lines, so case1 of the real acceptance driver still fails
+    # (hr stays E_POINTER) -- a genuine, cleanly classified REPAIR_NOT_VERIFIED,
+    # not a PatchRejected/crash/ambiguous outcome -- before attempt 2 starts.
+    wrong_patch = _APPLIES_BUT_LEAVES_BUG_PATCH
+
+    original_run = container_module.ContainerExecutor.run
+    call_count = 0
+    # Calls: 1 probe, 2 baseline build, 3 baseline run, 4 attempt-1 build,
+    # 5 attempt-1 run (real, classified REPAIR_NOT_VERIFIED), 6 attempt-2
+    # build (real), 7 attempt-2 run -> forced ContainerExecutorError.
+    FAIL_ON_CALL = 7
+
+    def _flaky_run(self, command, worktree, **kwargs):
+        nonlocal call_count
+        call_count += 1
+        if call_count == FAIL_ON_CALL:
+            raise container_module.ContainerExecutorError("simulated fixture container timeout (attempt 2)")
+        return original_run(self, command, worktree, **kwargs)
+
+    monkeypatch.setattr(container_module.ContainerExecutor, "run", _flaky_run)
+    approved = _approve_selftest_spec("test-xodus-shadow-later-attempt-container-error")
+
+    class SequenceModel(FixtureModel):
+        def __init__(self, responses: list[str], model_id: str) -> None:
+            super().__init__(responses[0], model_id=model_id)
+            self._responses = responses
+            self._call_count = 0
+
+        def complete(self, prompt: str) -> str:
+            response = self._responses[self._call_count]
+            self._call_count += 1
+            self.last_prompt = prompt
+            return response
+
+    model = SequenceModel([wrong_patch, _CORRECT_PATCH], model_id="fixture/xodus-shadow-selftest-sequence-v1")
+
+    result = run_xodus_shadow_build(
+        model, approved, max_attempts=2, run_id=f"selftest-later-timeout-{tmp_path.name}-{uuid.uuid4().hex[:8]}"
+    )
+
+    assert call_count == FAIL_ON_CALL
+    assert result["outcome"].startswith("EXECUTION_ERROR")
+    receipt = json.loads(Path(result["receipt_json"]).read_text())
+    assert len(receipt["attempts"]) == 2
+    assert receipt["attempts"][0]["outcome"] == "REPAIR_NOT_VERIFIED"
+    assert receipt["attempts"][0]["build_result"] is not None
+    assert receipt["attempts"][0]["run_result"] is not None
+    assert receipt["attempts"][1]["outcome"].startswith("EXECUTION_ERROR")
+    assert receipt["attempts"][1]["build_result"] is not None
+    assert receipt["attempts"][1]["run_result"] is None
+    # The reported top-level/selected fields must describe attempt 2 (the
+    # real final attempt), never a stale mix with attempt 1's.
+    assert receipt["selectedAttempt"] == 2
+    assert receipt["outcome"] == receipt["attempts"][1]["outcome"]

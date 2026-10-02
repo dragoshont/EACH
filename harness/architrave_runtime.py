@@ -1371,15 +1371,42 @@ class RunStore:
                     "RECOVERY_CHECKPOINT_UNRESOLVED",
                     f"checkpoint {checkpoint_id} has no recorded resolution proof; unresolved side effects stay denied",
                 )
+            # (F7) The checkpoint must represent a genuine interruption of an
+            # in-flight attempt, not merely a resolved approval created at an
+            # arbitrary point (e.g. before the task ever started). A checkpoint
+            # created while the task was not actually RUNNING recorded no
+            # interrupted attempt and can never justify a recovery grant.
+            interrupted_attempt = checkpoint.get("interruptedAttempt")
+            if interrupted_attempt is None:
+                raise RuntimeFailure(
+                    "RECOVERY_CHECKPOINT_NOT_AN_INTERRUPTION",
+                    f"checkpoint {checkpoint_id} was not created while task {task_id} was actually running; "
+                    "there is no eligible interrupted attempt to recover",
+                )
             if checkpoint.get("recoveryGrantConsumed"):
                 # (F7) A stale/replayed grant: this exact resolved checkpoint
                 # already backed one attempt grant. Reusing it a second time
                 # would let one genuine recovery event justify an unbounded
                 # number of extra attempts; a NEW exhaustion needs its own NEW
-                # checkpoint/resolution, not a replay of an old one.
+                # checkpoint/resolution, not a replay of an old one. Checked
+                # before staleness below, since an already-consumed checkpoint
+                # is invalid for this reason regardless of current attempts.
                 raise RuntimeFailure(
                     "RECOVERY_GRANT_ALREADY_CONSUMED",
                     f"checkpoint {checkpoint_id} already granted a recovery attempt and cannot be reused",
+                )
+            # And the task must not have executed any FURTHER attempt since
+            # that interruption: if it has (e.g. it resumed normally and
+            # later failed again on its own retry policy, unrelated to the
+            # original interruption), this checkpoint no longer describes
+            # the task's current situation and must not be replayed to
+            # excuse that separate, ordinary failure.
+            if task["attempts"] != interrupted_attempt:
+                raise RuntimeFailure(
+                    "RECOVERY_CHECKPOINT_STALE",
+                    f"task {task_id} has executed further attempts since checkpoint {checkpoint_id}'s "
+                    f"interruption (interrupted at attempt {interrupted_attempt}, now at attempt "
+                    f"{task['attempts']}); this checkpoint cannot justify a recovery grant for that attempt",
                 )
             checkpoint["recoveryGrantConsumed"] = True
             task["retryPolicy"]["maxAttempts"] += 1
@@ -1900,6 +1927,15 @@ class RunStore:
                 raise RuntimeFailure("TASK_TERMINAL", "terminal tasks cannot wait externally")
             if any(item["id"] == checkpoint_id for item in state["externalCheckpoints"]):
                 raise RuntimeFailure("EXTERNAL_CHECKPOINT_EXISTS", f"checkpoint already exists: {checkpoint_id}")
+            # (F7) Record whether this checkpoint actually interrupts a
+            # RUNNING attempt, and if so, exactly which one. A checkpoint
+            # created while the task was not actually running (e.g. it was
+            # PENDING/READY/NOT_READY, or had already failed) is real
+            # history but is not an eligible "interruption" a later
+            # grant_task_attempt call can recover from -- there was no
+            # in-flight attempt it cut short. ``grant_task_attempt`` below
+            # refuses a checkpoint with no recorded interrupted attempt.
+            interrupted_attempt = task["attempts"] if task["status"] == "RUNNING" else None
             lease = task.get("lease")
             if lease:
                 worker = next((item for item in state["workers"] if item["id"] == lease["owner"]), None)
@@ -1926,6 +1962,7 @@ class RunStore:
                     # is real history), but it must not be replayable to justify
                     # an unbounded number of attempt grants.
                     "recoveryGrantConsumed": False,
+                    "interruptedAttempt": interrupted_attempt,
                 }
             )
             append_checkpoint(state, task_id, "EXTERNAL_WAIT")

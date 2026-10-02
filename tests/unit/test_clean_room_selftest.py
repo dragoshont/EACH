@@ -288,3 +288,69 @@ def test_an_ambiguous_repaired_run_still_preserves_the_applied_patch_and_real_ru
     assert attempt["repaired_result"]["exit_code"] is not None
 
 
+@requires_colima_each
+def test_a_real_container_timeout_during_the_repaired_run_finalizes_a_truthful_partial_receipt(
+    tmp_path, monkeypatch
+) -> None:
+    """F6 regression ("Likewise clean_room executor.run timeout must
+    finalize attempt/partial receipt"): a patch that genuinely applies, but
+    whose repaired acceptance-run ``executor.run`` call itself raises
+    ``ContainerExecutorError`` (a real container-launch/timeout failure,
+    not merely an ambiguous classification), must never propagate uncaught
+    out of the whole function -- it must finalize a truthful, signed,
+    partial receipt with the real applied patch preserved, no fabricated
+    run result, a conservative EACH-P1 assurance level, and the private
+    diagnostic text kept out of the source-free summary view.
+
+    Call 1 is the real isolation probe, call 2 is this attempt's real
+    baseline run; only call 3 (the repaired/candidate run) is forced to
+    raise."""
+    import each.executor.container as container_module
+
+    original_run = container_module.ContainerExecutor.run
+    call_count = 0
+
+    def _flaky_run(self, command, worktree, **kwargs):
+        nonlocal call_count
+        call_count += 1
+        if call_count == 3:
+            raise container_module.ContainerExecutorError("simulated fixture container timeout")
+        return original_run(self, command, worktree, **kwargs)
+
+    monkeypatch.setattr(container_module.ContainerExecutor, "run", _flaky_run)
+    approved = _approve_selftest_spec("test-clean-room-real-container-timeout")
+    model = FixtureModel(_CORRECT_PATCH, model_id="fixture/clean-room-selftest-v1")
+
+    result = run_clean_room_build(
+        model, approved, max_attempts=1, run_id=f"selftest-timeout-{tmp_path.name}-{uuid.uuid4().hex[:8]}"
+    )
+
+    assert call_count == 3
+    assert result["outcome"].startswith("EXECUTION_ERROR")
+    receipt_path = Path(result["receipt_json"])
+    assert receipt_path.is_file()
+    receipt = json.loads(receipt_path.read_text())
+    assert receipt["outcome"].startswith("EXECUTION_ERROR")
+    assert len(receipt["attempts"]) == 1
+    attempt = receipt["attempts"][0]
+    assert attempt["patch_text"]
+    assert attempt["touched_paths"]
+    assert attempt["baseline_result"]
+    assert attempt["repaired_result"] == {}
+    assert attempt["materials_integrity"] == "UNAVAILABLE"
+    assert attempt["outcome"] == result["outcome"]
+    assert receipt["networkIsolationVerified"] is True
+    assert receipt["assuranceLevel"] == "EACH-P1"
+
+    from each.cli import main as each_cli_main
+
+    assert each_cli_main(["verify", str(receipt_path)]) == 0
+
+    # The private diagnostic text must stay confined to this attempt's own
+    # outcome string inside the private receipt, never leaking into any
+    # outcome-independent top-level field (spec/materials/model identity).
+    assert "simulated fixture container timeout" not in json.dumps(
+        {k: v for k, v in receipt.items() if k not in ("outcome", "attempts")}
+    )
+
+
