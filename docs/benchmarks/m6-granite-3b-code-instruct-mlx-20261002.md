@@ -19,26 +19,32 @@ line-number-anchored against the real file), and caps oversized leading
 docstrings. The excerpter never reads the fix commit, diff, or test outcome --
 only the pre-fix bug file and pre-fix test file.
 
-Even after these improvements, only 4 of the 22 real historical tasks have a
-rendered prompt that fits the checkpoint's real 2048-token budget; the other
-18 are honestly rejected pre-generation with `BUILDER_CONTEXT_BUDGET_EXCEEDED`
-and an exact token count, never silently degraded or retried. This is a
-measured property of the pinned checkpoint's small context window combined
-with genuine real-world file/test complexity, not a harness defect. Per the
-project's explicit acceptance criterion, a 0/22 `REPAIR_VERIFIED` result is
-valid M6 evidence when input construction is genuine/diff-blind and real
-generation attempts were made wherever the budget allowed -- which this run
-satisfies. The 4 tasks that fit received real 3-attempt generation sequences
-against the actual local model and the real no-network Colima container,
-each ending in a genuine `REPAIR_NOT_VERIFIED` result (real patches/tests
-exercised, not a harness shortcut).
+Even after these improvements, only 3 of the 22 real historical tasks have a
+rendered prompt that fits the checkpoint's real 2048-token budget across all
+3 attempts; 18 are rejected before any generation call with an exact
+`BUILDER_CONTEXT_BUDGET_EXCEEDED` token count; and 1
+(`boltons-bits-length-bound-check`) fits on attempt 1, receives one real
+generation/patch/test attempt, then its retry's appended feedback text pushes
+attempt 2 over budget, correctly ending the task rather than silently
+retrying or degrading. This is a measured property of the pinned
+checkpoint's small context window combined with genuine real-world
+file/test complexity, not a harness defect. Per the project's explicit
+acceptance criterion, a 0/22 `REPAIR_VERIFIED` result is valid M6 evidence
+when input construction is genuine/diff-blind and real generation attempts
+were made wherever the budget allowed -- which this run satisfies. The 3
+tasks that fit the budget for all 3 attempts received real end-to-end
+generation/patch/test sequences against the actual local model and the
+real no-network Colima container, each ending in a genuine
+`REPAIR_NOT_VERIFIED` result (real patches/tests exercised, not a harness
+shortcut).
 
 - Tasks: 22
 - Verified repairs: 0 / 22
-- Rejected pre-generation on context budget (exact token counts, no model
-  call): 18 / 22
-- Genuinely attempted via the real local model (3 attempts each, all
-  `REPAIR_NOT_VERIFIED`): 4 / 22
+- Rejected before any generation call, exact token counts recorded: 18 / 22
+- One real generation attempt, then budget-rejected on retry
+  (`boltons-bits-length-bound-check`): 1 / 22
+- Fit the budget for all 3 attempts; genuine end-to-end
+  `REPAIR_NOT_VERIFIED`: 3 / 22
 
 | Task | Repo | License | Outcome | Attempts | Assurance |
 |---|---|---|---|---|---|

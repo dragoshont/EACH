@@ -241,7 +241,67 @@ END_PATCH
 
 
 @requires_colima_each
-def test_context_budget_exceeded_is_terminal_and_recorded_before_any_generate_call(monkeypatch, tmp_path) -> None:
+def test_context_budget_preflight_skips_the_real_baseline_container_run(monkeypatch, tmp_path) -> None:
+    """When the model exposes an MLX-style ``check_context_budget`` preflight
+    (not part of the abstract RepairModel interface, but duck-typed for any
+    backend that has it), run_benchmark_task must consult it BEFORE spending
+    a real container baseline execution -- not merely before model.complete()
+    -- so a task that can never reach generation doesn't waste a real
+    executor run, and so an unrelated container/infrastructure hiccup on
+    that wasted run can never masquerade as the true, more fundamental
+    BUILDER_CONTEXT_BUDGET_EXCEEDED reason (regression for a gap found by
+    independent adversarial review: the budget check previously only ran
+    after the baseline container execution had already happened).
+    """
+    monkeypatch.setattr(benchmark_module, "cache_dir", lambda: tmp_path)
+    monkeypatch.setattr(benchmark_module, "fetch_file", _stub_fetch_file)
+    monkeypatch.setattr(benchmark_module, "_extract_repo_tree", _stub_extract_repo_tree)
+
+    executor_run_calls = []
+    real_executor_run = benchmark_module.ContainerExecutor.run
+
+    def _tracking_run(self, *args, **kwargs):
+        executor_run_calls.append((args, kwargs))
+        return real_executor_run(self, *args, **kwargs)
+
+    monkeypatch.setattr(benchmark_module.ContainerExecutor, "run", _tracking_run)
+
+    class _PreflightOverBudgetModel:
+        model_id = "test/preflight-over-budget-model"
+
+        def check_context_budget(self, prompt: str) -> tuple[str, int]:
+            del prompt
+            raise benchmark_module.ContextBudgetExceeded(
+                "rendered prompt (5000 tokens) + reserved output (512) exceeds max_position_embeddings (2048)"
+            )
+
+        def complete(self, prompt: str) -> str:
+            raise AssertionError("complete() must never be called once the preflight check rejects the prompt")
+
+        def identity(self) -> dict[str, str]:
+            return {"modelId": self.model_id, "implementationModule": __name__, "implementationSha256": ""}
+
+    model = _PreflightOverBudgetModel()
+    result = run_benchmark_task(_TASK, model, max_attempts=3)
+
+    assert result["outcome"].startswith("BUILDER_CONTEXT_BUDGET_EXCEEDED")
+    assert result["attempts"] == 1
+    # verify_isolation() legitimately uses executor.run() once per task (the
+    # real no-egress network probe, unrelated to the budget decision); what
+    # must never happen is the baseline *test-command* run this preflight
+    # exists to avoid wasting.
+    baseline_run_calls = [
+        call for call in executor_run_calls if "pytest" in " ".join(call[0][0])
+    ]
+    assert baseline_run_calls == []
+
+    receipt = json.loads(Path(result["receipt_json"]).read_text())
+    assert receipt["outcome"].startswith("BUILDER_CONTEXT_BUDGET_EXCEEDED")
+    assert receipt["baselineResult"] == {}
+    assert receipt["audit"]["result"] == "UNAVAILABLE"
+
+
+
     """Regression for the measured M6 context-overflow defect: when the
     model's own context-budget policy rejects the (already smallest,
     diff-blind) excerpt before generation, run_benchmark_task must record a

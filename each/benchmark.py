@@ -376,16 +376,34 @@ def select_prompt_excerpt(bug_source: str, test_sources: list[str]) -> tuple[str
     top_level = [n for n in bug_tree.body if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef))]
     by_name = {n.name: n for n in top_level}
 
+    def _walk_targets_of(node: ast.AST) -> list[ast.AST]:
+        # A plain function/async function is walked in full. A class is
+        # only walked through the specific methods that will actually
+        # survive into the rendered excerpt (per _class_needed_methods'
+        # own scoped, class-local expansion) -- never the whole class
+        # body -- so an unrelated sibling method's own helper calls can
+        # never leak a top-level name into the excerpt purely because it
+        # happens to share a class with a genuinely referenced method.
+        # The one exception is the documented "no method referenced,
+        # keep the whole class" fallback, where the whole class really
+        # does end up in the excerpt and so really is a fair walk target.
+        if not isinstance(node, ast.ClassDef):
+            return [node]
+        methods = _method_defs(node)
+        needed = _class_needed_methods(node, referenced)
+        return [methods[name] for name in needed] if needed else [node]
+
     selected: set[str] = {name for name in by_name if name in referenced}
     changed = True
     while changed:
         changed = False
         for name in list(selected):
-            for inner in ast.walk(by_name[name]):
-                inner_name = getattr(inner, "id", None) or getattr(inner, "attr", None)
-                if inner_name and inner_name in by_name and inner_name not in selected:
-                    selected.add(inner_name)
-                    changed = True
+            for target in _walk_targets_of(by_name[name]):
+                for inner in ast.walk(target):
+                    inner_name = getattr(inner, "id", None) or getattr(inner, "attr", None)
+                    if inner_name and inner_name in by_name and inner_name not in selected:
+                        selected.add(inner_name)
+                        changed = True
 
     if not selected:
         return bug_source, 1, total_lines
@@ -403,6 +421,28 @@ def _method_defs(class_node: ast.ClassDef) -> dict[str, ast.AST]:
     return {
         n.name: n for n in class_node.body if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef))
     }
+
+
+def _class_needed_methods(class_node: ast.ClassDef, referenced: set[str]) -> set[str]:
+    """Which of ``class_node``'s own methods are genuinely needed: methods
+    the test file references by name directly, plus their *intra-class*
+    local call-graph expansion (a referenced method calling another method
+    of the same class pulls that one in too). Scoped strictly to this one
+    class's methods -- never expands into unrelated sibling methods or
+    top-level names, so a method that happens to share a class with a
+    referenced method is never pulled in merely by proximity."""
+    methods = _method_defs(class_node)
+    needed: set[str] = {name for name in methods if name in referenced}
+    changed = True
+    while changed:
+        changed = False
+        for name in list(needed):
+            for inner in ast.walk(methods[name]):
+                inner_name = getattr(inner, "id", None) or getattr(inner, "attr", None)
+                if inner_name and inner_name in methods and inner_name not in needed:
+                    needed.add(inner_name)
+                    changed = True
+    return needed
 
 
 _DOCSTRING_LINE_CAP = 3
@@ -447,16 +487,7 @@ def _resolve_keep_ranges(selected_nodes: list[ast.AST], referenced: set[str]) ->
             continue
 
         methods = _method_defs(node)
-        needed: set[str] = {name for name in methods if name in referenced}
-        changed = True
-        while changed:
-            changed = False
-            for name in list(needed):
-                for inner in ast.walk(methods[name]):
-                    inner_name = getattr(inner, "id", None) or getattr(inner, "attr", None)
-                    if inner_name and inner_name in methods and inner_name not in needed:
-                        needed.add(inner_name)
-                        changed = True
+        needed = _class_needed_methods(node, referenced)
 
         if not needed:
             # No specific method name was referenced (only the class name
@@ -644,6 +675,23 @@ def run_benchmark_task(
     expected_tests = task.expected_tests
 
     for attempt_num in range(1, max_attempts + 1):
+        # Preflight the context budget before spending a real container
+        # baseline run on a prompt that cannot possibly reach generation:
+        # not every RepairModel backend exposes this (it's an MLX-specific
+        # extra, not part of the abstract RepairModel interface), so this
+        # is a best-effort early exit, not a correctness requirement --
+        # complete() below still enforces the budget authoritatively for
+        # any backend that supports it.
+        check_budget = getattr(model, "check_context_budget", None)
+        if callable(check_budget):
+            try:
+                check_budget(prompt)
+            except ContextBudgetExceeded as exc:
+                final_outcome = f"BUILDER_CONTEXT_BUDGET_EXCEEDED: {exc}"
+                attempts.append(
+                    {"attempt": attempt_num, "prompt": prompt, "raw_completion": "", "outcome": final_outcome}
+                )
+                break
         worktree, manifest = build_worktree(source_root, include_paths)
         try:
             baseline = executor.run(_wrapped_test_command(task), worktree)
@@ -657,7 +705,10 @@ def run_benchmark_task(
         try:
             raw_completion = model.complete(prompt)
         except ContextBudgetExceeded as exc:
-            # A policy/input-construction error, not a repair-attempt
+            # Authoritative fallback for any backend complete() itself
+            # enforces the budget for (the preflight above is only a
+            # best-effort early exit for backends that expose it). A
+            # policy/input-construction error, not a repair-attempt
             # failure: the excerpt (already the smallest diff-blind
             # selection we can make) still does not fit this checkpoint's
             # declared context budget. Retrying would only make the prompt

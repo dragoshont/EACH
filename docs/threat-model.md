@@ -174,9 +174,11 @@ isolation ("native host execution is not a strong-profile proxy").
   the exact token counts (`BUILDER_CONTEXT_BUDGET_EXCEEDED`) instead of
   silently truncating, mutating, or degrading the prompt. This is a
   genuine, measured model-capability constraint, not a harness defect: in
-  the real 22-task historical benchmark only 4/22 tasks' excerpted prompts
-  fit the budget even after diff-blind AST-based narrowing
-  (`select_prompt_excerpt` in `each/benchmark.py`); see
+  the real 22-task historical benchmark only 3/22 tasks' excerpted prompts
+  fit the budget for all 3 attempts even after diff-blind AST-based
+  narrowing (`select_prompt_excerpt` in `each/benchmark.py`), and 1/22
+  fit on attempt 1 but was correctly rejected when a retry's appended
+  feedback pushed it over budget; see
   `docs/benchmarks/m6-granite-3b-code-instruct-mlx-20261002.md`.
 - The excerpter narrows large files to the specific functions/methods a
   task's pre-fix test references (plus local call-graph expansion) and

@@ -166,6 +166,43 @@ def test_class_excerpt_keeps_the_whole_class_when_no_method_name_matches() -> No
     assert "def sign" in excerpt
 
 
+_SIBLING_HELPER_LEAK_SOURCE = """def unrelated_helper():
+    return 99
+
+
+class C:
+    def target(self):
+        return 1
+
+    def unrelated(self):
+        return unrelated_helper()
+"""
+
+_SIBLING_HELPER_LEAK_TEST_SOURCE = """from mod import C
+
+
+def test_target():
+    assert C().target() == 1
+"""
+
+
+def test_an_unreferenced_sibling_methods_own_helper_call_is_not_pulled_in() -> None:
+    """A referenced class with an *unrelated* sibling method (never kept in
+    the excerpt) that happens to call a top-level helper must not leak
+    that helper into the excerpt merely because both methods share a
+    class. Top-level call-graph expansion for a class must only ever walk
+    the methods that will actually be kept (the narrowed, needed set), not
+    the whole class body -- otherwise an irrelevant sibling's dependencies
+    can inflate the prompt and spuriously affect whether a task fits the
+    model's context budget."""
+    excerpt, _start, _end = select_prompt_excerpt(
+        _SIBLING_HELPER_LEAK_SOURCE, [_SIBLING_HELPER_LEAK_TEST_SOURCE]
+    )
+    assert "def target" in excerpt
+    assert "unrelated_helper" not in excerpt
+    assert "def unrelated" not in excerpt
+
+
 _LONG_DOCSTRING_SOURCE = '''def target_function(value):
     """A very long prose docstring with many lines of usage examples and
     historical notes that cost real token budget without being needed to
