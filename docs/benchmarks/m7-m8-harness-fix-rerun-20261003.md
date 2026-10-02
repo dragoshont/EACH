@@ -54,7 +54,9 @@ shared patch-handling/retry harness, not anything target-specific:
   and reproducible; later attempts get a small, fixed, fully-recorded,
   attempt-indexed diversity budget.
 - Full `tests/unit` suite (280 tests, including new regression coverage
-  for both fixes) passes; Ruff clean.
+  for both fixes, at the time of this report; see `docs/development-status.md`
+  for the current audit-enabled test count at the latest commit) passes;
+  Ruff clean.
 
 ## Fresh M7 re-run: `m7-clean-room-lru-cache-fresh-20261003`
 
@@ -63,18 +65,24 @@ Same already-approved spec (`each-m7-clean-room-lru-cache`, approved hash
 unchanged), same already-cached model, zero new approvals, zero new
 model downloads.
 
-- **Outcome: `PATCH_REJECTED`** (3/3 attempts).
+- **Outcome: `PATCH_REJECTED`** (3/3 attempts, no attempt reached a
+  validated/applied patch, no acceptance exit).
+- Materials integrity and signature verification on this fresh receipt's
+  own retained artifact files: both independently re-checked **`PASS`**
+  (not declaration-only).
 - Blank-line-prefix defect class: **eliminated** -- 0 malformed-prefix body
   lines in any of the 3 attempts (the original run's attempt 1 alone had
   12 such lines).
 - Retry diversity: **confirmed working** -- completions were 1036/1024/485
   characters (genuinely distinct), versus the original run's 3x
   byte-identical 1036-character completions.
-- Remaining, now-isolated real cause: the model's own declared hunk-header
-  line counts (`old_len`/`new_len`) do not match the actual number of body
-  lines it produced for that hunk -- a genuine model-accuracy/capability
-  limitation for this specific black-box, from-scratch reimplementation
-  task, not a harness defect.
+- Remaining, now-isolated observed failure mode: the model's own declared
+  hunk-header line counts (`old_len`/`new_len`) do not match the actual
+  number of body lines it produced for that hunk. **The specific cause of
+  this mismatch (model capability, prompt/template framing, decoding
+  configuration, or another harness interaction) is currently
+  undetermined** -- this report does not assert a diagnosed cause, and no
+  private model output was inspected to reach one.
 
 ## Fresh M8 re-run: `m8-xsystem-sandboxid-opt-fresh-20261003`
 
@@ -85,18 +93,23 @@ unchanged), same pinned target
 `xsystem.c` only), same already-cached model, zero new approvals, zero new
 model downloads, zero spec changes.
 
-- **Outcome: `PATCH_REJECTED`** (3/3 attempts).
+- **Outcome: `PATCH_REJECTED`** (3/3 attempts, no attempt reached a
+  validated/applied patch, no acceptance exit).
+- Materials integrity and signature verification on this fresh receipt's
+  own retained artifact files: both independently re-checked **`PASS`**
+  (not declaration-only).
 - Blank-line-prefix defect class: **eliminated** -- 0 malformed-prefix body
   lines in any of the 3 attempts (the original run's attempt 1 failed
   exactly this way: `"Unexpected hunk found"` with in-hunk blank lines
   lacking a leading space).
 - Retry diversity: **confirmed working** -- completions were 1391/723/681
   characters (genuinely distinct).
-- Remaining, now-isolated real cause: all 3 attempts now fail with an
-  internally-inconsistent hunk header (declared old/new line count does
-  not match the attempt's own hunk body) -- a real model-accuracy
-  limitation reproducing an exact patch against the real pinned source,
-  not a harness defect, format bug, or spec-sufficiency problem.
+- Remaining, now-isolated observed failure mode: all 3 attempts now fail
+  with an internally-inconsistent hunk header (declared old/new line count
+  does not match the attempt's own hunk body). **The specific cause of this
+  mismatch is currently undetermined** -- this report does not assert a
+  diagnosed cause (model capability, prompting, or otherwise), and no
+  private model output was inspected to reach one.
 
 ## What this does and does not establish
 
@@ -106,12 +119,12 @@ model downloads, zero spec changes.
   gone and retry diversity genuinely works.
 - **Does not establish:** a verified M7 or M8 repair. Both fresh runs
   still end `PATCH_REJECTED` for a different, now more precisely
-  identified reason (hunk-header line-count accuracy), which is a model
-  capability limit for this declared checkpoint on these specific tasks,
-  not something further harness changes alone can fix without either
+  identified failure mode (hunk-header line-count mismatch), whose root
+  cause is currently undetermined. Further investigation (e.g. the
+  bounded raw-output-format experiment described below) is in scope;
   inventing structure the model did not produce (forbidden) or using a
   different/stronger model (out of scope for this bounded session: "no
-  new models/downloads").
+  new models/downloads") is not.
 - Neither original receipt (`m7-clean-room-lru-cache-real`,
   `m8-xsystem-sandboxid-opt-20261002`) was read, mutated, re-signed, or
   regenerated by this work. Both fresh receipts are new, independently

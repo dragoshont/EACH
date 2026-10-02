@@ -39,6 +39,7 @@ from each.models.base import ContextBudgetExceeded, RepairModel
 from each.outcome import sanitize_outcome_class
 from each.patch import PatchRejected, apply_patch, extract_patch_text, parse_patch
 from each.paths import runs_dir, validate_private_root, validate_task_id
+from each.raw_proposal import RawProposalRejected, derive_unified_diff, extract_full_source
 from each.receipt import Receipt
 from each.spec import ApprovedSpec
 from each.worktree import build_worktree, verify_unchanged
@@ -87,6 +88,66 @@ _RETRY_SUFFIX = (
     "implementation."
 )
 
+# (full-source proposal mode) An alternative to the diff-mode template above
+# for the SAME underlying full-file-rewrite task. Instead of asking the
+# model to both reproduce every original line verbatim AND compute an
+# accurate hunk-header line count, this asks only for the complete new file
+# body -- the harness itself derives the unified diff deterministically
+# with ``difflib`` (see each.raw_proposal), removing the model's hunk-header
+# arithmetic as a failure mode entirely. Same approved spec/behavior/scope;
+# only the wire format the model is asked to use changes.
+_FULL_SOURCE_PROMPT_TEMPLATE = """You are implementing a standalone Python module from a formal, hash-approved specification. You must implement this entirely yourself: do not import, read, invoke, or otherwise consult any third-party or standard-library implementation of the described behavior. The specification below is the ONLY permitted description of the required behavior.
+
+{problem_statement}
+
+Only this file may be changed: {path}
+
+The file has exactly {line_count} lines. Its current contents, shown verbatim between the two marker lines below (the marker lines themselves are NOT part of the file and must NOT appear in your response):
+----- FILE CONTENT START -----
+{numbered_source}
+----- FILE CONTENT END -----
+
+Reply with ONLY the complete, corrected file content between BEGIN_SOURCE and END_SOURCE markers, with no other text, no markdown fences, and no explanation. Example wire format (unrelated toy file):
+BEGIN_SOURCE
+foo = 10
+bar = 20
+END_SOURCE
+
+Now produce the complete new content for {path} ({line_count} lines) between BEGIN_SOURCE and END_SOURCE, implementing it entirely yourself from the specification above.
+"""
+
+_FULL_SOURCE_RETRY_SUFFIX = (
+    "\n\nYour previous attempt was rejected: {reason}\n"
+    "Try again: reply with ONLY the complete, corrected file content between BEGIN_SOURCE and "
+    "END_SOURCE markers, with no other text, no markdown fences, and no explanation. Implement "
+    "this yourself from the specification only; do not reference any external library's "
+    "implementation."
+)
+
+
+def _extract_patch_text_for_mode(raw_completion: str, proposal_format: str, *, path: str, original_text: str) -> str:
+    """Turn a raw completion into unified-diff text, branching on the
+    requested wire format. Both branches feed the exact same downstream
+    ``parse_patch``/``apply_patch`` scope and pre-image validation -- this
+    only changes how the diff text itself is obtained.
+    """
+    if proposal_format == "diff":
+        return extract_patch_text(raw_completion)
+    try:
+        proposed = extract_full_source(raw_completion)
+    except RawProposalRejected as exc:
+        raise PatchRejected(str(exc)) from exc
+    diff_text = derive_unified_diff(path=path, original_text=original_text, proposed_text=proposed)
+    if not diff_text:
+        raise PatchRejected("model proposed no change from the original file")
+    return diff_text
+
+
+def _retry_suffix_for_mode(proposal_format: str, *, reason: str, line_count: int) -> str:
+    if proposal_format == "diff":
+        return _RETRY_SUFFIX.format(reason=reason, line_count=line_count)
+    return _FULL_SOURCE_RETRY_SUFFIX.format(reason=reason)
+
 
 def run_clean_room_build(
     model: RepairModel,
@@ -96,6 +157,7 @@ def run_clean_room_build(
     corpus_revision: str = "none",
     max_attempts: int = 3,
     run_id: str | None = None,
+    proposal_format: str = "diff",
 ) -> dict[str, Any]:
     """Run one sealed Builder attempt sequence for ``approved`` (an M7-style
     from-scratch, black-box clean-room spec), fully reusing the proven
@@ -104,7 +166,17 @@ def run_clean_room_build(
     ``audit_corpus`` is the real reference implementation's source, read
     only for the terminal audit comparison -- never shown to the Builder
     and never read by this function's own prompt-construction code path.
+
+    ``proposal_format`` selects the wire format the Builder model is asked
+    to use: ``"diff"`` (default, unchanged original behavior) asks for a
+    unified diff with the model's own hunk-header arithmetic; ``"full_source"``
+    asks for the complete new file body instead and has the harness derive
+    the unified diff deterministically (see ``each.raw_proposal``). Same
+    approved spec, same scope, same validation/audit/receipt pipeline either
+    way -- only how one candidate's raw text is turned into a patch changes.
     """
+    if proposal_format not in {"diff", "full_source"}:
+        raise ValueError(f"proposal_format must be 'diff' or 'full_source', got {proposal_format!r}")
     approved.verify()
     validate_private_root()
     packet = approved.packet
@@ -138,7 +210,8 @@ def run_clean_room_build(
     stub_source = (FIXTURE_ROOT / allowed_path).read_text(encoding="utf-8")
     stub_lines = stub_source.splitlines()
     line_count = len(stub_lines)
-    base_prompt = _PROMPT_TEMPLATE.format(
+    prompt_template = _PROMPT_TEMPLATE if proposal_format == "diff" else _FULL_SOURCE_PROMPT_TEMPLATE
+    base_prompt = prompt_template.format(
         problem_statement=packet.problem_statement,
         path=allowed_path,
         line_count=line_count,
@@ -226,6 +299,7 @@ def run_clean_room_build(
                     "repaired_result": {},
                     "model_identity": model.identity(),
                     "materials_integrity": "UNAVAILABLE",
+                    "proposal_format": proposal_format,
                     "outcome": outcome,
                 }
             )
@@ -255,6 +329,7 @@ def run_clean_room_build(
                     "repaired_result": {},
                     "model_identity": model.identity(),
                     "materials_integrity": "UNAVAILABLE",
+                    "proposal_format": proposal_format,
                     "outcome": outcome,
                 }
             )
@@ -291,6 +366,7 @@ def run_clean_room_build(
                     "repaired_result": {},
                     "model_identity": model.identity(),
                     "materials_integrity": "UNAVAILABLE",
+                    "proposal_format": proposal_format,
                     "outcome": outcome,
                 }
             )
@@ -308,16 +384,17 @@ def run_clean_room_build(
             "touched_paths": [],
             "repaired_result": {},
             "model_identity": model.identity(),
+            "proposal_format": proposal_format,
         }
 
         try:
-            patch_text = extract_patch_text(raw_completion)
+            patch_text = _extract_patch_text_for_mode(raw_completion, proposal_format, path=allowed_path, original_text=stub_source)
             patch = parse_patch(patch_text)
             touched = apply_patch(patch, worktree, {allowed_path})
         except PatchRejected as exc:
             attempt_record["outcome"] = f"PATCH_REJECTED: {exc}"
             attempts.append(attempt_record)
-            prompt = base_prompt + _RETRY_SUFFIX.format(reason=str(exc), line_count=line_count)
+            prompt = base_prompt + _retry_suffix_for_mode(proposal_format, reason=str(exc), line_count=line_count)
             continue
 
         # Record the real applied patch immediately, before any
@@ -363,8 +440,8 @@ def run_clean_room_build(
             # happened (F6).
             attempt_record["outcome"] = f"REPAIRED_RUN_INCONCLUSIVE: {exc}"
             attempts.append(attempt_record)
-            prompt = base_prompt + _RETRY_SUFFIX.format(
-                reason="the repaired test run could not be classified; try again", line_count=line_count
+            prompt = base_prompt + _retry_suffix_for_mode(
+                proposal_format, reason="the repaired test run could not be classified; try again", line_count=line_count
             )
             continue
         test_outcome = (
@@ -407,7 +484,7 @@ def run_clean_room_build(
             if materials_drift
             else "patch applied but did not make the failing tests pass"
         )
-        prompt = base_prompt + _RETRY_SUFFIX.format(reason=reason, line_count=line_count)
+        prompt = base_prompt + _retry_suffix_for_mode(proposal_format, reason=reason, line_count=line_count)
 
     if final_outcome is None:
         # Every attempt was exhausted on a PATCH_REJECTED retry without ever

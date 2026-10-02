@@ -38,6 +38,7 @@ from each.models.base import ContextBudgetExceeded, RepairModel
 from each.outcome import sanitize_outcome_class
 from each.patch import PatchRejected, apply_patch, extract_patch_text, parse_patch
 from each.paths import assert_no_symlink_escape, each_home, runs_dir, validate_private_root, validate_task_id
+from each.raw_proposal import RawProposalRejected, derive_unified_diff, extract_full_source
 from each.receipt import Receipt
 from each.spec import ApprovedSpec
 from each.worktree import build_worktree, verify_unchanged
@@ -94,6 +95,65 @@ _RETRY_SUFFIX = (
     "(\"+\") lines. Fix only the behavior the issue describes; do not reference any external "
     "patch or implementation."
 )
+
+# (full-source proposal mode) An alternative to the diff-mode template above
+# for the SAME underlying bug-fix task. Instead of asking the model to
+# compute an accurate hunk-header line count for just the changed region,
+# this asks for the complete new file body -- the harness itself derives
+# the unified diff deterministically with ``difflib`` (see
+# each.raw_proposal), removing the model's hunk-header arithmetic as a
+# failure mode entirely. Same approved spec/behavior/scope; only the wire
+# format the model is asked to use changes.
+_FULL_SOURCE_PROMPT_TEMPLATE = """You are repairing exactly one bug in a real, existing C source file, described below by its own public issue report. You must fix ONLY the behavior the issue describes, using ONLY the file content shown below and the issue text -- do not invent, assume, or reference any other implementation, patch, or fix you may have seen elsewhere for this exact bug.
+
+{problem_statement}
+
+Only this file may be changed: {path}
+
+The file has exactly {line_count} lines. Its current contents, shown verbatim between the two marker lines below (the marker lines themselves are NOT part of the file and must NOT appear in your response):
+----- FILE CONTENT START -----
+{numbered_source}
+----- FILE CONTENT END -----
+
+Reply with ONLY the complete, corrected file content between BEGIN_SOURCE and END_SOURCE markers, with no other text, no markdown fences, and no explanation. Make the smallest change that fixes the described bug; leave everything else exactly as it was. Example wire format (unrelated toy file):
+BEGIN_SOURCE
+int foo = 10;
+int bar = 20;
+END_SOURCE
+
+Now produce the complete new content for {path} ({line_count} lines) between BEGIN_SOURCE and END_SOURCE.
+"""
+
+_FULL_SOURCE_RETRY_SUFFIX = (
+    "\n\nYour previous attempt was rejected: {reason}\n"
+    "Try again: reply with ONLY the complete, corrected file content between BEGIN_SOURCE and "
+    "END_SOURCE markers, with no other text, no markdown fences, and no explanation. Fix only "
+    "the behavior the issue describes; do not reference any external patch or implementation."
+)
+
+
+def _extract_patch_text_for_mode(raw_completion: str, proposal_format: str, *, path: str, original_text: str) -> str:
+    """Turn a raw completion into unified-diff text, branching on the
+    requested wire format. Both branches feed the exact same downstream
+    ``parse_patch``/``apply_patch`` scope and pre-image validation -- this
+    only changes how the diff text itself is obtained.
+    """
+    if proposal_format == "diff":
+        return extract_patch_text(raw_completion)
+    try:
+        proposed = extract_full_source(raw_completion)
+    except RawProposalRejected as exc:
+        raise PatchRejected(str(exc)) from exc
+    diff_text = derive_unified_diff(path=path, original_text=original_text, proposed_text=proposed)
+    if not diff_text:
+        raise PatchRejected("model proposed no change from the original file")
+    return diff_text
+
+
+def _retry_suffix_for_mode(proposal_format: str, *, reason: str) -> str:
+    if proposal_format == "diff":
+        return _RETRY_SUFFIX.format(reason=reason)
+    return _FULL_SOURCE_RETRY_SUFFIX.format(reason=reason)
 
 
 def _assemble_source_root(fetched_source: str, allowed_path: str, dest: Path) -> None:
@@ -158,6 +218,7 @@ def run_xodus_shadow_build(
     *,
     max_attempts: int = 3,
     run_id: str | None = None,
+    proposal_format: str = "diff",
 ) -> dict[str, Any]:
     """Run one sealed Builder attempt sequence for ``approved`` (an M8-style
     real, pinned, public-source bug-fix spec), reusing the proven isolation
@@ -168,7 +229,17 @@ def run_xodus_shadow_build(
     source/prompt/completion/patch data is written only to the private
     receipt under ``runs_dir()``; this function's return value is
     deliberately source-free (outcome label + file paths only).
+
+    ``proposal_format`` selects the wire format the Builder model is asked
+    to use: ``"diff"`` (default, unchanged original behavior) asks for a
+    unified diff hunk with the model's own hunk-header arithmetic;
+    ``"full_source"`` asks for the complete new file body instead and has
+    the harness derive the unified diff deterministically (see
+    ``each.raw_proposal``). Same approved spec, same scope, same
+    validation/audit/receipt pipeline either way.
     """
+    if proposal_format not in {"diff", "full_source"}:
+        raise ValueError(f"proposal_format must be 'diff' or 'full_source', got {proposal_format!r}")
     approved.verify()
     verify_xodus_shadow_binding(approved)
     validate_private_root()
@@ -210,7 +281,8 @@ def run_xodus_shadow_build(
 
     source_lines = fetched_source.splitlines()
     line_count = len(source_lines)
-    base_prompt = _PROMPT_TEMPLATE.format(
+    prompt_template = _PROMPT_TEMPLATE if proposal_format == "diff" else _FULL_SOURCE_PROMPT_TEMPLATE
+    base_prompt = prompt_template.format(
         problem_statement=packet.problem_statement,
         path=allowed_path,
         line_count=line_count,
@@ -320,6 +392,7 @@ def run_xodus_shadow_build(
                     "repaired_result": {},
                     "model_identity": model.identity(),
                     "materials_integrity": "UNAVAILABLE",
+                    "proposal_format": proposal_format,
                     "outcome": outcome,
                 }
             )
@@ -339,16 +412,17 @@ def run_xodus_shadow_build(
             "run_result": None,
             "repaired_result": {},
             "model_identity": model.identity(),
+            "proposal_format": proposal_format,
         }
 
         try:
-            patch_text = extract_patch_text(raw_completion)
+            patch_text = _extract_patch_text_for_mode(raw_completion, proposal_format, path=allowed_path, original_text=fetched_source)
             patch = parse_patch(patch_text)
             touched = apply_patch(patch, worktree, {allowed_path})
         except PatchRejected as exc:
             attempt_record["outcome"] = f"PATCH_REJECTED: {exc}"
             attempts.append(attempt_record)
-            prompt = base_prompt + _RETRY_SUFFIX.format(reason=str(exc))
+            prompt = base_prompt + _retry_suffix_for_mode(proposal_format, reason=str(exc))
             continue
 
         # Record the real applied patch immediately, before any
@@ -412,7 +486,7 @@ def run_xodus_shadow_build(
         except BenchmarkExecutionError as exc:
             attempt_record["outcome"] = f"EXECUTION_ERROR: {exc}"
             attempts.append(attempt_record)
-            prompt = base_prompt + _RETRY_SUFFIX.format(reason="the previous patch could not be evaluated cleanly")
+            prompt = base_prompt + _retry_suffix_for_mode(proposal_format, reason="the previous patch could not be evaluated cleanly")
             continue
 
         # Candidate-authored C runs with full read/write access to the same
@@ -476,7 +550,7 @@ def run_xodus_shadow_build(
             reason = "patch applied but did not compile" if test_verdict == "build_failed" else (
                 "patch applied and compiled but did not fix the reported bug"
             )
-        prompt = base_prompt + _RETRY_SUFFIX.format(reason=reason)
+        prompt = base_prompt + _retry_suffix_for_mode(proposal_format, reason=reason)
 
     if final_outcome is None:
         # Every attempt was exhausted on a PATCH_REJECTED/EXECUTION_ERROR
