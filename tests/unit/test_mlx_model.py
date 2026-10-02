@@ -10,12 +10,25 @@ bake-off/benchmark tests, which load actual local model weights.
 
 from __future__ import annotations
 
+import sys
 from pathlib import Path
+from types import ModuleType
 
 import pytest
 
 from each.model_manifest import build_manifest_from_snapshot
 from each.models.mlx_model import ContextBudgetExceeded, MLXRepairModel
+
+
+@pytest.fixture(autouse=True)
+def _stub_optional_backend(monkeypatch: pytest.MonkeyPatch) -> None:
+    backend = ModuleType("mlx_lm")
+    backend.generate = lambda *args, **kwargs: "fixture output"
+    sampling = ModuleType("mlx_lm.sample_utils")
+    sampling.make_sampler = lambda **kwargs: None
+    backend.sample_utils = sampling
+    monkeypatch.setitem(sys.modules, "mlx_lm", backend)
+    monkeypatch.setitem(sys.modules, "mlx_lm.sample_utils", sampling)
 
 
 def _snapshot(tmp_path: Path, *, max_position_embeddings: int | None) -> Path:
