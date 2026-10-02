@@ -29,3 +29,10 @@ def test_octocoder_reports_a_concrete_unavailability_reason() -> None:
 def test_gguf_reports_no_verified_conversion_provenance() -> None:
     with pytest.raises(UnavailableModelError, match="no llama.cpp/GGUF conversion with recorded provenance"):
         load_model("granite-gguf-llamacpp")
+
+
+def test_load_model_rejects_unsupported_kwarg_for_entries_without_tunable_params() -> None:
+    # A keyword a builder does not accept must raise a normal TypeError, not
+    # be silently swallowed as a no-op override.
+    with pytest.raises(TypeError):
+        load_model("granite-gguf-llamacpp", max_tokens=1024)

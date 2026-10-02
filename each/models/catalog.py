@@ -62,7 +62,7 @@ def _granite_3b_code_base_mlx() -> RepairModel:
     return MLXRepairModel(snapshot_dir, manifest)
 
 
-def _granite_8b_code_instruct_128k_mlx() -> RepairModel:
+def _granite_8b_code_instruct_128k_mlx(*, max_tokens: int = 512) -> RepairModel:
     snapshot_dir = (
         HF_CACHE_DIR
         / "models--ibm-granite--granite-8b-code-instruct-128k"
@@ -91,7 +91,7 @@ def _granite_8b_code_instruct_128k_mlx() -> RepairModel:
     )
     from each.models.mlx_model import MLXRepairModel
 
-    return MLXRepairModel(snapshot_dir, manifest)
+    return MLXRepairModel(snapshot_dir, manifest, max_tokens=max_tokens)
 
 
 def _granite_3b_code_instruct_mlx() -> RepairModel:
@@ -150,7 +150,7 @@ def _granite_gguf_llamacpp() -> RepairModel:
     )
 
 
-_CATALOG: dict[str, Callable[[], RepairModel]] = {
+_CATALOG: dict[str, Callable[..., RepairModel]] = {
     "granite-3b-code-base-mlx": _granite_3b_code_base_mlx,
     "granite-3b-code-instruct-mlx": _granite_3b_code_instruct_mlx,
     "granite-8b-code-instruct-128k-mlx": _granite_8b_code_instruct_128k_mlx,
@@ -159,11 +159,16 @@ _CATALOG: dict[str, Callable[[], RepairModel]] = {
 }
 
 
-def load_model(key: str) -> RepairModel:
+def load_model(key: str, **kwargs) -> RepairModel:
     """Instantiate a catalog entry, raising UnavailableModelError with the
-    exact reason if it cannot actually be used right now."""
+    exact reason if it cannot actually be used right now.
+
+    ``kwargs`` (e.g. ``max_tokens``) are forwarded to the catalog entry's
+    builder; entries that do not accept a given keyword raise a normal
+    ``TypeError``, not a silently-ignored override.
+    """
     try:
         builder = _CATALOG[key]
     except KeyError as exc:
         raise UnavailableModelError(f"unknown model key: {key!r}; known keys: {sorted(_CATALOG)}") from exc
-    return builder()
+    return builder(**kwargs)

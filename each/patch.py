@@ -7,6 +7,7 @@ applied without passing scope/path/symlink checks first.
 
 from __future__ import annotations
 
+import re
 from pathlib import Path
 
 from unidiff import PatchSet
@@ -14,6 +15,9 @@ from unidiff.errors import UnidiffParseError
 
 PATCH_BEGIN = "BEGIN_PATCH"
 PATCH_END = "END_PATCH"
+
+_FENCED_BLOCK_RE = re.compile(r"```[^\n]*\n(.*?)```", re.DOTALL)
+_OPEN_FENCE_RE = re.compile(r"```[^\n]*\n(.*)", re.DOTALL)
 
 
 class PatchRejected(RuntimeError):
@@ -23,12 +27,42 @@ class PatchRejected(RuntimeError):
 def extract_patch_text(completion: str) -> str:
     """Pull the diff body out of BEGIN_PATCH/END_PATCH markers.
 
-    Rejects completions that omit the markers or are empty between them,
-    since raw model output is otherwise unconstrained free text.
+    Falls back, in order, to:
+
+    1. the first *closed* markdown code fence that looks like a unified
+       diff (contains both a ``--- `` and a ``+++ `` line);
+    2. an unclosed trailing fence (the model opened a fence and emitted a
+       diff but never emitted a closing ```` ``` ````, which real
+       instruction-tuned models do even at generous output-token budgets --
+       this is model phrasing style, not truncation, and is only used when
+       the content after the single opening fence itself looks like a
+       diff).
+
+    This is a format-tolerance fallback, not a relaxation of validation:
+    whichever text is extracted still goes through the same
+    ``parse_patch``/``apply_patch`` scope and pre-image checks. Real
+    instruction-tuned models frequently ignore a custom marker convention
+    in favor of the much more common fenced-code-block convention even when
+    explicitly told to use markers.
+
+    Rejects completions that have neither the markers nor a recognizable
+    fenced diff, since raw model output is otherwise unconstrained free
+    text.
     """
-    if PATCH_BEGIN not in completion or PATCH_END not in completion:
-        raise PatchRejected("completion missing BEGIN_PATCH/END_PATCH markers")
-    body = completion.split(PATCH_BEGIN, 1)[1].split(PATCH_END, 1)[0]
+    if PATCH_BEGIN in completion and PATCH_END in completion:
+        body = completion.split(PATCH_BEGIN, 1)[1].split(PATCH_END, 1)[0]
+    else:
+        body = None
+        for block in _FENCED_BLOCK_RE.findall(completion):
+            if "--- " in block and "+++ " in block:
+                body = block
+                break
+        if body is None:
+            open_match = _OPEN_FENCE_RE.search(completion)
+            if open_match and "--- " in open_match.group(1) and "+++ " in open_match.group(1):
+                body = open_match.group(1)
+        if body is None:
+            raise PatchRejected("completion has neither BEGIN_PATCH/END_PATCH markers nor a fenced unified diff")
     body = body.strip("\n")
     if not body.strip():
         raise PatchRejected("empty patch body")
@@ -42,6 +76,17 @@ def parse_patch(patch_text: str) -> PatchSet:
         raise PatchRejected(f"malformed unified diff: {exc}") from exc
     if len(patch) == 0:
         raise PatchRejected("diff parsed but contains no file changes")
+    for pf in patch:
+        if len(pf) == 0:
+            # A hunk header unidiff could not match (e.g. a non-numeric
+            # line-count field) is silently dropped by unidiff rather than
+            # raising -- the PatchedFile entry still exists (from the
+            # ---/+++ file-name lines), but with zero hunks, which would
+            # otherwise let apply_patch silently no-op (touch nothing,
+            # change nothing) instead of failing loud.
+            raise PatchRejected(
+                f"diff for {pf.target_file} parsed with zero hunks (a malformed @@ header was likely dropped)"
+            )
     return patch
 
 

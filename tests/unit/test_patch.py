@@ -33,9 +33,79 @@ def test_extract_patch_text_rejects_empty_body() -> None:
         extract_patch_text("BEGIN_PATCH\n\nEND_PATCH")
 
 
+def test_extract_patch_text_falls_back_to_fenced_diff_block() -> None:
+    """Real instruction-tuned models frequently ignore a custom marker
+    convention and use a plain markdown code fence instead, even when
+    explicitly told to use BEGIN_PATCH/END_PATCH -- this is a format
+    tolerance, not a validation relaxation (the extracted text still goes
+    through the same parse/apply checks)."""
+    completion = (
+        "Here is the fix:\n\n"
+        "```diff\n"
+        "--- a/src/greet.py\n"
+        "+++ b/src/greet.py\n"
+        "@@ -1,2 +1,2 @@\n"
+        " def greet(name: str) -> str:\n"
+        '-    return "Hell, " + name\n'
+        '+    return "Hello, " + name\n'
+        "```\n"
+    )
+    body = extract_patch_text(completion)
+    assert "--- a/src/greet.py" in body
+    assert "+++ b/src/greet.py" in body
+    patch = parse_patch(body)
+    assert len(patch) == 1
+
+
+def test_extract_patch_text_falls_back_to_unclosed_trailing_fence() -> None:
+    """Real completions sometimes open a fence, emit a genuine diff, and
+    simply stop (EOS) without ever emitting the closing ```` ``` ````, even
+    at a generous output-token budget -- this is model phrasing style, not
+    truncation, and must still be recoverable."""
+    completion = (
+        "```diff\n"
+        "--- a/src/greet.py\n"
+        "+++ b/src/greet.py\n"
+        "@@ -1,2 +1,2 @@\n"
+        " def greet(name: str) -> str:\n"
+        '-    return "Hell, " + name\n'
+        '+    return "Hello, " + name\n'
+    )
+    body = extract_patch_text(completion)
+    assert "--- a/src/greet.py" in body
+    assert "+++ b/src/greet.py" in body
+    patch = parse_patch(body)
+    assert len(patch) == 1
+
+
+def test_extract_patch_text_prefers_literal_markers_over_fence() -> None:
+    # If both are present, the literal markers still win (no ambiguity
+    # about which content is authoritative).
+    completion = "```diff\nnot the real patch\n```\n" + VALID_PATCH
+    body = extract_patch_text(completion)
+    assert "not the real patch" not in body
+
+
+def test_extract_patch_text_rejects_fence_without_diff_markers() -> None:
+    with pytest.raises(PatchRejected, match="BEGIN_PATCH/END_PATCH"):
+        extract_patch_text("```python\nprint('hello')\n```\n")
+
+
 def test_parse_patch_rejects_malformed_diff() -> None:
     malformed = "--- a/x\n+++ b/x\n@@ -1,1 +1,1 @@\n*not a valid diff line prefix\n"
     with pytest.raises(PatchRejected, match="malformed unified diff"):
+        parse_patch(malformed)
+
+
+def test_parse_patch_rejects_a_hunk_header_unidiff_silently_drops() -> None:
+    """Regression: a non-numeric field in a @@ header (e.g. a model that
+    literally echoes a placeholder like "<your new line count>" instead of
+    computing a real number) is silently dropped by unidiff -- the
+    PatchedFile entry still exists (from the ---/+++ lines) but with zero
+    hunks, which must never be treated as a no-op "successful" patch that
+    silently changes nothing."""
+    malformed = "--- a/x\n+++ b/x\n@@ -1,1 +1,<not a number> @@\n-old\n+new\n"
+    with pytest.raises(PatchRejected, match="zero hunks"):
         parse_patch(malformed)
 
 

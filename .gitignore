@@ -6,6 +6,13 @@
 .architrave/evidence/
 models/weights/
 shadow/
+# M7's approved, immutable spec hard-codes allowed_paths under
+# examples/clean-room-lru-cache/shadow/ (the path cannot be renamed without
+# invalidating the human-approved spec hash). This fixture is EACH-authored,
+# public, and derived only from the public spec -- it is intentionally
+# tracked, unlike real private/Xodus shadow-only material.
+!examples/clean-room-lru-cache/shadow/
+!examples/clean-room-lru-cache/shadow/**
 *.pem
 *.key
 .env

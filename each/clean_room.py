@@ -1,0 +1,271 @@
+"""M7: a sealed, source-isolated Builder run for a bounded, black-box,
+clean-room-style demonstration target.
+
+Reuses the exact validated-before-audit / audit-terminal pipeline shape
+already proven in :mod:`each.bakeoff` and hardened in :mod:`each.benchmark`
+(the M4/M5 fixes): a candidate must pass real baseline-fails/repaired-passes
+test validation before the terminal audit ever runs; an audit rejection
+ends the run and is never fed back into another Builder attempt; only the
+original approved spec -- never a discovered match or audit finding -- can
+ever seed a later attempt.
+
+Also reuses each.benchmark's own pinned ``each-benchmark-runtime`` image
+(pytest pre-installed before any sealed run, never installed at execution
+time -- see docker/benchmark-runtime/Dockerfile) rather than inventing a
+second mechanism for running a pytest-based acceptance command.
+
+The Builder prompt is built ONLY from the approved spec's own
+``problem_statement`` (itself built entirely from public documentation and
+recorded black-box observations -- see the spec's own material origins) and
+the current (stub) contents of the one file the spec declares editable.
+The terminal audit, by contrast, is explicitly permitted -- and expected --
+to read the real reference implementation the Builder was never shown, to
+check the candidate was not copied from it (that is the entire point of an
+independent audit step).
+"""
+
+from __future__ import annotations
+
+import re
+import uuid
+from pathlib import Path
+from typing import Any
+
+from each.audit.run import reject_on_audit_flag, run_audit
+from each.benchmark import BENCHMARK_IMAGE_DIGEST, BenchmarkExecutionError, _interpret_pytest_run
+from each.demo import _result_to_dict
+from each.executor.container import ContainerExecutor, derive_assurance_level
+from each.models.base import RepairModel
+from each.patch import PatchRejected, apply_patch, extract_patch_text, parse_patch
+from each.paths import runs_dir
+from each.receipt import Receipt
+from each.spec import ApprovedSpec
+from each.worktree import build_worktree
+
+FIXTURE_ROOT = Path(__file__).resolve().parent.parent / "examples" / "clean-room-lru-cache"
+
+_PROMPT_TEMPLATE = """You are implementing a standalone Python module from a formal, hash-approved specification. You must implement this entirely yourself: do not import, read, invoke, or otherwise consult any third-party or standard-library implementation of the described behavior. The specification below is the ONLY permitted description of the required behavior.
+
+{problem_statement}
+
+Only this file may be changed: {path}
+
+The file has exactly {line_count} lines. Its current contents, shown verbatim between the two marker lines below (the marker lines themselves are NOT part of the file and must NOT appear in your diff):
+----- FILE CONTENT START -----
+{numbered_source}
+----- FILE CONTENT END -----
+
+Here is a complete, fully worked example on an UNRELATED 2-line toy file -- it illustrates the exact wire format only; its content has nothing to do with the real task below.
+
+Toy file "toy.py" (2 lines):
+foo = 1
+bar = 2
+
+A correct diff changing those 2 lines to "foo = 10" and "bar = 20" looks exactly like this, with no other text:
+BEGIN_PATCH
+--- a/toy.py
++++ b/toy.py
+@@ -1,2 +1,2 @@
+-foo = 1
+-bar = 2
++foo = 10
++bar = 20
+END_PATCH
+
+Now produce the REAL diff for {path} ({line_count} lines), replacing its entire content with your implementation, in the exact same wire format as the toy example above: reply with ONLY BEGIN_PATCH, the three diff header lines, one "-" line reproducing each of the {line_count} original lines verbatim character-for-character (in order, with no lines skipped or omitted), then one "+" line per line of your implementation, then END_PATCH. Do not use "..." or any other elision -- write out every single line literally, however many there are. Do not add markdown fences.
+
+In the header, the number after "-1," must equal {line_count} -- that is the only number that is checked, and it must be an ordinary decimal integer computed by you from the {line_count}-line file shown above. The number after "+1," also must be an ordinary decimal integer digit sequence (it is not checked for correctness), but it must never be left as English text, angle brackets, or anything other than digits.
+"""
+
+_RETRY_SUFFIX = (
+    "\n\nYour previous attempt was rejected: {reason}\n"
+    "Try again, following the exact wire format shown in the toy example above: write out "
+    "every one of the {line_count} original lines as its own \"-\" line, verbatim, with no "
+    "elision and no lines skipped, then your replacement as \"+\" lines. Implement this "
+    "yourself from the specification only; do not reference any external library's "
+    "implementation."
+)
+
+
+def run_clean_room_build(
+    model: RepairModel,
+    approved: ApprovedSpec,
+    *,
+    audit_corpus: list[str] | None = None,
+    corpus_revision: str = "none",
+    max_attempts: int = 3,
+    run_id: str | None = None,
+) -> dict[str, Any]:
+    """Run one sealed Builder attempt sequence for ``approved`` (an M7-style
+    from-scratch, black-box clean-room spec), fully reusing the proven
+    isolation / validation / terminal-audit / signed-receipt pipeline.
+
+    ``audit_corpus`` is the real reference implementation's source, read
+    only for the terminal audit comparison -- never shown to the Builder
+    and never read by this function's own prompt-construction code path.
+    """
+    approved.verify()
+    packet = approved.packet
+    if len(packet.allowed_paths) != 1 or len(packet.acceptance_commands) != 1:
+        raise ValueError("run_clean_room_build currently supports exactly one allowed path and one acceptance command")
+    allowed_path = packet.allowed_paths[0]
+    acceptance_command = list(packet.acceptance_commands[0])
+    test_path = next(arg for arg in acceptance_command if arg.endswith(".py"))
+
+    run_id = run_id or f"clean-room-{uuid.uuid4().hex[:8]}"
+    if max_attempts < 1:
+        raise ValueError(f"max_attempts must be >= 1, got {max_attempts}")
+
+    include_paths = [allowed_path, test_path]
+
+    executor = ContainerExecutor(image=BENCHMARK_IMAGE_DIGEST)
+    probe_worktree, _probe_manifest = build_worktree(FIXTURE_ROOT, include_paths)
+    isolation_result = executor.verify_isolation(probe_worktree)
+    assurance_level = derive_assurance_level(executor, isolation_result)
+    isolation_evidence = _result_to_dict(isolation_result)
+
+    stub_source = (FIXTURE_ROOT / allowed_path).read_text(encoding="utf-8")
+    stub_lines = stub_source.splitlines()
+    line_count = len(stub_lines)
+    base_prompt = _PROMPT_TEMPLATE.format(
+        problem_statement=packet.problem_statement,
+        path=allowed_path,
+        line_count=line_count,
+        numbered_source=stub_source,
+    )
+
+    common_fields = {
+        "run_id": run_id,
+        "spec": approved.to_dict()["packet"],
+        "spec_hash": approved.approved_hash,
+        "model_identity": model.identity(),
+        "prompt": base_prompt,
+        "raw_completion": "",
+        "executor_identity": executor.identity(),
+        "isolation_evidence": isolation_evidence,
+        "audit": {
+            "checks": {},
+            "result": "UNAVAILABLE",
+            "reason": "no validated candidate exists; terminal audit has not run",
+        },
+        "assurance_level": assurance_level,
+        "legal_certification": False,
+        "cleanroom_certification": False,
+    }
+
+    if assurance_level != "EACH-P2":
+        outcome = "ISOLATION_UNVERIFIED"
+        receipt = Receipt(
+            patch_text="",
+            touched_paths=[],
+            materials={},
+            baseline_result={},
+            repaired_result={},
+            outcome=outcome,
+            **common_fields,
+        )
+        json_path, md_path = receipt.write(runs_dir() / run_id)
+        return {"outcome": outcome, "receipt_json": str(json_path), "receipt_md": str(md_path), "attempts": 0}
+
+    expected_tests = 0  # resolved from the genuine baseline run's own pytest summary below.
+    attempts: list[dict[str, Any]] = []
+    prompt = base_prompt
+    final_outcome = "REPAIR_NOT_VERIFIED"
+    final_patch_text = ""
+    final_touched: list[str] = []
+    final_materials: dict[str, str] = {}
+    final_baseline: dict[str, Any] = {}
+    final_repaired: dict[str, Any] = {}
+    final_raw_completion = ""
+    final_audit = common_fields["audit"]
+
+    for attempt_num in range(1, max_attempts + 1):
+        worktree, manifest = build_worktree(FIXTURE_ROOT, include_paths)
+        baseline = executor.run(acceptance_command, worktree)
+        if expected_tests == 0:
+            combined = baseline.stdout + baseline.stderr
+            failed_match = re.search(r"(\d+) failed", combined)
+            if not failed_match:
+                raise BenchmarkExecutionError(f"could not determine baseline failing test count: {combined!r}")
+            expected_tests = int(failed_match.group(1))
+        baseline_verdict = _interpret_pytest_run(baseline, expected_tests=expected_tests)
+        final_materials = manifest
+        final_baseline = _result_to_dict(baseline)
+        raw_completion = model.complete(prompt)
+        rendered_prompt = getattr(model, "last_prompt", None)
+        attempt_record: dict[str, Any] = {
+            "attempt": attempt_num,
+            "prompt": rendered_prompt if rendered_prompt is not None else prompt,
+            "raw_completion": raw_completion,
+            "materials": manifest,
+            "baseline_result": final_baseline,
+        }
+        final_raw_completion = raw_completion
+
+        try:
+            patch_text = extract_patch_text(raw_completion)
+            patch = parse_patch(patch_text)
+            touched = apply_patch(patch, worktree, {allowed_path})
+        except PatchRejected as exc:
+            attempt_record["outcome"] = f"PATCH_REJECTED: {exc}"
+            attempts.append(attempt_record)
+            prompt = base_prompt + _RETRY_SUFFIX.format(reason=str(exc), line_count=line_count)
+            continue
+
+        repaired = executor.run(acceptance_command, worktree)
+        # A Docker-launch failure or an ambiguous (skip/error-containing)
+        # run is not repair-failure evidence; let it propagate uncaught,
+        # matching each.bakeoff's precedent exactly.
+        repaired_verdict = _interpret_pytest_run(repaired, expected_tests=expected_tests)
+        test_outcome = (
+            "REPAIR_VERIFIED" if (baseline_verdict == "failed" and repaired_verdict == "passed") else "REPAIR_NOT_VERIFIED"
+        )
+
+        final_patch_text = patch_text
+        final_touched = touched
+        final_materials = manifest
+        final_baseline = _result_to_dict(baseline)
+        final_repaired = _result_to_dict(repaired)
+        outcome = test_outcome
+        if test_outcome == "REPAIR_VERIFIED":
+            # Terminal audit only after generation/validation ends; this is
+            # the one point where real reference material may be read, and
+            # only for comparison -- never surfaced back to the Builder.
+            final_candidate_source = "\n".join(
+                (worktree / path).read_text(encoding="utf-8", errors="replace") for path in touched
+            )
+            final_audit = run_audit(final_candidate_source, corpus=audit_corpus, corpus_revision=corpus_revision)
+            if reject_on_audit_flag(final_audit):
+                outcome = "REPAIR_REJECTED_AUDIT"
+
+        attempt_record["outcome"] = outcome
+        attempts.append(attempt_record)
+        final_outcome = outcome
+
+        if outcome in {"REPAIR_VERIFIED", "REPAIR_REJECTED_AUDIT"}:
+            break
+        prompt = base_prompt + _RETRY_SUFFIX.format(
+            reason="patch applied but did not make the failing tests pass", line_count=line_count
+        )
+
+    common_fields["raw_completion"] = final_raw_completion
+    if attempts:
+        common_fields["prompt"] = attempts[-1]["prompt"]
+    common_fields["audit"] = final_audit
+    receipt = Receipt(
+        patch_text=final_patch_text,
+        touched_paths=final_touched,
+        materials=final_materials,
+        baseline_result=final_baseline,
+        repaired_result=final_repaired,
+        outcome=final_outcome,
+        attempts=attempts,
+        **common_fields,
+    )
+    json_path, md_path = receipt.write(runs_dir() / run_id)
+    return {
+        "outcome": final_outcome,
+        "receipt_json": str(json_path),
+        "receipt_md": str(md_path),
+        "attempts": len(attempts),
+    }
