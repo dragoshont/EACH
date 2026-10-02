@@ -1,4 +1,29 @@
-# EACH historical benchmark report: benchmark-suite-20261002T081402Z
+# EACH historical benchmark report: benchmark-suite-20261002T081402Z (pilot, context-limited)
+
+> **Status: limited-coverage pilot, not the primary M6 evidence.** This
+> checkpoint's declared 2048-token context limited real model.complete() calls
+> to 4/22 historical tasks (18/22 rejected before any generation call). See
+> `m6-granite-8b-code-instruct-128k-20261002.md` for the primary 22/22
+> generation-eligible M6 run on the same tasks/policy with a larger-context
+> checkpoint. This file is preserved unmodified as honest context-coverage
+> evidence, not superseded or deleted.
+
+> **Correction (post-run discovery):** the 3 tasks below originally labeled
+> "REPAIR_NOT_VERIFIED" were mislabeled by a harness bug fixed in commit
+> `898f2d7` (a task that exhausts every attempt on a rejected/malformed
+> completion, without ever successfully applying a patch, defaulted to a
+> seeded "REPAIR_NOT_VERIFIED" outcome instead of its real last-attempt
+> outcome). Re-inspection of the underlying private receipts shows all 3
+> attempts for all 3 of these tasks were actually `PATCH_REJECTED` (the
+> 2048-token checkpoint's 512-token output budget truncated generation
+> before a complete `BEGIN_PATCH`/`END_PATCH` pair, or produced a malformed
+> diff) -- no patch was ever applied and no repaired-test run occurred for
+> these 3 tasks either. The real breakdown for this pilot run is therefore
+> 18/22 rejected pre-generation, 4/22 reached real generation calls, and
+> 0/4 of those ever produced an applicable patch (not "3/4 applied but
+> failed verification" as originally stated). This correction does not
+> change the eligible/ineligible task counts, only the honest terminal
+> label for the 4 generation-eligible tasks' real outcome.
 
 Model: `granite-3b-code-instruct-mlx` (local MLX checkpoint; zero cloud target
 inference). The checkpoint's `config.json` declares
@@ -19,32 +44,33 @@ line-number-anchored against the real file), and caps oversized leading
 docstrings. The excerpter never reads the fix commit, diff, or test outcome --
 only the pre-fix bug file and pre-fix test file.
 
-Even after these improvements, only 3 of the 22 real historical tasks have a
-rendered prompt that fits the checkpoint's real 2048-token budget across all
-3 attempts; 18 are rejected before any generation call with an exact
-`BUILDER_CONTEXT_BUDGET_EXCEEDED` token count; and 1
-(`boltons-bits-length-bound-check`) fits on attempt 1, receives one real
-generation/patch/test attempt, then its retry's appended feedback text pushes
-attempt 2 over budget, correctly ending the task rather than silently
-retrying or degrading. This is a measured property of the pinned
-checkpoint's small context window combined with genuine real-world
-file/test complexity, not a harness defect. Per the project's explicit
-acceptance criterion, a 0/22 `REPAIR_VERIFIED` result is valid M6 evidence
-when input construction is genuine/diff-blind and real generation attempts
-were made wherever the budget allowed -- which this run satisfies. The 3
-tasks that fit the budget for all 3 attempts received real end-to-end
-generation/patch/test sequences against the actual local model and the
-real no-network Colima container, each ending in a genuine
-`REPAIR_NOT_VERIFIED` result (real patches/tests exercised, not a harness
-shortcut).
+Even after these improvements, only 4 of the 22 real historical tasks have a
+rendered prompt that fits the checkpoint's real 2048-token budget for at
+least one real generation call; 18 are rejected before any generation call
+with an exact `BUILDER_CONTEXT_BUDGET_EXCEEDED` token count. Of those 4:
+`boltons-bits-length-bound-check` fits on attempt 1, receives one real
+generation/patch-extraction attempt (rejected: malformed diff), then its
+retry's appended feedback text pushes attempt 2 over budget, correctly
+ending the task rather than silently retrying or degrading; the other 3
+(`markupsafe-split-returns-list`, `markupsafe-tuple-interpolation`,
+`cachetools-rrcache-popitem-custom-choice`) fit the budget for all 3
+attempts, but every attempt's completion was rejected (truncated before a
+complete BEGIN_PATCH/END_PATCH pair, given the 512-token output reservation,
+or a malformed diff) -- no patch was ever applied for any of these 4 tasks.
+This is a measured property of the pinned checkpoint's small context window
+and output budget combined with genuine real-world file/test complexity,
+not a harness defect. Per the project's explicit acceptance criterion, a
+0/22 `REPAIR_VERIFIED` result is valid M6 evidence when input construction
+is genuine/diff-blind and real generation attempts were made wherever the
+budget allowed -- which this run satisfies.
 
 - Tasks: 22
 - Verified repairs: 0 / 22
 - Rejected before any generation call, exact token counts recorded: 18 / 22
-- One real generation attempt, then budget-rejected on retry
-  (`boltons-bits-length-bound-check`): 1 / 22
-- Fit the budget for all 3 attempts; genuine end-to-end
-  `REPAIR_NOT_VERIFIED`: 3 / 22
+- Reached >=1 real generation call (generation-eligible): 4 / 22
+- Of the 4 generation-eligible tasks, patch successfully applied: 0 / 4
+  (all attempts ended `PATCH_REJECTED`: truncated-before-END_PATCH or
+  malformed diff)
 
 | Task | Repo | License | Outcome | Attempts | Assurance |
 |---|---|---|---|---|---|
@@ -54,9 +80,9 @@ shortcut).
 | click-flag-default-map-help-text | pallets/click | BSD-3-Clause | BUILDER_CONTEXT_BUDGET_EXCEEDED: rendered prompt (26675 tokens) + reserved output (512 tokens) = 27187 tokens exceeds this checkpoint's declared max_position_embeddings (2048) | 1 | EACH-P2 |
 | itsdangerous-timestamp-signer-future-age | pallets/itsdangerous | BSD-3-Clause | BUILDER_CONTEXT_BUDGET_EXCEEDED: rendered prompt (1621 tokens) + reserved output (512 tokens) = 2133 tokens exceeds this checkpoint's declared max_position_embeddings (2048) | 1 | EACH-P2 |
 | tqdm-format-num-negative-leading-zero | tqdm/tqdm | MIT | BUILDER_CONTEXT_BUDGET_EXCEEDED: rendered prompt (9821 tokens) + reserved output (512 tokens) = 10333 tokens exceeds this checkpoint's declared max_position_embeddings (2048) | 1 | EACH-P2 |
-| markupsafe-split-returns-list | pallets/markupsafe | BSD-3-Clause | REPAIR_NOT_VERIFIED | 3 | EACH-P2 |
-| markupsafe-tuple-interpolation | pallets/markupsafe | BSD-3-Clause | REPAIR_NOT_VERIFIED | 3 | EACH-P2 |
-| cachetools-rrcache-popitem-custom-choice | tkem/cachetools | MIT | REPAIR_NOT_VERIFIED | 3 | EACH-P2 |
+| markupsafe-split-returns-list | pallets/markupsafe | BSD-3-Clause | PATCH_REJECTED (all 3 attempts: truncated before END_PATCH / malformed diff; corrected from a previously mislabeled REPAIR_NOT_VERIFIED -- see correction note above) | 3 | EACH-P2 |
+| markupsafe-tuple-interpolation | pallets/markupsafe | BSD-3-Clause | PATCH_REJECTED (all 3 attempts: truncated before END_PATCH / malformed diff; corrected from a previously mislabeled REPAIR_NOT_VERIFIED -- see correction note above) | 3 | EACH-P2 |
+| cachetools-rrcache-popitem-custom-choice | tkem/cachetools | MIT | PATCH_REJECTED (all 3 attempts: malformed diff; corrected from a previously mislabeled REPAIR_NOT_VERIFIED -- see correction note above) | 3 | EACH-P2 |
 | cachetools-tlru-overwrite-expired | tkem/cachetools | MIT | BUILDER_CONTEXT_BUDGET_EXCEEDED: rendered prompt (2627 tokens) + reserved output (512 tokens) = 3139 tokens exceeds this checkpoint's declared max_position_embeddings (2048) | 1 | EACH-P2 |
 | dateutil-parser-nan-decimal-error | dateutil/dateutil | Apache-2.0 / BSD-3-Clause (dual) | BUILDER_CONTEXT_BUDGET_EXCEEDED: rendered prompt (8934 tokens) + reserved output (512 tokens) = 9446 tokens exceeds this checkpoint's declared max_position_embeddings (2048) | 1 | EACH-P2 |
 | tabulate-empty-table-maxheadercolwidths | astanin/python-tabulate | MIT | BUILDER_CONTEXT_BUDGET_EXCEEDED: rendered prompt (16101 tokens) + reserved output (512 tokens) = 16613 tokens exceeds this checkpoint's declared max_position_embeddings (2048) | 1 | EACH-P2 |

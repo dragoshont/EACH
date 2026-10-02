@@ -4,6 +4,20 @@ M2's initial supported Builder is Granite Code 3B Instruct through local MLX-LM.
 Granite Base was also evaluated and did not produce a verified fixture repair.
 This small comparison is not a broad leaderboard or evidence of originality.
 
+M6's primary benchmark run uses `ibm-granite/granite-8b-code-instruct-128k`
+(revision `bed93d8de15bb9bb55cb1da10ae860e2883f4254`, Apache-2.0, ungated).
+Unlike the 3B catalog entries (which load pre-converted `mlx-community`
+4-bit snapshots), this is the **original publisher's own bf16 safetensors
+repository** loaded directly via `mlx_lm.load()` -- no third-party MLX
+conversion step exists or is claimed. The manifest's `conversionChain` field
+honestly records `"none"` for this entry rather than the community
+conversion-chain phrasing used for the 3B entries below. This was verified,
+not assumed: an `HfApi` model-info lookup, a direct `config.json` fetch, an
+`mlx_lm.utils._get_classes(config)` resolution to the generic Llama MLX
+implementation, an actual `snapshot_download`, and an actual `load_model()` +
+`complete()` call (real generation, not a stub) were all performed before
+this model was used in a benchmark run.
+
 The manifest binds model weights, configuration, tokenizer assets, chat
 templates, and other snapshot files by their actual SHA-256 content hashes.
 Configuration or template changes change the artifact identity even if weights
@@ -25,3 +39,4 @@ or an unimplemented adapter; it is not a claim that MPS cannot support it.
 
 Model licenses do not automatically license generated target patches.
 EACH records technical evidence and published claims, not legal conclusions.
+

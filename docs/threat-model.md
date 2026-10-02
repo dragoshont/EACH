@@ -174,12 +174,23 @@ isolation ("native host execution is not a strong-profile proxy").
   the exact token counts (`BUILDER_CONTEXT_BUDGET_EXCEEDED`) instead of
   silently truncating, mutating, or degrading the prompt. This is a
   genuine, measured model-capability constraint, not a harness defect: in
-  the real 22-task historical benchmark only 3/22 tasks' excerpted prompts
-  fit the budget for all 3 attempts even after diff-blind AST-based
-  narrowing (`select_prompt_excerpt` in `each/benchmark.py`), and 1/22
-  fit on attempt 1 but was correctly rejected when a retry's appended
-  feedback pushed it over budget; see
-  `docs/benchmarks/m6-granite-3b-code-instruct-mlx-20261002.md`.
+  the real 22-task historical benchmark only 4/22 tasks' excerpted
+  prompts ever reached a real generation call even after diff-blind
+  AST-based narrowing (`select_prompt_excerpt` in `each/benchmark.py`);
+  of those 4, 0 ever produced an applicable patch (truncated before a
+  complete BEGIN_PATCH/END_PATCH pair given the checkpoint's 512-token
+  output reservation, or a malformed diff) -- see
+  `docs/benchmarks/m6-granite-3b-code-instruct-mlx-20261002.md`. A larger
+  (128K-context) checkpoint (`granite-8b-code-instruct-128k-mlx`) reached
+  real generation on 22/22 tasks under the identical policy; see
+  `docs/benchmarks/m6-granite-8b-code-instruct-128k-20261002.md`.
+- A separate harness bug (fixed in commit `898f2d7`) mislabeled a task
+  whose every attempt was rejected (never reaching a classified
+  repaired-test run) as `REPAIR_NOT_VERIFIED` instead of its real
+  `PATCH_REJECTED` outcome. Both benchmark reports above have been
+  corrected to the real per-attempt outcomes; a regression test
+  (`tests/adversarial/test_benchmark_task.py`) now covers this case.
+
 - The excerpter narrows large files to the specific functions/methods a
   task's pre-fix test references (plus local call-graph expansion) and
   caps oversized leading docstrings; it never reads the fix commit, diff,
