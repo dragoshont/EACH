@@ -1,12 +1,12 @@
 # Development status
 
 The user authorized **M0-M8**, with YAGNI and sequential acceptance gates.
-The full program is **not complete**. The user-authorized bounded remediation
-is awaiting acceptance: its independent Astra review returned **REVISE** at
-`5c4e18ee31982584538945d9310f57234a3ee95d`. Full verification and conservative
-integrity handling passed that bounded review; private descendant containment,
-executor-failure evidence, recovery-attempt ownership, and a stale historical
-claim still require correction. Green tests do not override those findings.
+The full program is **not complete**. The user-authorized harness-only
+remediation received independent Astra **PASS** at
+`9dfd9f97acd55a2253831b5a51606584a251482c`, with 313 audit-enabled tests passing.
+See [the bounded acceptance report](bounded-remediation-review.md). This closes
+the reviewed harness defects, not the historical failed target experiments or
+the complete cross-family/security/policy release gate.
 
 | Milestone | Current evidence |
 |---|---|
