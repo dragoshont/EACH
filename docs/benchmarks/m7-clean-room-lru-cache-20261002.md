@@ -1,6 +1,6 @@
 # M7: clean-room-style controlled demonstration — `lru_cache_clean_room`
 
-**Date:** 2026-10-02
+**Date:** 2026-10-02 (corrected 2026-10-02, see "Correction" below)
 **Run:** `each-m0-m8` (durable `architrave.run.v2`), task `M7`
 **Spec:** `each-m7-clean-room-lru-cache` (immutable, human-approved)
 **Spec hash (approved):** `8499cf22255d11c15f1f446c19d504bec21ac03dfbe524439b2af377c65e39b8`
@@ -8,6 +8,38 @@
 `m7-genuine-human-spec-approval`, resolved with actual user-message evidence
 ("i approve m7"). This approval covers **only** this M7 spec; it is not
 blanket approval of any future sensitive spec.
+
+## Correction (post-publication, same date)
+
+Independent adversarial review (GPT-family, confirmed by a second
+independent GPT-family re-review, then separately confirmed by an
+independent Claude-family review) found a genuine outcome-labeling defect
+in `each/clean_room.py`: the top-level `final_outcome` was initialized to
+the literal sentinel string `"REPAIR_NOT_VERIFIED"` **before** the attempt
+loop and was never reassigned on an all-`PATCH_REJECTED` run, so the
+signed receipt's top-level `outcome` field reported `REPAIR_NOT_VERIFIED`
+even though every attempt had actually been rejected at validation — a
+materially misleading label (it implies "a patch was applied/tested but
+not independently confirmed," not "no patch was ever applied"). The
+identical bug class was already fixed in `each/benchmark.py` (M6); it had
+simply never been propagated to `each/clean_room.py` (M7) or
+`each/xodus_shadow.py` (M8, inherited from this file).
+
+The fix (`final_outcome: str | None = None`, with a post-loop fallback to
+`attempts[-1]["outcome"]`) was applied to both files, two new regression
+tests were added (`tests/unit/test_clean_room_selftest.py`,
+`tests/unit/test_xodus_shadow_selftest.py`), the full suite was re-run
+(226 passed, Ruff clean), and the real local-model pipeline below was
+**re-run from the original approved spec** (never from any discovered
+match content) to produce a freshly signed, honestly-labeled receipt:
+run id `m7-clean-room-lru-cache-real-corrected-20261002`. The original
+receipt at `~/.each/runs/m7-clean-room-lru-cache-real/` is preserved,
+unmodified (its signature cannot be hand-edited without invalidating it;
+the only honest remedy is a fresh signed run, not an in-place patch).
+
+The rest of this report is updated to describe the corrected run. The
+genuine outcome is **`PATCH_REJECTED`**, not `REPAIR_NOT_VERIFIED` — see
+below.
 
 ## What M7 demonstrates
 
@@ -45,13 +77,16 @@ harness does not and cannot provide.
    legal-flag fields, plus diagnostic stage hashes) is Ed25519-signed,
    excluding only its own attestation block.
 
-## Genuine outcome: `REPAIR_NOT_VERIFIED`
+## Genuine outcome: `PATCH_REJECTED` (corrected; see above)
 
 All 3 bounded Builder attempts were rejected at the **validate** stage before
 any audit ran (`audit.result: "UNAVAILABLE"`, reason: "no validated candidate
 exists; terminal audit has not run" — correctly *unavailable*, not a fake
 PASS). No candidate ever reached a passing test run, so `repairedResult: {}`
-and `touchedPaths: []`.
+and `touchedPaths: []`. The corrected receipt's top-level `outcome` field now
+honestly states `"PATCH_REJECTED: malformed unified diff: Hunk diff line
+expected: ..."` — the real reason the final attempt was rejected — instead
+of the previously mislabeled generic `REPAIR_NOT_VERIFIED`.
 
 | Attempt | Outcome class     |
 |---------|--------------------|
@@ -61,7 +96,9 @@ and `touchedPaths: []`.
 
 This is an **honest, mandate-compliant failure record** ("if model does not
 produce passing code, record real failure"), not a harness defect — see
-below for the real harness defects that *were* found and fixed first.
+below for the real harness defects that *were* found and fixed first (and
+the "Correction" section above for the outcome-labeling defect found
+*after* initial publication of this report).
 
 ## Model identity (real, local-only)
 
@@ -143,4 +180,4 @@ property holds: build, validation, and terminal audit ran for real inside a
 verified no-network, read-only executor; no model/audit feedback leaked
 across the firewall; no false legal or clean-room certification was
 claimed; the full receipt is Ed25519-signed and independently verifiable.
-The honest outcome is `REPAIR_NOT_VERIFIED`.
+The honest, corrected outcome is `PATCH_REJECTED` (see "Correction" above).

@@ -119,3 +119,26 @@ def test_clean_room_audit_match_is_terminal_without_builder_feedback(tmp_path, m
     assert receipt["audit"]["result"] == "FAIL"
     assert all(forbidden_hint not in prompt for prompt in calls)
 
+
+@requires_colima_each
+def test_exhausting_all_attempts_on_a_rejected_patch_reports_that_real_outcome_not_a_false_repair_not_verified(
+    tmp_path,
+) -> None:
+    """Regression for the same mislabeling bug each.benchmark already fixes:
+    if every attempt is exhausted on a malformed/rejected completion (never
+    reaching a classified repaired-test run), the receipt's final outcome
+    must be the real last attempt's own outcome (e.g. "PATCH_REJECTED:
+    ..."), not a sentinel "REPAIR_NOT_VERIFIED" that falsely implies a patch
+    was applied and the repaired tests were run and failed."""
+    approved = _approve_selftest_spec("test-clean-room-all-attempts-rejected")
+    model = FixtureModel("this completion has no patch markers at all", model_id="fixture/clean-room-selftest-v1")
+
+    result = run_clean_room_build(model, approved, max_attempts=2, run_id=f"selftest-rejected-{tmp_path.name}")
+
+    assert result["outcome"].startswith("PATCH_REJECTED")
+    assert result["outcome"] != "REPAIR_NOT_VERIFIED"
+    receipt = json.loads(Path(result["receipt_json"]).read_text())
+    assert receipt["outcome"].startswith("PATCH_REJECTED")
+    assert len(receipt["attempts"]) == 2
+    assert all(a["outcome"].startswith("PATCH_REJECTED") for a in receipt["attempts"])
+

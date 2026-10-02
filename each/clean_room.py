@@ -170,7 +170,14 @@ def run_clean_room_build(
     expected_tests = 0  # resolved from the genuine baseline run's own pytest summary below.
     attempts: list[dict[str, Any]] = []
     prompt = base_prompt
-    final_outcome = "REPAIR_NOT_VERIFIED"
+    # No sentinel default: REPAIR_NOT_VERIFIED is only a valid final outcome
+    # once a patch actually applied and the repaired-test run was classified.
+    # If every attempt is exhausted on a PATCH_REJECTED retry (never reaching
+    # that point), this stays None and is resolved from the real last
+    # attempt's own outcome after the loop -- never silently mislabeled as a
+    # verified-but-failing repair that never happened. Matches each.benchmark's
+    # identical fix.
+    final_outcome: str | None = None
     final_patch_text = ""
     final_touched: list[str] = []
     final_materials: dict[str, str] = {}
@@ -247,6 +254,15 @@ def run_clean_room_build(
         prompt = base_prompt + _RETRY_SUFFIX.format(
             reason="patch applied but did not make the failing tests pass", line_count=line_count
         )
+
+    if final_outcome is None:
+        # Every attempt was exhausted on a PATCH_REJECTED retry without ever
+        # reaching a classified repaired-test run: the honest final outcome
+        # is that last attempt's own recorded outcome (e.g.
+        # "PATCH_REJECTED: ..."), never a silent "REPAIR_NOT_VERIFIED" that
+        # would misrepresent a never-applied patch as one that was applied,
+        # tested, and simply failed to verify.
+        final_outcome = attempts[-1]["outcome"] if attempts else "REPAIR_NOT_VERIFIED"
 
     common_fields["raw_completion"] = final_raw_completion
     if attempts:
