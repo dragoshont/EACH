@@ -198,8 +198,16 @@ def materialize_task_sources(task: BenchmarkTask) -> tuple[Path, list[str]]:
       ``uv pip install --target`` -- host network, never inside the sealed
       container.
     Re-extraction/re-fetch/re-install are all skipped once already cached.
+    The cache directory is keyed by both ``task.task_id`` and
+    ``task.pre_fix_sha`` (not task_id alone): a task_id-only cache key could
+    silently keep serving a stale/mislabeled tree extracted under an earlier,
+    different sha (e.g. from an earlier ad-hoc debugging session) forever,
+    since ``_extract_repo_tree`` only checks "does this directory already
+    have content", not "does this content actually match this exact sha".
+    Binding the path to the sha means any content ever associated with a
+    different sha lives under a different, unused directory.
     """
-    root = cache_dir() / "benchmark" / task.task_id / "source"
+    root = cache_dir() / "benchmark" / task.task_id / task.pre_fix_sha / "source"
     _extract_repo_tree(task.repo, task.pre_fix_sha, root)
 
     for test_path in task.test_paths:

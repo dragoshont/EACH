@@ -198,3 +198,27 @@ isolation ("native host execution is not a strong-profile proxy").
   stdlib/AST-only input-construction aid, not a retrieval or ranking
   system, and it does not guarantee every real-world file will fit a
   small context window.
+- A third defect, found by an independent dual-family (GPT-family and
+  Claude-family) adversarial review before M6 was accepted: the benchmark
+  source cache (`materialize_task_sources` in `each/benchmark.py`) was
+  keyed only by `task.task_id`, with no check that the cached directory's
+  content actually matched `task.pre_fix_sha`. A stale cache entry
+  extracted under an earlier, different sha could therefore silently be
+  served as the pre-fix source forever; this was confirmed for real for
+  one task (a cached file held the fix-only line instead of the actual
+  buggy line). Fixed by keying the cache path on both `task.task_id` and
+  `task.pre_fix_sha` (so a different sha can never resolve to the same
+  cache directory), purging the entire contaminated cache, and adding a
+  regression test (`tests/unit/test_benchmark_source_cache.py`). Both
+  benchmark reports above were regenerated from a clean re-run produced
+  entirely after this fix, with every task's baseline pytest run
+  independently confirmed to genuinely fail beforehand.
+- The model's generation attempts are of highly variable quality across
+  tasks: some plausibly target the right function with a coherent edit,
+  some target unrelated code, and some are degenerate (a literal
+  unified-diff template with placeholder text, or a no-op edit). All
+  share the same universal failure to produce the exact required
+  `BEGIN_PATCH`/`END_PATCH` markers. This variability is itself genuine
+  signal about the checkpoint's current repair capability on this task
+  distribution, not evidence of a harness defect (the same diff-blind
+  excerpter supplies consistent context regardless of outcome).
