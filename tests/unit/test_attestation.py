@@ -21,6 +21,12 @@ def _fake_receipt() -> dict[str, Any]:
     return {
         "runId": "test-run-1",
         "specHash": "a" * 64,
+        "spec": {"problem_statement": "approved problem"},
+        "modelIdentity": {"modelId": "declared model"},
+        "assuranceLevel": "EACH-P2",
+        "legalCertification": False,
+        "cleanroomCertification": False,
+        "attempts": [{"prompt": "original attempt", "raw_completion": "original response"}],
         "materials": {"src/greet.py": "b" * 64, "tests/test_greet.py": "c" * 64},
         "prompt": "fix the bug",
         "rawCompletion": "BEGIN_PATCH\n...\nEND_PATCH\n",
@@ -44,7 +50,7 @@ def test_attest_receipt_produces_a_verifiable_signature() -> None:
 
 def test_manifest_has_one_hash_per_attested_stage_no_single_score() -> None:
     manifest = attestation.build_manifest(_fake_receipt())
-    assert set(manifest) == {"spec", "materials", "generation", "patch", "validation", "audit"}
+    assert set(manifest) == {"receipt", "spec", "materials", "generation", "patch", "validation", "audit"}
     assert "score" not in manifest
 
 
@@ -64,6 +70,35 @@ def test_tamper_spec_after_approval_fails_verification() -> None:
     result = attestation.verify_receipt(receipt, _public_key_bytes())
     assert result["status"] == "FAIL"
     assert "spec" in result["reason"]
+
+
+@pytest.mark.parametrize(
+    ("field", "replacement"),
+    [
+        ("spec", {"problem_statement": "unapproved replacement"}),
+        ("modelIdentity", {"modelId": "undeclared model"}),
+        ("assuranceLevel", "EACH-P4"),
+        ("legalCertification", True),
+        ("cleanroomCertification", True),
+        ("attempts", []),
+        ("runId", "another-run"),
+    ],
+)
+def test_signature_binds_all_receipt_claims(field: str, replacement: Any) -> None:
+    receipt = _fake_receipt()
+    receipt["attestation"] = attestation.attest_receipt(receipt)
+    receipt[field] = replacement
+    result = attestation.verify_receipt(receipt, _public_key_bytes())
+    assert result["status"] == "FAIL"
+    assert "receipt" in result["reason"]
+
+
+@pytest.mark.parametrize("field", ["algorithm", "keyFingerprint"])
+def test_attestation_metadata_cannot_be_relabelled(field: str) -> None:
+    receipt = _fake_receipt()
+    receipt["attestation"] = attestation.attest_receipt(receipt)
+    receipt["attestation"][field] = "untrusted replacement"
+    assert attestation.verify_receipt(receipt, _public_key_bytes())["status"] == "FAIL"
 
 
 def test_tamper_validation_output_fails_verification() -> None:

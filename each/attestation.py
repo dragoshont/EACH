@@ -23,8 +23,10 @@ ALGORITHM = "ed25519"
 def build_manifest(receipt: dict[str, Any]) -> dict[str, str]:
     """Hash each attested stage of a receipt dict (``Receipt.to_dict()``
     shape) independently, so a verifier can see which specific stage a
-    tamper touched rather than only "something changed somewhere"."""
+    tamper touched. The receipt root additionally binds the actual spec,
+    model identity, full attempt history, assurance, and certification flags."""
     return {
+        "receipt": sha256_json({key: value for key, value in receipt.items() if key != "attestation"}),
         "spec": receipt["specHash"],
         "materials": sha256_json(receipt["materials"]),
         "generation": sha256_json({"prompt": receipt["prompt"], "rawCompletion": receipt["rawCompletion"]}),
@@ -65,6 +67,8 @@ def verify_receipt(receipt: dict[str, Any], public_key_pem: bytes) -> dict[str, 
     attestation = receipt.get("attestation")
     if not isinstance(attestation, dict) or not attestation.get("signature") or not attestation.get("manifest"):
         return {"status": "FAIL", "reason": "receipt has no attestation block"}
+    if attestation.get("algorithm") != ALGORITHM:
+        return {"status": "FAIL", "reason": "unsupported attestation algorithm"}
 
     try:
         current_manifest = build_manifest(receipt)
@@ -86,6 +90,9 @@ def verify_receipt(receipt: dict[str, Any], public_key_pem: bytes) -> dict[str, 
         public_key = load_public_key(public_key_pem)
     except ValueError as exc:
         return {"status": "FAIL", "reason": f"public key is not a valid Ed25519 PEM: {exc}"}
+
+    if attestation.get("keyFingerprint") != public_key_fingerprint(public_key):
+        return {"status": "FAIL", "reason": "attested key fingerprint does not match the supplied public key"}
 
     if not verify_manifest(public_key, current_manifest, attestation["signature"]):
         return {"status": "FAIL", "reason": "signature does not verify against the supplied public key"}
