@@ -135,8 +135,33 @@ def test_materials_source_rejects_escape_via_symlink(tmp_path: Path) -> None:
     outside.write_text("secret\n")
     (source / "linked.c").symlink_to(outside)
     receipt = _receipt(materials={"linked.c": "x"})
-    with pytest.raises(ValueError, match="escapes its root"):
+    # (F2) the unresolved-path symlink check now runs before any
+    # escape/resolve logic, so this is rejected as "through a symlink"
+    # rather than "escapes its root" -- both are genuine rejections, but
+    # the symlink check is strictly earlier and catches more cases (see
+    # test_materials_source_rejects_in_root_symlink below).
+    with pytest.raises(ValueError, match="symlink"):
         receipt.write(tmp_path / "run-5", materials_source=source)
+
+
+def test_materials_source_rejects_in_root_symlink(tmp_path: Path) -> None:
+    """F2 (public code review at 6c3e1f3): a symlink whose target happens
+    to resolve to somewhere INSIDE the materials source root would, under
+    the old "resolve() first, then is_symlink()" ordering, silently pass
+    the escape check (the resolved path is in-root) AND the is_symlink()
+    check (the resolved path's own file is not itself a symlink) --
+    completely defeating the "never copy through a symlink" guarantee for
+    this common case. Checking is_symlink() on the UNRESOLVED path first
+    must reject it regardless of where the link ultimately points.
+    """
+    source = tmp_path / "worktree"
+    source.mkdir()
+    real_file = source / "real.c"
+    real_file.write_text("x\n")
+    (source / "linked.c").symlink_to(real_file)
+    receipt = _receipt(materials={"linked.c": sha256_text("x\n")})
+    with pytest.raises(ValueError, match="symlink"):
+        receipt.write(tmp_path / "run-5b", materials_source=source)
 
 
 def test_refuses_a_symlinked_receipt_directory(tmp_path: Path) -> None:

@@ -138,12 +138,18 @@ def verify_materials_root(receipt: dict[str, Any], materials_root: Path) -> dict
         if rel_path.startswith("/") or ".." in Path(rel_path).parts:
             problems.append(f"{rel_path}: forbidden/traversal path")
             continue
-        candidate = (materials_root / rel_path).resolve()
+        # (F2, public review at 6c3e1f3) same unresolved-first symlink
+        # check as ``Receipt.write``: resolve() already follows a symlink
+        # to its real target, so checking is_symlink() only afterward
+        # silently misses a symlink anywhere along ``rel_path`` -- even
+        # one whose target happens to resolve back inside this root.
+        candidate_unresolved = materials_root / rel_path
+        if candidate_unresolved.is_symlink():
+            problems.append(f"{rel_path}: is a symlink")
+            continue
+        candidate = candidate_unresolved.resolve()
         if candidate != materials_root_resolved and materials_root_resolved not in candidate.parents:
             problems.append(f"{rel_path}: escapes materials root")
-            continue
-        if candidate.is_symlink():
-            problems.append(f"{rel_path}: is a symlink")
             continue
         if not candidate.is_file():
             problems.append(f"{rel_path}: missing")

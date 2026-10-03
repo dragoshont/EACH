@@ -66,7 +66,22 @@ def derive_unified_diff(*, path: str, original_text: str, proposed_text: str) ->
     Returns an empty string if the two texts are identical (a legitimate,
     honestly-reported "no change" outcome, not an error): callers must
     decide whether a no-op proposal counts as a rejected attempt.
+
+    Fails closed (raises :class:`RawProposalRejected`) if either text does
+    not end with a trailing newline. Python's ``difflib.unified_diff``
+    does not emit a ``\\ No newline at end of file`` marker, so a line
+    lacking ``\\n`` that is not the very last line ``"".join()``-ed into
+    the output would be silently fused with the following diff record
+    (its own prefix glued onto the previous line's text) rather than
+    producing a readable or even a correctly-rejectable malformed diff.
+    This project's declared/approved materials are expected to end with a
+    trailing newline; this is a deliberate unsupported-input policy, not a
+    silent correctness relaxation.
     """
+    if original_text and not original_text.endswith("\n"):
+        raise RawProposalRejected("original file does not end with a trailing newline; unsupported input")
+    if proposed_text and not proposed_text.endswith("\n"):
+        raise RawProposalRejected("proposed source does not end with a trailing newline; unsupported input")
     original_lines = original_text.splitlines(keepends=True)
     proposed_lines = proposed_text.splitlines(keepends=True)
     diff_lines = list(

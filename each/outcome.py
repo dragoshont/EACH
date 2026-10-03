@@ -46,3 +46,21 @@ def sanitize_outcome_class(outcome: str) -> str:
     """
     head = outcome.split(":", 1)[0].strip()
     return head if head in OUTCOME_CLASSES else UNKNOWN_OUTCOME_CLASS
+
+
+# Every ``proposal_format`` value every Builder pipeline's attempt record
+# currently declares. A source-free export must never surface an arbitrary
+# model/attempt-controlled string through this field -- only one of these
+# reviewed labels.
+PROPOSAL_FORMAT_CLASSES = frozenset({"diff", "full_source"})
+
+UNKNOWN_PROPOSAL_FORMAT_CLASS = "UNKNOWN_PROPOSAL_FORMAT_CLASS"
+
+
+def sanitize_proposal_format(proposal_format: object) -> str:
+    """Return ``proposal_format`` unchanged only if it is one of the fixed,
+    reviewed :data:`PROPOSAL_FORMAT_CLASSES` labels; otherwise returns
+    :data:`UNKNOWN_PROPOSAL_FORMAT_CLASS`. Never returns an arbitrary
+    attempt-controlled string.
+    """
+    return proposal_format if proposal_format in PROPOSAL_FORMAT_CLASSES else UNKNOWN_PROPOSAL_FORMAT_CLASS

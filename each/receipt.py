@@ -165,11 +165,21 @@ class Receipt:
             for rel_path in sorted(self.materials):
                 if rel_path.startswith("/") or ".." in Path(rel_path).parts:
                     raise ValueError(f"refusing to copy forbidden/traversal materials path: {rel_path}")
-                src = (materials_source / rel_path).resolve()
+                # (F2, public review at 6c3e1f3) check is_symlink() on the
+                # UNRESOLVED path first: resolve() already follows any
+                # symlink to its real target, so calling is_symlink() only
+                # AFTER resolve() checks whether the final target is
+                # itself a (chained) symlink and silently misses the
+                # common case -- a symlink anywhere along ``rel_path``,
+                # including one that still resolves to somewhere inside
+                # this very root. Rejecting on the unresolved path catches
+                # both the escaping and the in-root symlink case.
+                src_unresolved = materials_source / rel_path
+                if src_unresolved.is_symlink():
+                    raise ValueError(f"refusing to copy materials source through a symlink: {rel_path}")
+                src = src_unresolved.resolve()
                 if src != source_resolved and source_resolved not in src.parents:
                     raise ValueError(f"materials source path escapes its root: {rel_path}")
-                if src.is_symlink():
-                    raise ValueError(f"refusing to copy materials source through a symlink: {rel_path}")
                 if not src.is_file():
                     raise ValueError(f"declared materials path is not a regular file: {rel_path}")
                 actual_hash = sha256_file(src)

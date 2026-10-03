@@ -107,3 +107,21 @@ def test_full_artifact_verification_rejects_symlink_escape(tmp_path: Path) -> No
     result = verify_materials_root(receipt, materials_root)
     assert result["status"] == "FAIL"
     assert "escapes" in result["reason"] or "symlink" in result["reason"]
+
+
+def test_full_artifact_verification_rejects_in_root_symlink(tmp_path: Path) -> None:
+    """F2 (public code review at 6c3e1f3): a symlink whose target resolves
+    to somewhere INSIDE ``materials_root`` must still be rejected -- under
+    the old "resolve() first, then is_symlink()" ordering it silently
+    passed both the escape check (in-root) and the is_symlink() check
+    (the resolved real file is not itself a symlink).
+    """
+    materials_root = tmp_path / "materials"
+    materials_root.mkdir()
+    real_file = materials_root / "real.c"
+    real_file.write_text("x\n")
+    (materials_root / "linked.c").symlink_to(real_file)
+    receipt = _receipt_with_material("linked.c", sha256_text("x\n"))
+    result = verify_materials_root(receipt, materials_root)
+    assert result["status"] == "FAIL"
+    assert "symlink" in result["reason"]

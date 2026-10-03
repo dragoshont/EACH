@@ -5,7 +5,12 @@ reviewed outcome-class label may ever be returned.
 
 from __future__ import annotations
 
-from each.outcome import UNKNOWN_OUTCOME_CLASS, sanitize_outcome_class
+from each.outcome import (
+    UNKNOWN_OUTCOME_CLASS,
+    UNKNOWN_PROPOSAL_FORMAT_CLASS,
+    sanitize_outcome_class,
+    sanitize_proposal_format,
+)
 
 
 def test_bare_known_label_passes_through() -> None:
@@ -35,3 +40,23 @@ def test_unrecognized_label_is_never_passed_through_raw() -> None:
 
 def test_empty_outcome_is_unknown_not_blank() -> None:
     assert sanitize_outcome_class("") == UNKNOWN_OUTCOME_CLASS
+
+
+# F3: a source-free export's proposalFormat field must be a bounded enum,
+# never an arbitrary attempt-controlled string.
+
+
+def test_known_proposal_format_passes_through() -> None:
+    assert sanitize_proposal_format("diff") == "diff"
+    assert sanitize_proposal_format("full_source") == "full_source"
+
+
+def test_unrecognized_proposal_format_is_never_passed_through_raw() -> None:
+    sentinel = "arbitrary-candidate-controlled-format-string"
+    result = sanitize_proposal_format(sentinel)
+    assert result == UNKNOWN_PROPOSAL_FORMAT_CLASS
+    assert sentinel not in result
+
+
+def test_missing_proposal_format_is_unknown_not_none() -> None:
+    assert sanitize_proposal_format(None) == UNKNOWN_PROPOSAL_FORMAT_CLASS

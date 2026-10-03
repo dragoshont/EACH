@@ -35,7 +35,7 @@ from each.benchmark import BenchmarkExecutionError, fetch_file
 from each.demo import _DOCKER_LAUNCH_FAILURE_EXIT_CODES, _result_to_dict
 from each.executor.container import ContainerExecutor, ContainerExecutorError, derive_assurance_level
 from each.models.base import ContextBudgetExceeded, RepairModel
-from each.outcome import sanitize_outcome_class
+from each.outcome import sanitize_outcome_class, sanitize_proposal_format
 from each.patch import PatchRejected, apply_patch, extract_patch_text, parse_patch
 from each.paths import assert_no_symlink_escape, each_home, runs_dir, validate_private_root, validate_task_id
 from each.raw_proposal import RawProposalRejected, derive_unified_diff, extract_full_source
@@ -144,7 +144,10 @@ def _extract_patch_text_for_mode(raw_completion: str, proposal_format: str, *, p
         proposed = extract_full_source(raw_completion)
     except RawProposalRejected as exc:
         raise PatchRejected(str(exc)) from exc
-    diff_text = derive_unified_diff(path=path, original_text=original_text, proposed_text=proposed)
+    try:
+        diff_text = derive_unified_diff(path=path, original_text=original_text, proposed_text=proposed)
+    except RawProposalRejected as exc:
+        raise PatchRejected(str(exc)) from exc
     if not diff_text:
         raise PatchRejected("model proposed no change from the original file")
     return diff_text
@@ -670,6 +673,7 @@ def summarize_receipt(receipt_json_path: str | Path) -> dict[str, Any]:
         },
         "attemptCount": len(data.get("attempts", [])),
         "attemptOutcomes": [sanitize_outcome_class(a.get("outcome", "")) for a in data.get("attempts", [])],
+        "attemptProposalFormats": [sanitize_proposal_format(a.get("proposal_format")) for a in data.get("attempts", [])],
         "selectedAttempt": data.get("selectedAttempt"),
         "materialsManifest": data.get("materials", {}),
     }

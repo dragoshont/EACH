@@ -137,7 +137,10 @@ def _extract_patch_text_for_mode(raw_completion: str, proposal_format: str, *, p
         proposed = extract_full_source(raw_completion)
     except RawProposalRejected as exc:
         raise PatchRejected(str(exc)) from exc
-    diff_text = derive_unified_diff(path=path, original_text=original_text, proposed_text=proposed)
+    try:
+        diff_text = derive_unified_diff(path=path, original_text=original_text, proposed_text=proposed)
+    except RawProposalRejected as exc:
+        raise PatchRejected(str(exc)) from exc
     if not diff_text:
         raise PatchRejected("model proposed no change from the original file")
     return diff_text

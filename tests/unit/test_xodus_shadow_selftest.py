@@ -143,6 +143,9 @@ def test_fixture_model_candidate_is_verified_and_signed(tmp_path, monkeypatch) -
     assert "prompt" not in summary
     assert "rawCompletion" not in summary
     assert "patchText" not in summary
+    # F3: proposalFormat must be surfaced as a bounded enum, not an
+    # arbitrary attempt-controlled string.
+    assert summary["attemptProposalFormats"] == ["diff"]
 
 
 @requires_colima_each
