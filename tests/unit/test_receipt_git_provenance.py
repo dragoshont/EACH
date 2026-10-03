@@ -8,6 +8,7 @@ import each.bakeoff as bakeoff_module
 import each.receipt as receipt_module
 from each.executor.base import ExecutionResult
 from each.executor.container import NETWORK_PROBE_DENIAL_MARKER
+from each.hashing import sha256_file
 from each.models.fixture import FixtureModel
 
 PATCH = """BEGIN_PATCH
@@ -32,12 +33,13 @@ class _FakeExecutor:
         del worktree
         return ExecutionResult(("python",), 1, f"{NETWORK_PROBE_DENIAL_MARKER}\n", "")
 
-    def run(self, command: list[str], worktree: Path) -> ExecutionResult:
+    def run(self, command: list[str], worktree: Path, *, protected_paths: tuple[str, ...] = ()) -> ExecutionResult:
         del command, worktree
+        assert protected_paths == tuple(bakeoff_module.FIXTURE_TEST_PATHS)
         self._calls += 1
         if self._calls == 1:
-            return ExecutionResult(("pytest",), 1, "1 failed in 0.01s\n", "")
-        return ExecutionResult(("pytest",), 0, "1 passed in 0.01s\n", "")
+            return ExecutionResult(("python",), 1, "Ran 1 test in 0.01s\n\nFAILED (failures=1)\n", "")
+        return ExecutionResult(("python",), 0, "Ran 1 test in 0.01s\n\nOK\n", "")
 
 
 def _fake_build_worktree_factory(tmp_path: Path):
@@ -51,7 +53,7 @@ def _fake_build_worktree_factory(tmp_path: Path):
             target = worktree / rel
             target.parent.mkdir(parents=True, exist_ok=True)
             target.write_bytes(src.read_bytes())
-        return worktree, {rel: "hash" for rel in include_paths}
+        return worktree, {rel: sha256_file(worktree / rel) for rel in include_paths}
 
     return _fake_build_worktree
 
@@ -61,7 +63,9 @@ def _run_bakeoff(tmp_path: Path, monkeypatch) -> dict[str, object]:
     monkeypatch.setattr(bakeoff_module, "derive_assurance_level", lambda *_a, **_k: "EACH-P2")
     monkeypatch.setattr(bakeoff_module, "build_worktree", _fake_build_worktree_factory(tmp_path))
     monkeypatch.setenv("EACH_HOME", str(tmp_path / "each-home"))
-    return bakeoff_module.run_model_bakeoff(FixtureModel(PATCH), max_attempts=1, run_id="git-provenance-bakeoff")
+    result = bakeoff_module.run_model_bakeoff(FixtureModel(PATCH), max_attempts=1, run_id="git-provenance-bakeoff")
+    assert result["outcome"] == "REPAIR_VERIFIED"
+    return result
 
 
 def test_real_bakeoff_receipt_records_the_current_harness_commit_and_dirty_state(tmp_path, monkeypatch) -> None:
