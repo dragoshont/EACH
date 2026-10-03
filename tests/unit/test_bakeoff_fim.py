@@ -45,7 +45,7 @@ def test_missing_fixture_test_module_is_not_a_genuine_failing_test():
 
 
 @pytest.mark.parametrize("proposal_format", ["diff", "fim"])
-@pytest.mark.parametrize("failure", ["missing-docker", "timeout", "exit-125"])
+@pytest.mark.parametrize("failure", ["missing-docker", "timeout", "exit-125", "permission", "os-error"])
 def test_isolation_failure_retains_signed_originals_without_generation(
     tmp_path, monkeypatch, proposal_format, failure,
 ):
@@ -55,6 +55,10 @@ def test_isolation_failure_retains_signed_originals_without_generation(
     def probe(self, worktree):
         if failure == "exit-125":
             return ExecutionResult(("python",), 125, "", "fixture container launch failure")
+        if failure == "permission":
+            raise PermissionError("fixture permission")
+        if failure == "os-error":
+            raise OSError("fixture os-error")
         raise ContainerExecutorError(f"fixture {failure}")
 
     def validation(*args, **kwargs):
@@ -87,7 +91,11 @@ def test_isolation_failure_retains_signed_originals_without_generation(
     if failure == "exit-125":
         assert evidence["exit_code"] == 125
     else:
-        assert evidence["errorType"] == "ContainerExecutorError"
+        expected_error = {
+            "permission": "PermissionError",
+            "os-error": "OSError",
+        }.get(failure, "ContainerExecutorError")
+        assert evidence["errorType"] == expected_error
         assert evidence["errorDetail"] == f"fixture {failure}"
     assert receipt["materials"] == {
         name: sha256_file(bakeoff.FIXTURE_ROOT / name)

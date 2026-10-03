@@ -144,7 +144,7 @@ def run_model_bakeoff(
     probe_worktree, probe_manifest = build_worktree(FIXTURE_ROOT, FIXTURE_ALLOWED_PATHS + FIXTURE_TEST_PATHS)
     try:
         isolation_result = executor.verify_isolation(probe_worktree)
-    except ContainerExecutorError as exc:
+    except (ContainerExecutorError, OSError) as exc:
         assurance_level = "EACH-P1"
         isolation_evidence = {"errorType": type(exc).__name__, "errorDetail": str(exc)}
     else:
