@@ -1682,8 +1682,11 @@ class RunStore:
         except RuntimeFailure as exc:
             raise RuntimeFailure("TARGET_EXPERIMENT_RECEIPT", "private receipt runId is invalid") from exc
         assurance_level = str(receipt.get("assuranceLevel") or "")
-        if assurance_level not in {"EACH-P1", "EACH-P2", "EACH-P3", "EACH-P4"}:
-            raise RuntimeFailure("TARGET_EXPERIMENT_RECEIPT", "private receipt assuranceLevel is invalid")
+        if assurance_level not in {"EACH-P1", "EACH-P2"}:
+            raise RuntimeFailure(
+                "TARGET_EXPERIMENT_RECEIPT",
+                "private receipt assuranceLevel exceeds this neural target-experiment evidence scope",
+            )
         attempts = receipt.get("attempts") or []
         selected_attempt = receipt.get("selectedAttempt")
         selected_records = (

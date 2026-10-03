@@ -87,7 +87,8 @@
             "revision": "9fc30b578cedaec69e47302df72cf00feed7c8c4",
             "release_revision": "771a4a11d98f975ff1a8d5f29206f4ef57fd25d3",
             "components": ["The Stack v1.2-derived code in 80+ languages", "GitHub issues", "Git commits", "Jupyter scripts and notebooks"],
-            "tokens": 1000000000000,
+            "reported_training_tokens": 1000000000000,
+            "training_token_note": "Publisher paper training-token figure across sampling/epochs; not the unique byte/token size of the released dataset.",
             "release_file_identities_matched": 863,
             "comparison_manifest_sha256": "3636743c1f4356db564aa82f6379e0e9b59fed59f0e53faf9edac6c1fece7a34"
           }

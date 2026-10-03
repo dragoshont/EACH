@@ -429,6 +429,8 @@ def test_target_experiment_rejects_unqualified_model_and_unowned_criterion(exper
     [
         ({"network_isolation": False}, "network isolation"),
         ({"assurance_level": "UNBOUNDED"}, "assuranceLevel"),
+        ({"assurance_level": "EACH-P3"}, "exceeds this neural"),
+        ({"assurance_level": "EACH-P4"}, "exceeds this neural"),
         ({"spec_hash": "not-a-hash"}, "specHash"),
         ({"raw_completion": "", "selected_attempt": None}, "bind one selected"),
         ({"legal_certification": True}, "legal certification"),
