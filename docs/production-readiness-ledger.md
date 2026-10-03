@@ -80,7 +80,7 @@ its authorized exploration without a verified repair.
 | ID | Work packet / accountable role | Prerequisites | Acceptance evidence | Status |
 |---|---|---|---|---|
 | P0 | Reconcile baseline and create production Run / coordinator | None | Verify actual research state; register user implementation authority, production outcome, criterion matrix and dependency graph through supported APIs. Default-deny policy permits only named in-scope operations. Never rewrite completed research acceptance. | PASS (baseline reconciled) |
-| P1 | Freeze production development contract / coordinator | P0 | One tested support row, permissive non-sensitive task class, existing model and measured limits recorded. Reject early exit, forged results, test mutation and wrong audit subject before accepting a repair. Development proceeds without invented release approval; qualification targets freeze before holdout use. | DEVELOPMENT GATE PASS; R4 acceptance/review pending |
+| P1 | Freeze production development contract / coordinator | P0 | One tested support row and budgets; genuinely authenticate API return before API repair acceptance. Matching untrusted process JSON is insufficient. Qualification targets freeze before holdout use; no invented approval or narrower outcome substitution. | BLOCKED: actual independent adversarial/security REVISE; API-return authentication unavailable |
 | P2a | Deliver one useful vertical slice / harness implementer | P1 | Dedicated `colima-each`, pinned image, actual per-run no-egress proof, declared input/trajectory hashes and protected validators. Genuine pre-fix failure and independently observed acceptance/negative/regression cases pass; immutable subject is audited; signed retained files verify. Outer agent writes harness/tests, never target repair code or known-fix hints. | BLOCKED: 0/3 repairs, 9 calls; bounded exploration stopped |
 | P2b | Diagnose utility failures and qualify a blind holdout / evaluation owner | P2a, P3, P4 | Account for context, response format, patch application, compile, validation, infrastructure and audit failures separately. Freeze the candidate policy, run the holdout, report every outcome and budget overrun. Do not tune against holdout answers. | PENDING |
 | P3 | Qualify audit availability and policy / audit owner | P1 | Exact-copy, renamed-copy, boilerplate and semantic-equivalent fixtures; permitted reference corpus identity/license recorded; measured false-positive/negative behavior; required missing check cannot produce an audit-qualified acceptance. No Auditor-to-Builder information flow. | MEASURED: synthetic holdout fails 5% false-flag bar; required external membership remains unavailable |
@@ -245,6 +245,8 @@ observation window, not a total project estimate.
 disposition of measured P3/P4 qualification gaps.** P3/P4 prerequisite work
 has executed as recorded in section 11; no production acceptance is inferred.
 P2a's current exploration is stopped, not silently extended.
+The later mandatory review correction in section 12 blocks P1 API acceptance;
+P3/P4 measurements remain independent diagnostic/operational evidence.
 The original intake direction was to load the accepted research evidence,
 open the production qualification Run, and freeze a small supported envelope and the
 development contract under the user's autonomous implementation authority.
@@ -295,7 +297,9 @@ the support row and separate arithmetic calibration in
 [the development contract](production-development-contract.md). Qualification
 defaults were retained as an engineering decision before any holdout use.
 
-The candidate-independent observer reuses the executor and standard library.
+The observer reuses the executor and standard library. It was then described
+as candidate-independent; actual independent review disproved API-return
+authentication, as corrected in section 12.
 Actual controls and the benchmark API exercise early exit, forged summaries,
 skipped cases, immutable test/source mounts, real failure and real success.
 Forty-one additional harness regressions cover this slice, partial source-cache
@@ -340,7 +344,8 @@ dependency-ready engineering workstreams after frozen-candidate review.
 ## 11. Independent P3/P4 continuation (2026-10-03)
 
 Run `each-production-p3p4-20261003-v2` executes independent prerequisites using
-P1's tested development contract; P1 R4 acceptance remains pending. The original
+P1's measured development contract; P1 R4 acceptance remained pending at that
+snapshot and is now BLOCKED by the later review correction. The original
 failed firstslice Run (revision 69), nine real calls/negative receipts and
 completed research Run (revision 102) remain unchanged. A policy-intake-only
 predecessor was denied before implementation; no utility budget was extended.
@@ -380,3 +385,37 @@ SIGKILL/power-loss and MLX-interruption guarantees are explicit ceilings, not
 invented PASS. No audit-qualified repair, production release, pilot, legal
 certification or new local-model repair is claimed. P2 utility remains blocked,
 so P2b/P5 are not dependency-ready.
+
+## 12. Mandatory independent observer correction (2026-10-03)
+
+Actual independent adversarial/security reviews at frozen `8b43fe055d7f`
+returned REVISE. The previously unconditional "early exit incomplete, never
+PASS" claim was false: arbitrary candidate code shared the worker interpreter
+and serializer. Actual public synthetic controls reproduced matching valid JSON
+plus early exit and serializer substitution, both previously yielding
+`REPAIR_VERIFIED` without authenticating the requested API return.
+
+The [corrected development contract](production-development-contract.md)
+declares **sandboxed PROCESS-RESPONSE observation only**. Matching response
+observations cannot produce API `REPAIR_VERIFIED`; they produce signed
+`REPAIRED_RUN_INCONCLUSIVE` evidence and stop retries. P1 remains BLOCKED pending
+a genuine stronger boundary or an explicitly authorized changed qualified
+contract. No narrower production outcome has been substituted or approved.
+The exhausted development entry point stops before loading a model.
+
+Deep candidate stdout JSON was also actually reproduced raising
+`RecursionError` through observer/benchmark before receipt finalization.
+The narrow candidate JSON parse/compare boundary now marks it incomplete;
+actual regressions retain signed negative fixture trajectory, patch and inputs.
+This is not a broad exception swallow or a new framework.
+
+The original source-free development proof did **not** embed the claimed
+534/537 gate outputs. Existing exact-8b configured/extras artifacts were
+independently located and hash-checked, and source-free summaries recovered
+without rerunning unchanged tests. Original failed Runs, the nine local-model
+calls/negative receipts and research revision 102 remain immutable.
+
+See [the correction evidence](observer-review-corrections.md). P3 remains failed
+at 1/14 benign false flags per split; external membership/scanning remain
+UNAVAILABLE. P4 operational measurements do not authenticate API returns or
+confer R4 acceptance. Original production usefulness and P5-P8 remain unmet.

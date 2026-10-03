@@ -4,6 +4,13 @@ This is a measured **development envelope**, not production qualification,
 human adoption approval, or a release go/no-go. The research release and its
 receipts remain historical.
 
+**Correction, 2026-10-03: P1 API-return acceptance is BLOCKED.** Actual
+independent adversarial/security review returned REVISE. The observer below
+measures sandboxed process responses, not authenticated Python API returns.
+No narrower production outcome has been approved; the original repair goal
+remains unmet. The exhausted development command now exits BLOCKED before
+model loading or generation.
+
 ## Observed row (2026-10-03)
 
 | Surface | Observation |
@@ -42,26 +49,38 @@ Unknown machines and other model snapshots remain unmeasured/unsupported.
   duration for generation and more than twice the observed MLX allocation.
   Overruns are failures to qualify, not hidden successful runs.
 
-## Candidate-independent validation
+## Sandboxed process-response observation — not API-return authentication
 
-The trusted host observer keeps expected outputs, case accounting and comparison
+The host observer keeps expected outputs, response accounting and comparison
 outside the candidate container. Each case launches a fresh, no-egress container
 with the **entire target worktree read-only**. Only a function invocation and its
 input enter it. No hidden expected answers, test sources or observer comparison
-logic are mounted. Returned JSON is an untrusted behavioral observation, not a
-test-result marker. The host checks exact values/types and expected completion.
+logic are mounted. Candidate import and the worker serializer nevertheless share
+one Python interpreter. Candidate code can print matching JSON and exit before
+the requested function returns, or monkeypatch serialization to substitute a
+response. The host checks JSON values/types and process-response shape, **not**
+actual function execution or return authenticity.
 
-The signed validation records include case IDs/status, expected/completed counts,
+The signed observation records include case IDs/status, expected/complete-response counts,
 observer/worker/contract hashes, and the source hash captured before execution.
-Early exit, forged pytest text/marker, malformed output and skipped tests are
-incomplete, never PASS. Mutation attempts cannot change mounted tests or source.
-Actual positive, failing and spoof controls are exercised through the executor
-and the benchmark Run API; fixture passes never count as utility.
+Empty, malformed or deeply nested unparseable JSON, forged pytest text, and
+unexpected/skipped process outputs are incomplete. **Valid matching JSON with
+exit zero can match the process-response observation even on early exit or
+result substitution.** Fresh/read-only containers do not authenticate API return.
+Actual executor and benchmark regressions demonstrate both attacks.
 
-This does **not** make arbitrary in-process pytest/native validators independent,
-prove arbitrary correctness, establish hardware/TEE protection, or prevent every
-possible denial of service. The trusted host/Docker/key-holder boundary remains.
-Signatures establish integrity under the retained local key, not human consent.
+Matching response-only observations now end the observation benchmark as
+`REPAIRED_RUN_INCONCLUSIVE`, never `REPAIR_VERIFIED`, with
+`apiReturnAuthenticated: false`. No token, captured serializer reference or
+sentinel proxy is presented as a stronger boundary. Candidate-JSON
+`RecursionError` is handled narrowly as incomplete; signed negative receipts
+retain the deterministic fixture trajectory/patch and declared inputs.
+
+These controls do not satisfy the original unrestricted-Python API contract,
+make native validators independent, prove correctness or establish TEE
+protection. A genuine stronger boundary or explicitly authorized changed
+qualified contract is necessary before P1 acceptance; neither exists here.
+Signatures establish integrity, not correctness or human consent.
 
 ## Task custody and claims
 
@@ -99,10 +118,10 @@ uv run python -m each.production_development --task one-byte-float
 uv run python -m each.production_development --task yotta-rollover
 ```
 
-This is an explicit local-model development attempt, not the fixture setup demo.
-It prints sanitized status/counts/hashes only and retains a private signed
-receipt, immutable input materials and development summary under `~/.each/runs/`.
-Do not publish that directory or target patches.
+These are historical command references. They now return exit **2**, a bounded
+`BLOCKED`/`API_RETURN_AUTHENTICATION_UNAVAILABLE` response, and zero model calls.
+The former generation path is not exposed. Existing private signed receipts,
+retained inputs and summaries remain unchanged; do not publish them or targets.
 
 The authorized first exploration has exhausted its three-task/nine-call cap;
 these commands are reproducibility references, **not** permission to keep

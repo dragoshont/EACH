@@ -27,6 +27,7 @@ not correctness, originality or legal clean-room status.
 | Private real-world demonstration | M8: one bounded C repair with verified baseline failure and repaired success. Not full Xodus/Wine/game compatibility. |
 | Audit coverage | Synthetic calibration/holdout detect seeded copies, but false flags exceed the frozen target; external membership/scanning remain unavailable. No originality, EACH-P3 or legal-certification claim. |
 | Operations | Isolated interruption, timeout, quota, corruption, concurrency and temporary-key recovery drills implemented; independent production acceptance pending. |
+| API validation boundary | **P1 BLOCKED after actual independent REVISE.** Matching sandboxed process JSON does not authenticate Python API return and cannot verify a repair. |
 
 See [development evidence](docs/development-status.md) for exact source
 revisions, gate results and limitations. Independent AI review supports
@@ -239,9 +240,13 @@ The [threat model](docs/threat-model.md) and
 [attestation documentation](docs/attestation.md) explain the trust boundaries.
 
 The [measured production-development contract](docs/production-development-contract.md)
-records the exact observed Mac/model row, budgets, candidate-independent Python
-validation boundary and development-only commands. It does not qualify a
+records the exact observed Mac/model row, budgets, sandboxed Python
+process-response boundary and blocked development commands. It does not qualify a
 production release or authorize additional sampling after the bounded cap.
+Its [mandatory review correction](docs/observer-review-corrections.md) narrows
+the evidence claim to process responses, **not the production goal**. The
+original API-repair goal remains unmet; the exhausted development entry point
+now exits BLOCKED before model loading.
 
 The independent P3/P4 continuation adds [measured audit fixtures and ceilings](docs/audit-qualification.md)
 and [operational fault/recovery controls](docs/operator-runbook.md), not a new

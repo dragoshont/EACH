@@ -7,6 +7,13 @@ Qwen14 snapshot in [the contract](production-development-contract.md).
 This P3/P4 continuation loaded no model and made no real inference calls.
 Other hosts remain unqualified.
 
+**Mandatory review correction:** P1 API-return acceptance is BLOCKED.
+The observer measures sandboxed process responses, not authenticated Python
+returns. Valid-JSON early exit and serializer substitution can match those
+responses. Matching responses are now inconclusive for API repair verification;
+read-only/fresh containers and signatures do not fix that trust boundary.
+The original production goal has not been replaced with a response-only product.
+
 ## Preflight and limits
 
 ```bash
@@ -58,6 +65,8 @@ is a repair success. Restore genuine declared files; never edit signed bytes
 or manufacture missing trajectories. If disk exhaustion happens before the
 draft is durable, or the host is killed before finalization, evidence can still
 be incomplete: stop and report that limit rather than assert zero data-loss.
+Candidate-output JSON recursion errors are now incomplete and retained as
+signed negative benchmark evidence, rather than escaping finalization.
 
 ## Interruptions and resource reconciliation
 
@@ -82,6 +91,9 @@ Set `OWNED_CID` only from verified ownership evidence. Never use broad name
 filters, process-name killing, `docker prune`, or another project's containers.
 No container/resource is touched merely because it has an EACH-like name.
 A target process killed during observation is incomplete, not a passing test.
+Conversely, matching JSON followed by exit zero is only a process-response
+match; it does not prove the requested API returned. The benchmark cannot
+turn that response-only match into `REPAIR_VERIFIED`.
 
 Fresh candidate validation now uses a separate sanitized worktree from
 baseline, with the same preimage manifest. Actual Colima probes showed stale

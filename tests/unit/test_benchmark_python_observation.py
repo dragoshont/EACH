@@ -17,7 +17,7 @@ from tests.adversarial._docker_guard import requires_colima_each
 
 @requires_colima_each
 @pytest.mark.parametrize("proposal,outcome", [
-    ("def f(x): return x\n", "REPAIR_VERIFIED"),
+    ("def f(x): return x\n", "REPAIRED_RUN_INCONCLUSIVE"),
     ("import os\nos._exit(0)\n", "REPAIRED_RUN_INCONCLUSIVE"),
     ("print('2 passed')\nimport os\nos._exit(0)\n", "REPAIRED_RUN_INCONCLUSIVE"),
     ("def f(x): return x + 2\n", "REPAIR_NOT_VERIFIED"),

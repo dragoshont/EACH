@@ -1,4 +1,4 @@
-"""One bounded development repair, not a release qualification or holdout.
+"""Historical bounded development entry point; current API qualification blocked.
 
 Run on the measured Mac only: ``uv run python -m each.production_development``.
 Target code executes solely through the existing colima-each executor.
@@ -10,19 +10,9 @@ from __future__ import annotations
 import argparse
 import dataclasses
 import json
-import platform
-import shutil
-import signal
-import time
 
-from each.attestation import verify_materials_root, verify_receipt
-from each.benchmark import BenchmarkTask, run_benchmark_task
+from each.benchmark import BenchmarkTask
 from each.executor.python_observer import PythonCase
-from each.hashing import sha256_file
-from each.models.base import ContextBudgetExceeded
-from each.models.catalog import load_model
-from each.paths import each_home
-from each.signing import public_key_path
 
 # Behavioral origin: public historical commit title "Show more than bytes for
 # negative file sizes", plus the public naturalsize API/documented SI/IEC/GNU
@@ -108,84 +98,20 @@ ROLLOVER_TASK = dataclasses.replace(
 )
 
 
-class BudgetExceeded(RuntimeError):
-    pass
-
-
-def _timeout(_signum, _frame):
-    raise BudgetExceeded("declared development wall-time exceeded")
-
-
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--task", choices=["negative-size", "one-byte-float", "yotta-rollover"],
                         default="negative-size")
-    args = parser.parse_args()
-    task = {"negative-size": TASK, "one-byte-float": ONE_BYTE_TASK, "yotta-rollover": ROLLOVER_TASK}[args.task]
-    # This deliberately does not claim support for additional machines.
-    if platform.machine() != "arm64" or platform.mac_ver()[0] != "27.0.1":
-        raise RuntimeError("unmeasured host: development support contract does not apply")
-    if shutil.disk_usage(each_home()).free < 20 * 1024**3:
-        raise RuntimeError("development disk reserve insufficient")
-    import mlx.core as mx
-
-    mx.set_memory_limit(64 * 1024**3)
-    model = load_model("qwen2.5-coder-14b-instruct-mlx", max_tokens=2048)
-    original_check = model.check_context_budget
-    original_complete = model.complete
-
-    def check(prompt):
-        rendered, count = original_check(prompt)
-        if count + 2048 > 8192:
-            raise ContextBudgetExceeded("declared 8192-token context cap exceeded")
-        return rendered, count
-
-    def complete(prompt):
-        check(prompt)
-        signal.alarm(300)
-        try:
-            return original_complete(prompt)
-        finally:
-            signal.alarm(0)
-
-    model.check_context_budget = check
-    model.complete = complete
-    signal.signal(signal.SIGALRM, _timeout)
-    started = time.monotonic()
-    result = run_benchmark_task(task, model, max_attempts=3)
-    elapsed = time.monotonic() - started
-    # Read locally only; never emit source, prompts, completions or target patch.
-    from pathlib import Path
-
-    path = Path(result["receipt_json"])
-    receipt = json.loads(path.read_text())
-    signature = verify_receipt(receipt, public_key_path().read_bytes())
-    retained = verify_materials_root(receipt, path.parent / "materials")
-    summary = {
-        "taskId": task.task_id,
-        "outcome": result["outcome"],
-        "receiptSha256": sha256_file(path),
-        "receiptPath": str(path),
-        "attempts": result["attempts"],
-        "actualModelCalls": sum(a.get("generation_attempted", False) for a in receipt["attempts"]),
-        "wallSeconds": elapsed,
-        "withinTaskBudget": elapsed <= 1200,
-        "mlxPeakBytes": mx.get_peak_memory(),
-        "signature": signature,
-        "retainedMaterials": retained,
-        "baseline": [a.get("baseline_classification", {}) for a in receipt["attempts"]],
-        "candidate": [a.get("repaired_classification", {}) for a in receipt["attempts"]],
-        "auditStates": {k: v["status"] for k, v in receipt["audit"].get("checks", {}).items()},
-        "auditSubjectSha256": receipt["auditSubjectSha256"],
-        "inputTokenCount": model.identity()["contextPolicy"]["lastInputTokenCount"],
-        "holdout": False,
-        "approval": "engineering authorization; not human adoption or release approval",
-    }
-    summary_path = path.parent / "development-summary.json"
-    summary_path.write_text(json.dumps(summary, indent=2))
-    summary_path.chmod(0o600)
-    print(json.dumps(summary))
-    return 0 if signature.get("status") == "PASS" and retained.get("status") == "PASS" else 1
+    parser.parse_args()
+    print(json.dumps({
+        "status": "BLOCKED",
+        "reason": "API_RETURN_AUTHENTICATION_UNAVAILABLE",
+        "observationScope": "sandboxed-process-response",
+        "originalProductionGoalMet": False,
+        "utilityCap": "EXHAUSTED",
+        "actualModelCalls": 0,
+    }))
+    return 2
 
 
 if __name__ == "__main__":

@@ -1,0 +1,89 @@
+# Mandatory observer review correction — 2026-10-03
+
+**P1 API-return acceptance: BLOCKED. Original production repair goal: unmet.**
+Actual independent adversarial and security reviews of the frozen firstslice
+returned REVISE. This correction does not authorize or adopt a narrower
+process-response production product, provide R4 PASS, or extend the exhausted
+three-task/nine-call utility budget.
+
+## Actual reproduced mechanism and bounded correction
+
+On predecessor `7d2400fa61a549bb76b7108c8d8bc2b14821a9cd`, public self-authored
+synthetic controls were executed through the actual no-egress `colima-each`
+executor and benchmark API:
+
+| Control | Before correction | Corrected behavior |
+|---|---|---|
+| Print matching JSON and exit zero before requested function return | Observer response match; benchmark `REPAIR_VERIFIED` | Process response can match, but API classification is `REPAIRED_RUN_INCONCLUSIVE` |
+| Monkeypatch `json.dumps`, substitute matching response while function returns the wrong value | Observer response match; benchmark `REPAIR_VERIFIED` | Same explicit process-response ceiling; never API repair verification |
+| Emit JSON nested 20,000 levels (observed host recursion limit 1,000) | Actual `RecursionError` escaped observer and benchmark, no final receipt | Candidate JSON parse/compare recursion is incomplete; signed negative receipt retains fixture trajectory/patch/inputs |
+| Ordinary matching return fixture | Matching response, previously counted as repair | Also inconclusive for the stronger API contract; not a loophole for apparently honest code |
+
+Candidate code and serialization run in the same interpreter. Host expected
+values and read-only/fresh containers do not authenticate a requested Python
+function's execution/return. No token, captured JSON-function reference or
+sentinel-only proxy is introduced. The original API contract remains unmet.
+
+The observer's scope is now `sandboxed-process-response`, with
+`apiReturnAuthenticated: false`. Complete-case counts denote complete process
+responses, not proof of API invocation completion. The benchmark stops retries
+on a matching response-only candidate without accepting a repair or running an
+acceptance audit. `RecursionError` is caught only at the candidate JSON
+parse/compare boundary, not broadly throughout the harness.
+
+`python -m each.production_development` now returns exit **2** and bounded
+`BLOCKED`/`API_RETURN_AUTHENTICATION_UNAVAILABLE` JSON for each historical task.
+It has no exposed generation path and reports zero actual model calls.
+This is enforcement of the existing exhausted/unqualified lane, not a new
+product spec or silent change to a sensitive approved specification.
+
+## F3: existing exact-firstslice gate evidence, not a rerun
+
+The original development proof
+`.architrave/evidence/8b43fe055d7f-526d336260fa-frozen-development-evidence.json`
+did **not** contain the claimed 534/537 gate outputs. That proof and its hash
+remain unchanged. The actual separate original gate artifacts were located,
+verified against registered hashes and their exact execution SHA
+`8b43fe055d7fe198bc90a5d1525260f920444153`:
+
+| Existing artifact | Actual recovered result |
+|---|---|
+| `8b43fe055d7f-25b07ca07c8f-frozen-integrated-1.json` | Configured `bash gates/checks.sh`, exit 0, **534 passed, 3 skipped** |
+| `8b43fe055d7f-35f87a7550c7-frozen-integrated-2.json` | Explicit audit/models pytest, exit 0, **537 passed, zero skips** |
+
+Original artifact SHA-256, respectively:
+
+```text
+2c5518c09d8342e98454cac2d22b1b7b8ee489ce50557f9d887227d096bf5f26
+c33639b3ae412f2c9b7dabc76b5dffcb490c38f17d683eb157e2a40cdfe86b3d
+```
+
+The source-free supplement contains exact commands, counts, execution SHA,
+original artifact digests and stdout/stderr hashes, **not raw logs**:
+
+```text
+.architrave/evidence/8b43fe055d7f-8b5ef2c066d9-sourcefree-existing-8b-gate-supplement.json
+SHA-256 143f6f02d24b24aeec96b4c42d1064fa31e6f5c61fa82353bdb320cc1aa392d9
+```
+
+Both unchanged old test commands were **not rerun**. The supplement is a
+historical evidence projection, not new independent acceptance. Zero configured
+invariant rules remain zero assurance of comprehensive invariants.
+
+## Unchanged P3/P4 results and history
+
+The [P3/P4 snapshot](production-p3p4-evidence.md) remains historical at its exact
+frozen implementation. Both synthetic audit splits detected 8/8 exact and 4/4
+renamed copies but falsely flagged 1/14 benign units (7.14% > 5%): P3 FAIL.
+External membership and license scanning remain UNAVAILABLE.
+
+P4 actual interruption, timeout, quota, permissions, artifact corruption,
+concurrency and temporary-key restore measurements remain bounded operational
+evidence. They do not repair the API-return trust boundary, imply zero
+power-loss durability risk, or provide independent R4 acceptance.
+
+Firstslice FAILED revision 69, P3/P4 FAILED revision 36, research COMPLETED
+revision 102, all original negative signed receipts/retained inputs and the
+user's signing key remain unchanged. Only public synthetic harness tests and
+source-free correction evidence are new. No real inference, model loading or
+weight download, private target publication, production tag or P5-P8 advancement.

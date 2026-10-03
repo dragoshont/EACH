@@ -842,3 +842,30 @@ Ruff, doctor and packaging passed. All 39 added controls passed targeted
 checks without skips. [Frozen metadata and canonical disposition](production-p3p4-evidence.md)
 record FAILED revision 36, P3 FAIL/P4 UNTESTED and unchanged predecessor history.
 This documentation publication does not restamp the implementation's gate SHA.
+
+## Mandatory actual independent review correction — 2026-10-03
+
+Actual adversarial/security review of `8b43fe055d7f` returned REVISE.
+**P1 API-return acceptance is BLOCKED**, not R4 PASS. Shared-interpreter
+candidate code can print matching JSON before exit or replace serialization;
+actual synthetic executor/benchmark regressions reproduced both previously
+yielding `REPAIR_VERIFIED` without authenticating API return.
+
+The [corrected contract](production-development-contract.md) now honestly
+describes process-response observations. Such matching responses cannot
+verify an unrestricted Python API repair and now terminate as signed
+`REPAIRED_RUN_INCONCLUSIVE` evidence. This does not authorize/adopt a narrower
+production outcome; the original repair goal remains unmet. The exhausted
+development command is BLOCKED before model loading/generation.
+
+Actual deeply nested candidate JSON also reproduced `RecursionError` escaping
+before receipt finalization. Narrow candidate-JSON handling now marks it
+incomplete and retains signed negative deterministic fixture evidence.
+Read-only/fresh worktrees and signatures are not API-return authentication.
+
+[Correction evidence](observer-review-corrections.md) supplies the separate
+existing exact-8b configured/extras output summaries (534+3 skips / 537 zero
+skips) with original artifact/output hashes. The earlier frozen proof did not
+embed those outputs; no unchanged 8b command was rerun or historical artifact
+restamped. Original nine negative local-model calls, Runs 69/36/102 and signing
+key are unchanged. P3 still FAIL; P4 independent R4 acceptance still open.

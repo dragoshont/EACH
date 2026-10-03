@@ -531,7 +531,8 @@ def _classify_execution(
         )
         return verdict, {
             "classification": verdict or "inconclusive",
-            "reason": "independent_json_observations",
+            "reason": "sandboxed_process_responses_only",
+            "apiReturnAuthenticated": False,
             "evidence": evidence,
         }
     if task.language != "python":
@@ -1228,6 +1229,16 @@ def run_benchmark_task(
             task, repaired, expected_tests=expected_tests
         )
         attempt_record["repaired_classification"] = repaired_classification
+        if task.observation_cases and repaired_verdict == "passed":
+            # Arbitrary Python shares the worker interpreter/serializer and
+            # can forge a matching process response without the requested API
+            # returning. This is not the authorized production API contract.
+            # Stop, retain negative evidence, and never count this as a repair
+            # or feed an audit back into another Builder call.
+            repaired_classification["reason"] = "api_return_authentication_unavailable"
+            attempt_record["outcome"] = "REPAIRED_RUN_INCONCLUSIVE"
+            attempts.append(attempt_record)
+            break
         if repaired_verdict is None:
             attempt_record["outcome"] = f"REPAIRED_RUN_INCONCLUSIVE: {repaired_classification['reason']}"
             attempts.append(attempt_record)

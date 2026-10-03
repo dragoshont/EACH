@@ -65,3 +65,14 @@ def test_whole_worktree_readonly_command(tmp_path):
         ["python", "-I"], tmp_path, container_name="test", read_only_worktree=True,
     )
     assert f"{tmp_path.resolve()}:/work:ro" in command
+
+
+def test_deep_candidate_json_is_incomplete_not_a_harness_recursion_crash(tmp_path):
+    response = '{"value":' + '[' * 20000 + '0' + ']' * 20000 + '}'
+    result = observe_python(
+        RecordingExecutor([(0, response)]), source(tmp_path), "api.py",
+        (PythonCase("deep", "f", (1,), 1),),
+    )
+    evidence = json.loads(result.stdout)
+    assert result.exit_code == 2 and evidence["completedCases"] == 0
+    assert evidence["apiReturnAuthenticated"] is False

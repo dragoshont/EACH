@@ -56,7 +56,7 @@ def test_candidate_container_reads_exact_new_bytes_after_baseline(monkeypatch):
     result = benchmark.run_benchmark_task(
         task, FixtureModel("BEGIN_SOURCE\ndef f(x):\n    return x\nEND_SOURCE"), max_attempts=1,
     )
-    assert result["outcome"] == "REPAIR_VERIFIED"  # Canned fixture, not utility.
+    assert result["outcome"] == "REPAIRED_RUN_INCONCLUSIVE"  # Byte fidelity is not API authenticity.
     assert len(observed_roots) == 2 and observed_roots[0] != observed_roots[1]
 
 

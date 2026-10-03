@@ -1,10 +1,12 @@
-"""Trusted-host black-box comparison for standalone, JSON-shaped Python APIs.
+"""Sandboxed PROCESS-RESPONSE comparison, not authenticated Python API return.
 
 Only the invocation and input enter the candidate container. Expected answers,
 case accounting and classification stay in this process. The entire worktree
 is read-only; each case gets a fresh no-egress container. This is not a pytest
-plugin, a TEE, or support for arbitrary Python projects. A candidate controls
-its outputs, not the independent comparison of those outputs.
+plugin, a TEE, or an API-return authentication boundary. Candidate import and
+the serializer share an interpreter: valid JSON can be printed before exit or
+substituted by monkeypatching. Host comparison authenticates neither function
+execution nor return. No marker/token/serializer-reference proxy changes that.
 """
 
 from __future__ import annotations
@@ -55,8 +57,8 @@ def observe_python(
 ) -> ExecutionResult:
     """Return only host-computed case counts/status, never candidate test text.
 
-    Exit 0: every declared case returned the exact expected JSON observation.
-    Exit 1: complete observations include a genuine behavioral mismatch.
+    Exit 0: each process emitted a matching, correctly shaped JSON response.
+    Exit 1: complete process responses include a JSON response mismatch.
     Exit 2: incomplete/invalid observation, timeout, source drift or launch error.
     Equality is canonical JSON, so True does not masquerade as numeric 1.
     """
@@ -78,23 +80,31 @@ def observe_python(
                  json.dumps(case.args, allow_nan=False)],
                 worktree, timeout=timeout, read_only_worktree=True,
             )
-            response = json.loads(result.stdout)
-            expected = {"error": case.error} if case.error else {"value": case.expected}
-            complete = result.exit_code == 0 and isinstance(response, dict) and (
-                set(response) in ({"value"}, {"error"})
-            )
-            matched = complete and json.dumps(response, sort_keys=True, allow_nan=False) == json.dumps(
-                expected, sort_keys=True, allow_nan=False
-            )
-            status = "pass" if matched else "fail" if complete else "incomplete"
         except (ContainerExecutorError, ValueError, TypeError):
             status = "incomplete"
+        else:
+            # Candidate-controlled JSON only. Do not broadly swallow recursion
+            # failures elsewhere in the observer/harness.
+            try:
+                response = json.loads(result.stdout)
+                expected = {"error": case.error} if case.error else {"value": case.expected}
+                complete = result.exit_code == 0 and isinstance(response, dict) and (
+                    set(response) in ({"value"}, {"error"})
+                )
+                matched = complete and json.dumps(response, sort_keys=True, allow_nan=False) == json.dumps(
+                    expected, sort_keys=True, allow_nan=False
+                )
+                status = "pass" if matched else "fail" if complete else "incomplete"
+            except (ValueError, TypeError, RecursionError):
+                status = "incomplete"
         observations.append({"caseId": case.case_id, "status": status})
     unchanged = sha256_file(source) == subject
     incomplete = not unchanged or any(o["status"] == "incomplete" for o in observations)
     exit_code = 2 if incomplete else 1 if any(o["status"] == "fail" for o in observations) else 0
     evidence = {
-        "observer": "trusted-host-json-v1",
+        "observer": "sandboxed-process-response-v1",
+        "observationScope": "sandboxed-process-response",
+        "apiReturnAuthenticated": False,
         "observerSha256": sha256_file(Path(__file__)),
         "workerSha256": sha256_text(_WORKER),
         "contractSha256": contract,
@@ -106,6 +116,6 @@ def observe_python(
         "exitCode": exit_code,
     }
     return ExecutionResult(
-        command=("trusted-host-json-v1", source_path, contract),
+        command=("sandboxed-process-response-v1", source_path, contract),
         exit_code=exit_code, stdout=json.dumps(evidence, sort_keys=True), stderr="",
     )
