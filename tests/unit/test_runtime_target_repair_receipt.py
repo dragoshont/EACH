@@ -17,6 +17,7 @@ identities, non-verified outcomes, and private-store path escapes.
 
 from __future__ import annotations
 
+import copy
 import json
 import subprocess
 import sys
@@ -32,6 +33,19 @@ def _git(repo: Path, *args: str) -> None:
     subprocess.run(["git", *args], cwd=repo, check=True, capture_output=True)
 
 
+def _patch_official_identity(monkeypatch, receipt_path: Path) -> dict:
+    identity = json.loads(receipt_path.read_text())["modelIdentity"]
+    official = copy.deepcopy(identity)
+    official["generationParameters"]["maxTokens"] = 1
+    official["contextPolicy"]["reservedOutputTokens"] = 1
+    official["generationAttempted"] = False
+    monkeypatch.setattr(
+        "each.models.catalog.load_model",
+        lambda *_a, **_k: type("M", (), {"identity": lambda self: official})(),
+    )
+    return identity
+
+
 def _write_real_receipt(
     each_home: Path,
     run_id: str,
@@ -41,6 +55,18 @@ def _write_real_receipt(
     adapter_type="MLXRepairModel",
     network_isolation=True,
     spec_hash="2c5eca88fdccb0c1a0c94541e0b612d990b7d1dfd5ccfb0389ea61fb9e669c78",
+    repaired_result=None,
+    repo_id="bigcode/starcoderbase",
+    revision="88ec5781ad071a9d9e925cd28f327dea22eb5188",
+    raw_completion="def f(): ...",
+    selected_attempt=1,
+    assurance_level="EACH-P1",
+    legal_certification=False,
+    cleanroom_certification=False,
+    attempt_number=1,
+    attempt_model_identity=None,
+    type_confused_attempt_identity=False,
+    top_level_raw_completion=None,
 ):
     """Build and sign a genuine receipt via the real each.receipt/each.attestation
     code paths, written under a private EACH_HOME/runs/<run_id>/ directory --
@@ -51,13 +77,16 @@ def _write_real_receipt(
     from each.receipt import Receipt
 
     model_identity = {
-        "modelId": model_id or "ibm-granite/granite-8b-code-instruct-128k@deadbeef#sha256:cafe",
+        "modelId": model_id or f"{repo_id}@{revision}#sha256:cafe",
         "adapterType": adapter_type,
         "adapterClassPath": f"each.models.mlx_model.{adapter_type}",
+        "implementationModule": "each.models.mlx_model",
+        "implementationSha256": "implementation-test-sha",
+        "runtimeModelConfig": {"tie_word_embeddings": False},
         "modelManifest": {
             "schemaVersion": "0.1",
-            "repoId": "ibm-granite/granite-8b-code-instruct-128k",
-            "revision": "deadbeefcafebabe",
+            "repoId": repo_id,
+            "revision": revision,
             "license": "apache-2.0",
             "runtime": {"name": "mlx-lm", "version": "0.0-test"},
             "quantization": {"groupSize": 128},
@@ -69,7 +98,16 @@ def _write_real_receipt(
             "maxPositionEmbeddings": 8192,
         },
         "generationParameters": {"maxTokens": 256, "temperature": 0.0, "sampling": "greedy", "seed": None},
+        "contextPolicy": {"maxPositionEmbeddings": 8192, "reservedOutputTokens": 256},
+        "generationAttempted": True,
     }
+
+    selected_model_identity = model_identity if attempt_model_identity is None else attempt_model_identity
+    if type_confused_attempt_identity:
+        selected_model_identity = copy.deepcopy(model_identity)
+        selected_model_identity["generationAttempted"] = 1
+        selected_model_identity["generationParameters"]["maxTokens"] = 256.0
+        selected_model_identity["runtimeModelConfig"]["tie_word_embeddings"] = 0
 
     receipt = Receipt(
         run_id=run_id,
@@ -77,20 +115,30 @@ def _write_real_receipt(
         spec_hash=spec_hash,
         model_identity=model_identity,
         prompt="repair this function",
-        raw_completion="def f(): ...",
+        raw_completion=raw_completion if top_level_raw_completion is None else top_level_raw_completion,
         patch_text="--- a\n+++ b\n",
         touched_paths=["xsystem.c"],
         materials={},
         executor_identity={"engine": "colima-each"},
         isolation_evidence={"command": ["docker", "run", "--network", "none"], "exit_code": 1, "stdout": ""},
         baseline_result={"exit_code": 1},
-        repaired_result={"exit_code": 0},
+        repaired_result={"exit_code": 0} if repaired_result is None else repaired_result,
         audit={"result": "UNAVAILABLE", "checks": {}},
-        assurance_level="EACH-P1",
+        assurance_level=assurance_level,
+        legal_certification=legal_certification,
+        cleanroom_certification=cleanroom_certification,
         outcome=outcome,
         network_isolation_verified=network_isolation,
-        attempts=[{"attempt": 1, "proposal_format": "full_source", "outcome": outcome}],
-        selected_attempt=1,
+        attempts=[
+            {
+                "attempt": attempt_number,
+                "proposal_format": "full_source",
+                "outcome": outcome,
+                "raw_completion": raw_completion,
+                "model_identity": selected_model_identity,
+            }
+        ],
+        selected_attempt=selected_attempt,
         audit_subject_sha256="subject-sha",
     )
     run_dir = each_home / "runs" / run_id
@@ -129,10 +177,54 @@ def harness(tmp_path, monkeypatch):
                     "purpose": "target-repair-verified",
                     "targetSpecHash": "2c5eca88fdccb0c1a0c94541e0b612d990b7d1dfd5ccfb0389ea61fb9e669c78",
                 },
-            }
+            },
         ],
         autonomy_scope="approved-program",
         run_id="test-run",
+    )
+    return run_store, repo, each_home
+
+
+@pytest.fixture()
+def experiment_harness(tmp_path, monkeypatch):
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    _git(repo, "init", "-q")
+    _git(repo, "config", "user.email", "test@example.com")
+    _git(repo, "config", "user.name", "Test")
+    (repo / "README.md").write_text("test\n", encoding="utf-8")
+    _git(repo, "add", "README.md")
+    _git(repo, "commit", "-q", "-m", "initial")
+    each_home = tmp_path / "home" / ".each"
+    monkeypatch.setenv("HOME", str(tmp_path / "home"))
+    monkeypatch.setenv("EACH_HOME", str(each_home))
+    run_store = art.RunStore(repository=repo)
+    run_store.create(
+        goal="test goal",
+        outcome="test outcome",
+        criteria=[
+            {
+                "id": "qualified-local-evaluation",
+                "description": "real local model completed a target evaluation",
+                "verificationType": "reality",
+                "surface": "runtime",
+                "blocking": True,
+                "targetEvidence": {
+                    "kind": "target-experiment-receipt",
+                    "purpose": "target-experiment-complete",
+                    "targetSpecHash": "2c5eca88fdccb0c1a0c94541e0b612d990b7d1dfd5ccfb0389ea61fb9e669c78",
+                },
+            },
+            {
+                "id": "unrelated-runtime",
+                "description": "unrelated runtime truth",
+                "verificationType": "reality",
+                "surface": "runtime",
+                "blocking": False,
+            },
+        ],
+        autonomy_scope="approved-program",
+        run_id="test-experiment-run",
     )
     return run_store, repo, each_home
 
@@ -173,6 +265,247 @@ def test_can_satisfy_a_reality_gate_and_pass_criterion(harness):
     result = run_store.set_criterion("test-run", "m8-repair", "PASS", ["gate:gate-m8"])
     criterion = next(item for item in result["acceptanceCriteria"] if item["id"] == "m8-repair")
     assert criterion["status"] == "PASS"
+
+
+def test_negative_real_target_experiment_can_satisfy_local_evaluation_criterion(experiment_harness, monkeypatch):
+    run_store, repo, each_home = experiment_harness
+    receipt_path = _write_real_receipt(
+        each_home,
+        "negative-target-run",
+        outcome="PATCH_REJECTED: no change",
+        repaired_result={},
+    )
+    _patch_official_identity(monkeypatch, receipt_path)
+    state = run_store._record_target_experiment_receipt(
+        "test-experiment-run",
+        artifact_id="negative-target-evidence",
+        receipt_path=str(receipt_path),
+        evidence_refs=[],
+    )
+    artifact = next(item for item in state["artifacts"] if item["id"] == "negative-target-evidence")
+    assert artifact["kind"] == "target-experiment-receipt"
+    assert artifact["producer"] == "target-experiment"
+    summary = json.loads((repo / artifact["path"]).read_text())
+    assert summary["outcome"] == "PATCH_REJECTED"
+    assert summary["candidateValidationRecorded"] is False
+    assert summary["terminalAuditRecorded"] is False
+    run_store.record_gate(
+        "test-experiment-run",
+        gate_id="gate-negative-target",
+        task_id=None,
+        gate_type="reality",
+        status="PASS",
+        evidence_refs=["artifact:negative-target-evidence"],
+        criteria=["qualified-local-evaluation"],
+    )
+    result = run_store.set_criterion(
+        "test-experiment-run",
+        "qualified-local-evaluation",
+        "PASS",
+        ["gate:gate-negative-target"],
+    )
+    criterion = next(
+        item for item in result["acceptanceCriteria"] if item["id"] == "qualified-local-evaluation"
+    )
+    assert criterion["status"] == "PASS"
+
+
+def test_target_experiment_rejects_fixture_identity_and_unknown_outcome(experiment_harness, monkeypatch):
+    run_store, _repo, each_home = experiment_harness
+    fixture_receipt = _write_real_receipt(
+        each_home,
+        "fixture-target-run",
+        outcome="PATCH_REJECTED",
+        model_id="fixture/not-a-qualified-model",
+        adapter_type="FixtureModel",
+        repaired_result={},
+    )
+    with pytest.raises(art.RuntimeFailure):
+        run_store._record_target_experiment_receipt(
+            "test-experiment-run",
+            artifact_id="fixture-target-evidence",
+            receipt_path=str(fixture_receipt),
+            evidence_refs=[],
+        )
+    unknown_receipt = _write_real_receipt(
+        each_home,
+        "unknown-target-run",
+        outcome="PRIVATE_UNKNOWN_RESULT",
+        repaired_result={},
+    )
+    _patch_official_identity(monkeypatch, unknown_receipt)
+    with pytest.raises(art.RuntimeFailure, match="qualified target generation"):
+        run_store._record_target_experiment_receipt(
+            "test-experiment-run",
+            artifact_id="unknown-target-evidence",
+            receipt_path=str(unknown_receipt),
+            evidence_refs=[],
+        )
+
+
+def test_target_experiment_rejects_unqualified_model_and_unowned_criterion(experiment_harness, monkeypatch):
+    run_store, _repo, each_home = experiment_harness
+    receipt_path = _write_real_receipt(
+        each_home,
+        "unqualified-target-run",
+        outcome="PATCH_REJECTED",
+        repo_id="ibm-granite/granite-8b-code-instruct-128k",
+        revision="deadbeefcafebabe",
+        repaired_result={},
+    )
+    with pytest.raises(art.RuntimeFailure, match="exact qualified checkpoint"):
+        run_store._record_target_experiment_receipt(
+            "test-experiment-run",
+            artifact_id="unqualified-target-evidence",
+            receipt_path=str(receipt_path),
+            evidence_refs=[],
+        )
+
+    qualified_receipt = _write_real_receipt(
+        each_home,
+        "owned-target-run",
+        outcome="PATCH_REJECTED",
+        repaired_result={},
+    )
+    _patch_official_identity(monkeypatch, qualified_receipt)
+    run_store._record_target_experiment_receipt(
+        "test-experiment-run",
+        artifact_id="owned-target-evidence",
+        receipt_path=str(qualified_receipt),
+        evidence_refs=[],
+    )
+    with pytest.raises(art.RuntimeFailure, match="targetEvidence"):
+        run_store.record_gate(
+            "test-experiment-run",
+            gate_id="laundered-gate",
+            task_id=None,
+            gate_type="reality",
+            status="PASS",
+            evidence_refs=["artifact:owned-target-evidence"],
+            criteria=["unrelated-runtime"],
+        )
+
+
+@pytest.mark.parametrize(
+    ("kwargs", "message"),
+    [
+        ({"network_isolation": False}, "network isolation"),
+        ({"assurance_level": "UNBOUNDED"}, "assuranceLevel"),
+        ({"spec_hash": "not-a-hash"}, "specHash"),
+        ({"raw_completion": "", "selected_attempt": None}, "bind one selected"),
+        ({"legal_certification": True}, "legal certification"),
+    ],
+)
+def test_target_experiment_rejects_invalid_runtime_evidence(experiment_harness, monkeypatch, kwargs, message):
+    run_store, _repo, each_home = experiment_harness
+    receipt_path = _write_real_receipt(
+        each_home,
+        "invalid-target-" + str(abs(hash(message))),
+        outcome="PATCH_REJECTED",
+        repaired_result={},
+        **kwargs,
+    )
+    _patch_official_identity(monkeypatch, receipt_path)
+    with pytest.raises(art.RuntimeFailure, match=message):
+        run_store._record_target_experiment_receipt(
+            "test-experiment-run",
+            artifact_id="invalid-target-evidence-" + str(abs(hash(message))),
+            receipt_path=str(receipt_path),
+            evidence_refs=[],
+        )
+
+
+def test_target_experiment_detects_receipt_replacement_during_verification(experiment_harness, monkeypatch):
+    run_store, _repo, each_home = experiment_harness
+    receipt_path = _write_real_receipt(
+        each_home,
+        "raced-target-run",
+        outcome="PATCH_REJECTED",
+        repaired_result={},
+    )
+    _patch_official_identity(monkeypatch, receipt_path)
+    original_run = subprocess.run
+
+    def replace_after_verify(*args, **kwargs):
+        result = original_run(*args, **kwargs)
+        receipt_path.write_bytes(receipt_path.read_bytes() + b"\n")
+        return result
+
+    monkeypatch.setattr(art.subprocess, "run", replace_after_verify)
+    with pytest.raises(art.RuntimeFailure, match="changed during verification"):
+        run_store._record_target_experiment_receipt(
+            "test-experiment-run",
+            artifact_id="raced-target-evidence",
+            receipt_path=str(receipt_path),
+            evidence_refs=[],
+        )
+
+
+@pytest.mark.parametrize(
+    "kwargs",
+    [
+        {"attempt_number": 2, "selected_attempt": 1},
+        {"attempt_number": True, "selected_attempt": 1},
+        {"attempt_number": 1.0, "selected_attempt": 1},
+        {"selected_attempt": True},
+        {"raw_completion": "   "},
+        {"raw_completion": "", "top_level_raw_completion": "top-level fallback is forbidden"},
+        {
+            "attempt_model_identity": {
+                "modelId": "fixture/unqualified",
+                "adapterClassPath": "each.models.fixture.FixtureModel",
+                "modelManifest": {},
+            }
+        },
+        {"type_confused_attempt_identity": True},
+    ],
+)
+def test_target_experiment_binds_selected_attempt_to_qualified_identity(
+    experiment_harness, monkeypatch, kwargs,
+):
+    run_store, _repo, each_home = experiment_harness
+    receipt_path = _write_real_receipt(
+        each_home,
+        "attempt-binding-" + str(abs(hash(json.dumps(kwargs, sort_keys=True)))),
+        outcome="PATCH_REJECTED",
+        repaired_result={},
+        **kwargs,
+    )
+    _patch_official_identity(monkeypatch, receipt_path)
+    with pytest.raises(art.RuntimeFailure, match="bind one selected"):
+        run_store._record_target_experiment_receipt(
+            "test-experiment-run",
+            artifact_id="attempt-binding-evidence-" + str(abs(hash(json.dumps(kwargs, sort_keys=True)))),
+            receipt_path=str(receipt_path),
+            evidence_refs=[],
+        )
+
+
+def test_target_experiment_rejects_type_confused_official_identity(experiment_harness, monkeypatch):
+    run_store, _repo, each_home = experiment_harness
+    receipt_path = _write_real_receipt(
+        each_home,
+        "official-type-confusion",
+        outcome="PATCH_REJECTED",
+        repaired_result={},
+    )
+    identity = json.loads(receipt_path.read_text())["modelIdentity"]
+    official = copy.deepcopy(identity)
+    official["generationParameters"]["maxTokens"] = 1
+    official["contextPolicy"]["reservedOutputTokens"] = 1
+    official["generationAttempted"] = False
+    official["runtimeModelConfig"]["tie_word_embeddings"] = 0
+    monkeypatch.setattr(
+        "each.models.catalog.load_model",
+        lambda *_a, **_k: type("M", (), {"identity": lambda self: official})(),
+    )
+    with pytest.raises(art.RuntimeFailure, match="official qualified local artifact"):
+        run_store._record_target_experiment_receipt(
+            "test-experiment-run",
+            artifact_id="official-type-confusion-evidence",
+            receipt_path=str(receipt_path),
+            evidence_refs=[],
+        )
 
 
 def test_rejects_a_hand_written_claim_file_that_is_not_a_real_receipt(harness):

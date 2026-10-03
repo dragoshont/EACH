@@ -91,11 +91,12 @@ ARTIFACT_PRODUCERS = {
     "policy-engine",
     "external-proof",
     "target-repair",
+    "target-experiment",
 }
 GATE_EVIDENCE_PRODUCERS = {
     "deterministic": {"deterministic", "invariant"},
     "e2e": {"legibility"},
-    "reality": {"legibility", "mutation", "external-proof", "target-repair"},
+    "reality": {"legibility", "mutation", "external-proof", "target-repair", "target-experiment"},
     "semantic": {"semantic-judge"},
     "policy": {"policy-engine"},
     "security": {"security-review"},
@@ -112,16 +113,19 @@ PRODUCER_ARTIFACT_KINDS = {
     "policy-engine": {"policy-decision"},
     "external-proof": {"external-proof"},
     "target-repair": {"target-repair-receipt", "clean-room-experiment-receipt", "target-replay-receipt"},
+    "target-experiment": {"target-experiment-receipt"},
 }
 TARGET_EVIDENCE_KINDS = {
     "target-repair-receipt",
     "clean-room-experiment-receipt",
     "target-replay-receipt",
+    "target-experiment-receipt",
 }
 TARGET_EVIDENCE_PURPOSES = {
     "target-repair-receipt": "target-repair-verified",
     "clean-room-experiment-receipt": "clean-room-experiment-complete",
     "target-replay-receipt": "replay-validation",
+    "target-experiment-receipt": "target-experiment-complete",
 }
 # Acceptance criteria declare a `verificationType`; this reconciles it with which gate `type`s
 # may legitimately satisfy it (e2e and reality are treated as mutually satisfying, mirroring the
@@ -1533,6 +1537,207 @@ class RunStore:
             producer="target-repair",
         )
 
+    def _record_target_experiment_receipt(
+        self,
+        run_id: str,
+        *,
+        artifact_id: str,
+        receipt_path: str,
+        evidence_refs: Sequence[str] = (),
+        actor: str = "coordinator",
+    ) -> dict[str, Any]:
+        """Register a complete real-model target experiment without claiming repair success.
+
+        This is the reality-evidence counterpart to
+        :meth:`_record_target_repair_receipt` for a criterion that requires an
+        actual qualified local evaluation, not a verified repair. It independently
+        re-verifies the private signed receipt and retained materials, requires a
+        real allowlisted local-model identity and verified network isolation, and
+        exports only a bounded outcome class plus hashes/stage-presence facts.
+        """
+        from each.models.catalog import UnavailableModelError, load_model, qualified_profile
+        from each.outcome import UNKNOWN_OUTCOME_CLASS, sanitize_outcome_class, sanitize_proposal_format
+
+        resolved = self._resolve_private_each_run_file(receipt_path, code="TARGET_EXPERIMENT_RECEIPT")
+        before_bytes = resolved.read_bytes()
+        before_sha256 = hashlib.sha256(before_bytes).hexdigest()
+        try:
+            json.loads(before_bytes)
+        except (UnicodeDecodeError, json.JSONDecodeError) as exc:
+            raise RuntimeFailure("TARGET_EXPERIMENT_RECEIPT", "private receipt is unreadable") from exc
+        result = subprocess.run(
+            [sys.executable, "-m", "each.cli", "verify", "--full", str(resolved)],
+            cwd=str(self.repository),
+            capture_output=True,
+            text=True,
+            timeout=120,
+            check=False,
+        )
+        if result.returncode != 0:
+            raise RuntimeFailure(
+                "TARGET_EXPERIMENT_RECEIPT",
+                "independent `each verify --full` re-check of the private receipt did not PASS",
+                details={"returncode": result.returncode},
+            )
+        after_bytes = resolved.read_bytes()
+        if not hmac.compare_digest(before_sha256, hashlib.sha256(after_bytes).hexdigest()):
+            raise RuntimeFailure("TARGET_EXPERIMENT_RECEIPT", "private receipt changed during verification")
+        try:
+            receipt = json.loads(after_bytes)
+        except (UnicodeDecodeError, json.JSONDecodeError) as exc:
+            raise RuntimeFailure("TARGET_EXPERIMENT_RECEIPT", "verified private receipt is unreadable") from exc
+        if not isinstance(receipt, dict):
+            raise RuntimeFailure("TARGET_EXPERIMENT_RECEIPT", "private receipt must be a JSON object")
+        outcome = sanitize_outcome_class(str(receipt.get("outcome", "")))
+        eligible_outcomes = {
+            "PATCH_REJECTED",
+            "BUILD_FAILED",
+            "REPAIR_NOT_VERIFIED",
+            "REPAIR_VERIFIED",
+            "REPAIR_REJECTED_AUDIT",
+            "EXECUTION_ERROR",
+        }
+        if outcome == UNKNOWN_OUTCOME_CLASS or outcome not in eligible_outcomes:
+            raise RuntimeFailure(
+                "TARGET_EXPERIMENT_RECEIPT",
+                "private receipt outcome does not prove that qualified target generation occurred",
+            )
+        if receipt.get("networkIsolationVerified") is not True:
+            raise RuntimeFailure("TARGET_EXPERIMENT_RECEIPT", "private receipt does not show network isolation verified")
+        if receipt.get("legalCertification") is not False or receipt.get("cleanroomCertification") is not False:
+            raise RuntimeFailure("TARGET_EXPERIMENT_RECEIPT", "private receipt must not claim legal certification")
+        _model_id, adapter_class_path = self._validated_real_model_identity(
+            receipt, error_code="TARGET_EXPERIMENT_RECEIPT"
+        )
+        model_identity = receipt.get("modelIdentity") or {}
+        manifest = model_identity.get("modelManifest") or {}
+        repo_id = str(manifest.get("repoId") or "")
+        revision = str(manifest.get("revision") or "")
+        matched_name = next(
+            (
+                name for name in ("starcoderbase", "octocoder")
+                if qualified_profile(name)["repo"] == repo_id
+                and qualified_profile(name)["revision"] == revision
+            ),
+            None,
+        )
+        if matched_name is None:
+            raise RuntimeFailure("TARGET_EXPERIMENT_RECEIPT", "private receipt model is not an exact qualified checkpoint")
+        catalog_key = f"{matched_name}-mlx"
+        try:
+            official_identity = load_model(catalog_key, max_tokens=1).identity()
+        except UnavailableModelError as exc:
+            raise RuntimeFailure(
+                "TARGET_EXPERIMENT_RECEIPT",
+                "exact qualified local artifact is unavailable or changed",
+            ) from exc
+        immutable_identity_fields = (
+            "adapterClassPath",
+            "adapterType",
+            "implementationModule",
+            "implementationSha256",
+            "modelId",
+            "modelManifest",
+            "runtimeModelConfig",
+        )
+        def exact_json_equal(left: Any, right: Any) -> bool:
+            try:
+                return json.dumps(
+                    left, sort_keys=True, separators=(",", ":"), allow_nan=False
+                ) == json.dumps(
+                    right, sort_keys=True, separators=(",", ":"), allow_nan=False
+                )
+            except (TypeError, ValueError):
+                return False
+
+        if any(
+            not exact_json_equal(official_identity.get(key), model_identity.get(key))
+            for key in immutable_identity_fields
+        ):
+            raise RuntimeFailure(
+                "TARGET_EXPERIMENT_RECEIPT",
+                "private receipt identity does not match the official qualified local artifact",
+            )
+        spec_hash = str(receipt.get("specHash") or "")
+        target_run_id = str(receipt.get("runId") or "")
+        if not re.fullmatch(r"[0-9a-f]{64}", spec_hash):
+            raise RuntimeFailure("TARGET_EXPERIMENT_RECEIPT", "private receipt specHash is invalid")
+        try:
+            require_id(target_run_id, "target run id")
+        except ValueError as exc:
+            raise RuntimeFailure("TARGET_EXPERIMENT_RECEIPT", "private receipt runId is invalid") from exc
+        assurance_level = str(receipt.get("assuranceLevel") or "")
+        if assurance_level not in {"EACH-P1", "EACH-P2", "EACH-P3", "EACH-P4"}:
+            raise RuntimeFailure("TARGET_EXPERIMENT_RECEIPT", "private receipt assuranceLevel is invalid")
+        attempts = receipt.get("attempts") or []
+        selected_attempt = receipt.get("selectedAttempt")
+        selected_records = (
+            [
+                attempt for attempt in attempts
+                if (
+                    isinstance(attempt, dict)
+                    and type(attempt.get("attempt")) is int
+                    and attempt.get("attempt") == selected_attempt
+                )
+            ]
+            if type(selected_attempt) is int
+            else []
+        )
+        selected_completion = selected_records[0].get("raw_completion") if len(selected_records) == 1 else None
+        if (
+            type(selected_attempt) is not int
+            or selected_attempt < 1
+            or len(selected_records) != 1
+            or not isinstance(selected_completion, str)
+            or not selected_completion.strip()
+            or not exact_json_equal(selected_records[0].get("model_identity"), model_identity)
+        ):
+            raise RuntimeFailure(
+                "TARGET_EXPERIMENT_RECEIPT",
+                "private receipt does not bind one selected target-generation attempt to the qualified artifact",
+            )
+        audit = receipt.get("audit") or {}
+        sanitized_summary = {
+            "purpose": "target-experiment-complete",
+            "specHash": spec_hash,
+            "targetRunId": target_run_id,
+            "outcome": outcome,
+            "signatureVerification": "PASS",
+            "materialsVerification": "PASS",
+            "materialCount": len(receipt.get("materials") or {}),
+            "networkIsolationVerified": True,
+            "assuranceLevel": assurance_level,
+            "modelId": official_identity["modelId"],
+            "adapterClassPath": official_identity["adapterClassPath"],
+            "adapterType": adapter_class_path.rsplit(".", 1)[-1],
+            "baselineValidationRecorded": bool(receipt.get("baselineResult")),
+            "candidateValidationRecorded": bool(receipt.get("repairedResult")),
+            "terminalAuditRecorded": bool(audit.get("checks") or {}),
+            "selectedAttempt": selected_attempt,
+            "attemptProposalFormats": [
+                sanitize_proposal_format(attempt.get("proposal_format") if isinstance(attempt, dict) else None)
+                for attempt in receipt.get("attempts") or []
+            ],
+            "receiptSha256": before_sha256,
+            "legalCertification": False,
+            "cleanroomCertification": False,
+        }
+        current_commit = self.load(run_id)["baseline"]["commit"]
+        relative_path, _ = self.write_evidence_receipt(
+            name=f"{artifact_id}.target-experiment-summary",
+            commit=current_commit,
+            payload=sanitized_summary,
+        )
+        return self._record_artifact(
+            run_id,
+            artifact_id=artifact_id,
+            kind="target-experiment-receipt",
+            path=relative_path,
+            evidence_refs=evidence_refs,
+            actor=actor,
+            producer="target-experiment",
+        )
+
     def _record_m7_experiment_receipt(
         self,
         run_id: str,
@@ -2717,7 +2922,8 @@ class RunStore:
                     criteria_by_id[cid].get("targetEvidence") is not None for cid in bound_criteria
                 )
                 if gate_type in {"reality", "e2e"} and (
-                    "target-repair" in producers or any_criterion_owns_target_evidence
+                    producers.intersection({"target-repair", "target-experiment"})
+                    or any_criterion_owns_target_evidence
                 ):
                     target_declarations = {
                         cid: criteria_by_id[cid].get("targetEvidence")
@@ -2728,13 +2934,14 @@ class RunStore:
                             "EVIDENCE_BINDING_REQUIRED",
                             "criteria bound to target-repair evidence must declare targetEvidence ownership explicitly",
                         )
+                    target_producers = {"target-repair", "target-experiment"}
                     artifact_summaries = {
                         artifact["id"]: self._read_json_receipt(artifact["path"], "target-repair evidence")
                         for artifact in state["artifacts"]
-                        if artifact["id"] in artifact_ids and artifact["producer"] == "target-repair"
+                        if artifact["id"] in artifact_ids and artifact["producer"] in target_producers
                     }
                     for artifact in state["artifacts"]:
-                        if artifact["id"] not in artifact_ids or artifact["producer"] != "target-repair":
+                        if artifact["id"] not in artifact_ids or artifact["producer"] not in target_producers:
                             continue
                         summary = artifact_summaries[artifact["id"]]
                         summary_purpose = summary.get("purpose")
@@ -2758,7 +2965,7 @@ class RunStore:
                             and artifact_summaries[artifact["id"]].get("purpose") == declaration["purpose"]
                             and artifact_summaries[artifact["id"]].get("specHash") == declaration["targetSpecHash"]
                             for artifact in state["artifacts"]
-                            if artifact["id"] in artifact_ids and artifact["producer"] == "target-repair"
+                            if artifact["id"] in artifact_ids and artifact["producer"] in target_producers
                         ):
                             raise RuntimeFailure(
                                 "EVIDENCE_KIND_MISMATCH",
@@ -2780,6 +2987,8 @@ class RunStore:
                         if producer == "external-proof":
                             return "runtime"
                         if producer == "target-repair":
+                            return "runtime"
+                        if producer == "target-experiment":
                             return "runtime"
                         return None
 
