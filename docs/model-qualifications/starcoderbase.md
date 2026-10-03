@@ -182,9 +182,11 @@ same authorized artifact ran once against the pinned public
   run because no candidate existed.
 - Network isolation verified. Overall receipt label **EACH-P1** because no
   candidate reached protected-material integrity verification.
-- Signature and both retained materials: **PASS**.
+- Signature and all three declared retained materials: **PASS**.
 - Receipt SHA-256:
   `28683ef83ac69c9954956391b0684035298f8fa8686fb1f68ae0b643f41a219b`.
+- Trajectory SHA-256:
+  `961c9b6b45563f478f2bb14927b518d2959f0c062d7670fba94a4a727e389c45`.
 
 No retry, prompt adaptation, model substitution or human target edit followed.
 Performance counters were not recorded by that historical call and remain

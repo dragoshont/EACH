@@ -281,7 +281,8 @@ their standard retained-material directories. This location distinction must
 not be hidden behind a claim that all historical runs originally retained their
 inputs in the same way.
 
-The qualified Xodus receipt also verifies with two retained materials. Its
+The qualified Xodus receipt also verifies with all three declared retained
+materials. Its
 overall assurance is EACH-P1 despite a verified network-denial probe because no
 candidate reached protected-material verification. No performance values were
 invented for this call.

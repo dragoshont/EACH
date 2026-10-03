@@ -40,9 +40,11 @@ target change occurred.
 - Receipt assurance: **EACH-P1**. Although network isolation verified, the
   shared pipeline conservatively downgrades the overall label when no candidate
   reaches protected-material integrity verification.
-- Signed receipt and both retained materials: **PASS**.
+- Signed receipt and all three declared retained materials: **PASS**.
 - Receipt SHA-256:
   `28683ef83ac69c9954956391b0684035298f8fa8686fb1f68ae0b643f41a219b`.
+- Trajectory SHA-256:
+  `961c9b6b45563f478f2bb14927b518d2959f0c062d7670fba94a4a727e389c45`.
 - Input/output token counts, completion-call seconds, decoder throughput and
   peak memory: **UNAVAILABLE** for this historical call; none is inferred.
 
