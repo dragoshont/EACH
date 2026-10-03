@@ -102,6 +102,33 @@ def _approve_selftest_spec(task_id: str) -> ApprovedSpec:
 
 @requires_colima_each
 @requires_m8_native_image
+def test_terminal_audit_receives_post_patch_source_not_diff(tmp_path, monkeypatch) -> None:
+    monkeypatch.setattr(xodus_shadow_module, "fetch_file", lambda *_a, **_k: _CACHED_SOURCE)
+    original_audit = xodus_shadow_module.run_audit
+    observed = []
+
+    def capture_source(source, **kwargs):
+        observed.append(source)
+        return original_audit(source, **kwargs)
+
+    monkeypatch.setattr(xodus_shadow_module, "run_audit", capture_source)
+    approved = _approve_selftest_spec("test-xodus-shadow-audit-source")
+    model = FixtureModel(_CORRECT_PATCH, model_id="fixture/xodus-shadow-selftest-v1")
+    result = run_xodus_shadow_build(
+        model, approved, max_attempts=1,
+        run_id=f"selftest-audit-source-{tmp_path.name}-{uuid.uuid4().hex[:8]}",
+    )
+    assert result["outcome"] == "REPAIR_VERIFIED"
+    assert len(observed) == 1
+    assert not observed[0].startswith(("--- ", "diff --git "))
+    assert "\n+++ b/" not in observed[0]
+    assert "\n@@ " not in observed[0]
+    assert observed[0].splitlines()[0] == _CACHED_SOURCE.splitlines()[0]
+    assert "XSystemGetXboxLiveSandboxId" in observed[0]
+
+
+@requires_colima_each
+@requires_m8_native_image
 def test_fixture_model_candidate_is_verified_and_signed(tmp_path, monkeypatch) -> None:
     monkeypatch.setattr(xodus_shadow_module, "fetch_file", lambda *_a, **_k: _CACHED_SOURCE)
     approved = _approve_selftest_spec("test-xodus-shadow-harness-selftest")

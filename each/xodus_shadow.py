@@ -525,7 +525,10 @@ def run_xodus_shadow_build(
             # approved spec's forbidden_sources are enforced by never
             # fetching such material in the first place), so corpus-backed
             # checks honestly report UNAVAILABLE -- never a fabricated PASS.
-            final_audit = run_audit(patch_text)
+            final_candidate_source = "\n".join(
+                (worktree / path).read_text(encoding="utf-8") for path in touched
+            )
+            final_audit = run_audit(final_candidate_source)
             if reject_on_audit_flag(final_audit):
                 outcome = "REPAIR_REJECTED_AUDIT"
 
