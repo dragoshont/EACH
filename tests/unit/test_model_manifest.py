@@ -69,6 +69,32 @@ def test_missing_max_position_embeddings_is_recorded_honestly_as_none(tmp_path: 
     assert manifest.to_dict()["maxPositionEmbeddings"] is None
 
 
+def test_n_positions_fallback_for_gpt_bigcode_family_configs(tmp_path: Path) -> None:
+    """Regression: granite-20b-code-instruct's own config.json declares its
+    context window as "n_positions" (model_type="gpt_bigcode"), not
+    "max_position_embeddings". Before this fix, the context-budget check
+    was silently SKIPPED (not failed closed) for any such checkpoint,
+    because the manifest recorded None -- the opposite of the mandate's
+    "never silently let a prompt exceed the real supported context"
+    requirement."""
+    root = _snapshot(tmp_path)
+    root.joinpath("config.json").write_text(
+        json.dumps({"quantization": {}, "model_type": "gpt_bigcode", "n_positions": 8192})
+    )
+    manifest = _manifest(root)
+    assert manifest.max_position_embeddings == 8192
+    assert manifest.to_dict()["maxPositionEmbeddings"] == 8192
+
+
+def test_max_position_embeddings_takes_priority_over_n_positions_when_both_present(tmp_path: Path) -> None:
+    root = _snapshot(tmp_path)
+    root.joinpath("config.json").write_text(
+        json.dumps({"quantization": {}, "max_position_embeddings": 4096, "n_positions": 8192})
+    )
+    manifest = _manifest(root)
+    assert manifest.max_position_embeddings == 4096
+
+
 def test_verify_snapshot_matches_reports_no_drift_for_untouched_snapshot(tmp_path: Path) -> None:
     root = _snapshot(tmp_path)
     manifest = _manifest(root)
