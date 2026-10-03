@@ -84,10 +84,35 @@ def validate_recorded_real_model_identity(model_identity: dict[str, Any]) -> tup
     model_id = str(model_identity.get("modelId", "")).strip()
     adapter_class_path = str(model_identity.get("adapterClassPath", "")).strip()
     adapter_type = str(model_identity.get("adapterType", "")).strip()
-    if not model_id or not adapter_class_path or adapter_class_path not in REAL_MODEL_ADAPTER_CLASS_PATHS:
+    implementation_module = str(model_identity.get("implementationModule", "")).strip()
+    implementation_sha256 = str(model_identity.get("implementationSha256", "")).strip()
+    if adapter_class_path:
+        if adapter_class_path not in REAL_MODEL_ADAPTER_CLASS_PATHS:
+            raise ValueError("receipt does not declare an allowlisted real-model adapter")
+        if adapter_type != adapter_class_path.rsplit(".", 1)[-1]:
+            raise ValueError("receipt adapter type does not match its declared class path")
+    else:
+        # Legacy receipts (produced before ``RepairModel.identity()`` recorded
+        # ``adapterClassPath``/``adapterType`` explicitly) only declared
+        # ``implementationModule`` + ``implementationSha256``. Accept these
+        # ONLY when the declared module uniquely and unambiguously identifies
+        # one allowlisted real adapter class (never derived from a
+        # caller-controlled ``modelId``/``adapterType`` string) and a genuine
+        # implementation hash is present -- this is not a relaxation of the
+        # allowlist, merely reading the same allowlisted fact through an
+        # older, still-structurally-bound field name.
+        if not implementation_module or not implementation_sha256:
+            raise ValueError("receipt does not declare an allowlisted real-model adapter")
+        matches = [
+            class_path
+            for class_path in REAL_MODEL_ADAPTER_CLASS_PATHS
+            if class_path.rsplit(".", 1)[0] == implementation_module
+        ]
+        if len(matches) != 1:
+            raise ValueError("receipt does not declare an allowlisted real-model adapter")
+        adapter_class_path = matches[0]
+    if not model_id:
         raise ValueError("receipt does not declare an allowlisted real-model adapter")
-    if adapter_type != adapter_class_path.rsplit(".", 1)[-1]:
-        raise ValueError("receipt adapter type does not match its declared class path")
 
     manifest = model_identity.get("modelManifest")
     if not isinstance(manifest, dict):
