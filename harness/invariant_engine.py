@@ -8,13 +8,13 @@ import ast
 import fnmatch
 import json
 import os
-from pathlib import Path
 import re
 import sys
-from typing import Any, Iterable, Sequence
+from collections.abc import Iterable, Sequence
+from pathlib import Path
+from typing import Any
 
 from architrave_runtime import RunStore, RuntimeFailure, redact
-
 
 MAX_SOURCE_BYTES = 2 * 1024 * 1024
 IMPORT_PATTERNS = (

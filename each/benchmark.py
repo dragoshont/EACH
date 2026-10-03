@@ -35,12 +35,12 @@ from typing import Any
 from each.audit.run import reject_on_audit_flag, run_audit
 from each.demo import _DOCKER_LAUNCH_FAILURE_EXIT_CODES, _result_to_dict
 from each.executor.base import ExecutionResult
-from each.executor.container import ContainerExecutor, derive_assurance_level
+from each.executor.container import ContainerExecutor, ContainerExecutorError, derive_assurance_level
 from each.hashing import sha256_bytes
 from each.models.base import ContextBudgetExceeded, RepairModel
 from each.outcome import sanitize_outcome_class
 from each.patch import PatchRejected, apply_patch, extract_patch_text, parse_patch
-from each.paths import cache_dir, runs_dir
+from each.paths import assert_no_symlink_escape, cache_dir, runs_dir
 from each.receipt import Receipt
 from each.spec import ApprovedSpec, make_spec_packet
 from each.worktree import build_worktree
@@ -209,15 +209,18 @@ def materialize_task_sources(task: BenchmarkTask) -> tuple[Path, list[str]]:
     different sha lives under a different, unused directory.
     """
     root = cache_dir() / "benchmark" / task.task_id / task.pre_fix_sha / "source"
+    assert_no_symlink_escape(root, label="benchmark source cache root")
     _extract_repo_tree(task.repo, task.pre_fix_sha, root)
 
     for test_path in task.test_paths:
         test_dest = root / test_path
+        assert_no_symlink_escape(test_dest.parent, label="benchmark cached test destination")
         test_dest.parent.mkdir(parents=True, exist_ok=True)
         test_dest.write_text(fetch_file(task.repo, task.fix_sha, test_path), encoding="utf-8")
 
     deps_dir = root / ".each-deps"
     if task.extra_pip_packages and not deps_dir.exists():
+        assert_no_symlink_escape(deps_dir, label="benchmark dependency cache directory")
         deps_dir.mkdir(parents=True, exist_ok=True)
         # The deps are installed on the host (for network access) but RUN
         # inside the Linux container, which is a different platform than a
@@ -722,6 +725,23 @@ def run_benchmark_task(
         try:
             baseline = executor.run(_wrapped_test_command(task), worktree)
             baseline_verdict = _interpret_pytest_run(baseline, expected_tests=expected_tests)
+        except ContainerExecutorError as exc:
+            attempts.append(
+                {
+                    "attempt": attempt_num,
+                    "prompt": prompt,
+                    "raw_completion": "",
+                    "materials": {**manifest, excerpt_material_key: excerpt_sha256},
+                    "baseline_result": {},
+                    "patch_text": "",
+                    "touched_paths": [],
+                    "repaired_result": {},
+                    "audit": _no_audit_yet,
+                    "outcome": f"EXECUTION_ERROR: {exc}",
+                    "generation_attempted": False,
+                }
+            )
+            break
         except BenchmarkExecutionError as exc:
             attempts.append(
                 {
@@ -780,6 +800,7 @@ def run_benchmark_task(
             "patch_text": "",
             "touched_paths": [],
             "repaired_result": {},
+            "model_identity": model.identity(),
             "audit": _no_audit_yet,
         }
 
@@ -802,6 +823,10 @@ def run_benchmark_task(
         try:
             repaired = executor.run(_wrapped_test_command(task), worktree)
             repaired_verdict = _interpret_pytest_run(repaired, expected_tests=expected_tests)
+        except ContainerExecutorError as exc:
+            attempt_record["outcome"] = f"EXECUTION_ERROR: {exc}"
+            attempts.append(attempt_record)
+            break
         except BenchmarkExecutionError as exc:
             attempt_record["outcome"] = f"REPAIRED_RUN_INCONCLUSIVE: {exc}"
             attempts.append(attempt_record)
@@ -842,6 +867,7 @@ def run_benchmark_task(
     common_fields["raw_completion"] = selected["raw_completion"]
     common_fields["prompt"] = selected["prompt"]
     common_fields["audit"] = selected["audit"]
+    common_fields["model_identity"] = selected.get("model_identity", common_fields["model_identity"])
     receipt = Receipt(
         patch_text=selected["patch_text"],
         touched_paths=selected["touched_paths"],
@@ -850,6 +876,7 @@ def run_benchmark_task(
         repaired_result=selected["repaired_result"],
         outcome=final_outcome,
         attempts=attempts,
+        selected_attempt=selected["attempt"],
         **common_fields,
     )
     json_path, md_path = receipt.write(runs_dir() / run_id)

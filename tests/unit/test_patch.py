@@ -240,3 +240,27 @@ def test_apply_patch_rejects_out_of_bounds_hunk(tmp_path: Path) -> None:
     )
     with pytest.raises(PatchRejected, match="out of bounds"):
         apply_patch(out_of_bounds_patch, worktree, {"f.txt"})
+
+
+def test_apply_patch_actually_applies_a_deletion_hunk(tmp_path: Path) -> None:
+    worktree = tmp_path / "wt"
+    worktree.mkdir(parents=True)
+    target = worktree / "f.txt"
+    target.write_text("alpha\nbeta\ngamma\n", encoding="utf-8")
+
+    deletion_patch = parse_patch("--- a/f.txt\n+++ b/f.txt\n@@ -2,1 +2,0 @@\n-beta\n")
+    apply_patch(deletion_patch, worktree, {"f.txt"})
+
+    assert target.read_text(encoding="utf-8") == "alpha\ngamma\n"
+
+
+def test_apply_patch_rejects_a_stale_deletion_hunk_instead_of_claiming_success(tmp_path: Path) -> None:
+    worktree = tmp_path / "wt"
+    worktree.mkdir(parents=True)
+    target = worktree / "f.txt"
+    target.write_text("alpha\ngamma\n", encoding="utf-8")
+
+    deletion_patch = parse_patch("--- a/f.txt\n+++ b/f.txt\n@@ -2,1 +2,0 @@\n-beta\n")
+    with pytest.raises(PatchRejected, match="stale or mismatched"):
+        apply_patch(deletion_patch, worktree, {"f.txt"})
+    assert target.read_text(encoding="utf-8") == "alpha\ngamma\n"

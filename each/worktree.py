@@ -13,7 +13,7 @@ import tempfile
 from pathlib import Path
 
 from each.hashing import sha256_file
-from each.paths import worktrees_dir
+from each.paths import assert_no_symlink_escape, worktrees_dir
 
 
 class WorktreeError(RuntimeError):
@@ -41,6 +41,10 @@ def build_worktree(
         if rel.startswith("/") or ".." in Path(rel).parts:
             raise WorktreeError(f"refusing to include forbidden/traversal path: {rel}")
         unresolved = source_root / rel
+        try:
+            assert_no_symlink_escape(unresolved, label="worktree source path")
+        except ValueError as exc:
+            raise WorktreeError(str(exc)) from exc
         if unresolved.is_symlink():
             raise WorktreeError(f"refusing to copy symlink source: {rel}")
         src = unresolved.resolve()

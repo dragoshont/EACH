@@ -46,6 +46,13 @@ from each.xodus_policy import verify_xodus_shadow_binding
 
 HARNESS_ROOT = Path(__file__).resolve().parent.parent / "examples" / "xodus-m8-sandbox-id"
 HARNESS_FILES = ("build_check.py", "winstubs.h")
+_AUDIT_CHECK_NAMES = (
+    "exact-substring",
+    "ngram-similarity",
+    "ast-similarity",
+    "license-scan",
+    "corpus-membership",
+)
 
 # Built from docker/m8-native-runtime/Dockerfile (python:3.12-slim + gcc +
 # libc6-dev only), pinned by digest before this sealed run -- "provision
@@ -220,6 +227,21 @@ def _interpret_native_run(build_result, run_result) -> str:
             f"this is not test evidence: {run_result.stderr or run_result.stdout}"
         )
     return "passed" if run_result.exit_code == 0 else "failed"
+
+
+def _unavailable_audit(reason: str) -> dict[str, Any]:
+    return {
+        "checks": {
+            name: {"status": "UNAVAILABLE", "detail": reason, "evidence": {}}
+            for name in _AUDIT_CHECK_NAMES
+        },
+        "result": "UNAVAILABLE",
+        "reason": reason,
+    }
+
+
+def _read_candidate_bytes_for_audit(worktree: Path, touched: list[str]) -> bytes:
+    return b"\n".join((worktree / path).read_bytes() for path in touched)
 
 
 def run_xodus_shadow_build(
@@ -441,6 +463,7 @@ def run_xodus_shadow_build(
         # fact, successfully applied (F6).
         attempt_record["patch_text"] = patch_text
         attempt_record["touched_paths"] = touched
+        candidate_source_bytes = _read_candidate_bytes_for_audit(worktree, touched)
 
         # The harness's own scaffold files (everything in include_paths
         # except the one path the candidate is actually allowed to edit)
@@ -532,10 +555,12 @@ def run_xodus_shadow_build(
             # approved spec's forbidden_sources are enforced by never
             # fetching such material in the first place), so corpus-backed
             # checks honestly report UNAVAILABLE -- never a fabricated PASS.
-            final_candidate_source = "\n".join(
-                (worktree / path).read_text(encoding="utf-8") for path in touched
-            )
-            final_audit = run_audit(final_candidate_source)
+            try:
+                final_candidate_source = candidate_source_bytes.decode("utf-8")
+            except UnicodeDecodeError:
+                final_audit = _unavailable_audit("candidate source is not valid UTF-8")
+            else:
+                final_audit = run_audit(final_candidate_source)
             if reject_on_audit_flag(final_audit):
                 outcome = "REPAIR_REJECTED_AUDIT"
 

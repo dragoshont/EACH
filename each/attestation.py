@@ -16,6 +16,7 @@ from pathlib import Path
 from typing import Any
 
 from each.hashing import sha256_file, sha256_json, sha256_text
+from each.paths import assert_no_symlink_escape
 from each.signing import generate_or_load_signing_key, public_key_fingerprint, sign_manifest, verify_manifest
 
 ALGORITHM = "ed25519"
@@ -137,6 +138,11 @@ def verify_materials_root(receipt: dict[str, Any], materials_root: Path) -> dict
     for rel_path, expected_hash in sorted(materials.items()):
         if rel_path.startswith("/") or ".." in Path(rel_path).parts:
             problems.append(f"{rel_path}: forbidden/traversal path")
+            continue
+        try:
+            assert_no_symlink_escape(materials_root / rel_path, label="retained materials path")
+        except ValueError:
+            problems.append(f"{rel_path}: is a symlink")
             continue
         # (F2, public review at 6c3e1f3) same unresolved-first symlink
         # check as ``Receipt.write``: resolve() already follows a symlink

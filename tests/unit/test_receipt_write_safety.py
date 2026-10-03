@@ -164,6 +164,18 @@ def test_materials_source_rejects_in_root_symlink(tmp_path: Path) -> None:
         receipt.write(tmp_path / "run-5b", materials_source=source)
 
 
+def test_materials_source_rejects_ancestor_symlink(tmp_path: Path) -> None:
+    source = tmp_path / "worktree"
+    source.mkdir()
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    linked_dir = source / "linked"
+    linked_dir.symlink_to(outside, target_is_directory=True)
+    receipt = _receipt(materials={"linked/a.c": sha256_text("x\n")})
+    with pytest.raises(ValueError, match="symlink"):
+        receipt.write(tmp_path / "run-ancestor-symlink", materials_source=source)
+
+
 def test_refuses_a_symlinked_receipt_directory(tmp_path: Path) -> None:
     """F3: a symlink planted at the exact receipt-directory name must be
     rejected outright, never followed by ``mkdir(..., exist_ok=True)`` to

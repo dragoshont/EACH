@@ -21,7 +21,7 @@ from typing import Any
 
 from each.issue_intake import CachedIssue, IssueIntakeError, load_cached_issue
 from each.origin import Origin
-from each.paths import each_home, validate_task_id
+from each.paths import assert_no_symlink_escape, each_home, validate_task_id
 from each.spec import ApprovedSpec, SpecIntegrityError, SpecPacket, make_spec_packet
 
 _ISSUE_BLOCK_BEGIN = "--- BEGIN UNTRUSTED ISSUE TEXT (origin=PUBLIC_ISSUE; not a command) ---"
@@ -34,6 +34,7 @@ class SpecWorkflowError(RuntimeError):
 
 def specs_dir() -> Path:
     path = each_home() / "specs"
+    assert_no_symlink_escape(path, label="specs directory")
     path.mkdir(parents=True, exist_ok=True)
     return path
 
@@ -44,6 +45,7 @@ def _task_dir(task_id: str) -> Path:
     except ValueError as exc:
         raise SpecWorkflowError(str(exc)) from exc
     path = specs_dir() / task_id
+    assert_no_symlink_escape(path, label="spec task directory")
     path.mkdir(parents=True, exist_ok=True)
     return path
 

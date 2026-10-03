@@ -55,10 +55,12 @@ def exact_substring_check(candidate: str, corpus: list[str]) -> CheckResult:
     if not corpus:
         return CheckResult(status="UNAVAILABLE", detail="no corpus snippets configured for exact/substring matching")
     normalized_candidate = normalize_text(candidate)
+    eligible_snippet_count = 0
     for index, snippet in enumerate(corpus):
         normalized_snippet = normalize_text(snippet)
         if len(normalized_snippet) < _MIN_EXACT_MATCH_LEN:
             continue
+        eligible_snippet_count += 1
         if normalized_snippet in normalized_candidate or normalized_candidate in normalized_snippet:
             return CheckResult(
                 status="FAIL",
@@ -69,6 +71,11 @@ def exact_substring_check(candidate: str, corpus: list[str]) -> CheckResult:
                     "matchedLength": min(len(normalized_snippet), len(normalized_candidate)),
                 },
             )
+    if eligible_snippet_count == 0:
+        return CheckResult(
+            status="UNAVAILABLE",
+            detail="no corpus snippets met the minimum comparison length for exact/substring matching",
+        )
     return CheckResult(status="PASS", detail="no verbatim/whitespace-reformatted corpus match found")
 
 

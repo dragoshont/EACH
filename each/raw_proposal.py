@@ -108,7 +108,7 @@ def apply_source_edit(*, previous_source: str, edit: dict[str, str]) -> str:
     equally-valid) occurrence is rejected rather than silently guessed at.
     """
     old, new = edit["old"], edit["new"]
-    occurrences = previous_source.count(old)
+    occurrences = sum(1 for index in range(len(previous_source)) if previous_source.startswith(old, index))
     if occurrences == 0:
         raise RawProposalRejected("edit-proposal 'old' text does not occur in the previous candidate source")
     if occurrences > 1:

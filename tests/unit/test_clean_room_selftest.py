@@ -20,7 +20,9 @@ from pathlib import Path
 import each.clean_room as clean_room_module
 from each.benchmark import BenchmarkExecutionError
 from each.clean_room import run_clean_room_build
+from each.hashing import sha256_text
 from each.models.fixture import FixtureModel
+from each.receipt import Receipt
 from each.spec import ApprovedSpec, make_spec_packet
 from tests.adversarial._docker_guard import requires_colima_each
 
@@ -51,6 +53,43 @@ def _approve_selftest_spec(task_id: str) -> ApprovedSpec:
         approved_by="harness-selftest",
     )
     return ApprovedSpec.approve(packet)
+
+
+def _write_verified_seed_receipt(tmp_path: Path, *, run_id: str, source: str) -> Path:
+    receipt = Receipt(
+        run_id=run_id,
+        spec={"taskId": "seed-source-selftest"},
+        spec_hash="seed-spec-hash",
+        model_identity={
+            "modelId": "ibm-granite/granite-8b-code-instruct-128k@seed",
+            "adapterType": "MLXRepairModel",
+            "modelManifest": {"modelId": "ibm-granite/granite-8b-code-instruct-128k@seed"},
+        },
+        prompt="seed prompt",
+        raw_completion="seed completion",
+        patch_text="--- a/seed\n+++ b/seed\n",
+        touched_paths=["shadow/m7/clean_room_lru_cache.py"],
+        materials={},
+        executor_identity={},
+        isolation_evidence={},
+        baseline_result={"exit_code": 1},
+        repaired_result={"exit_code": 0},
+        audit={"result": "UNAVAILABLE", "checks": {}},
+        assurance_level="EACH-P2",
+        outcome="REPAIR_VERIFIED",
+        attempts=[
+            {
+                "attempt": 1,
+                "proposal_format": "diff",
+                "correction_candidate_hash": sha256_text(source),
+                "outcome": "REPAIR_VERIFIED",
+            }
+        ],
+        selected_attempt=1,
+    )
+    run_dir = tmp_path / run_id
+    json_path, _ = receipt.write(run_dir)
+    return json_path
 
 
 @requires_colima_each
@@ -115,6 +154,9 @@ def test_source_edit_mode_applies_minimal_json_edit_to_seed_candidate(tmp_path) 
 
     edit_json = json.dumps({"old": buggy_line, "new": fixed_line})
     model = FixtureModel(edit_json, model_id="fixture/clean-room-selftest-source-edit-v1")
+    seed_receipt_path = _write_verified_seed_receipt(
+        tmp_path, run_id=f"seed-{uuid.uuid4().hex[:8]}", source=seed_source
+    )
 
     result = run_clean_room_build(
         model,
@@ -123,6 +165,7 @@ def test_source_edit_mode_applies_minimal_json_edit_to_seed_candidate(tmp_path) 
         run_id=f"selftest-source-edit-{tmp_path.name}-{uuid.uuid4().hex[:8]}",
         proposal_format="source_edit",
         seed_source=seed_source,
+        seed_receipt_path=seed_receipt_path,
         seed_failed_items=(3,),
     )
 
@@ -132,6 +175,7 @@ def test_source_edit_mode_applies_minimal_json_edit_to_seed_candidate(tmp_path) 
     assert receipt["attempts"][0]["outcome"] == "REPAIR_VERIFIED"
     assert receipt["attempts"][0]["proposal_format"] == "source_edit"
     assert receipt["patchText"]
+    assert receipt["seedProvenance"]["seedSha256"] == sha256_text(seed_source)
     # The applied patch still represents the complete transformation from
     # the pristine original stub (which raises NotImplementedError), not a
     # diff relative to the seed candidate.
@@ -152,6 +196,9 @@ def test_source_edit_mode_rejects_an_edit_whose_old_text_is_absent(tmp_path) -> 
     )
     edit_json = json.dumps({"old": "this text is not present anywhere", "new": "replacement"})
     model = FixtureModel(edit_json, model_id="fixture/clean-room-selftest-source-edit-v1")
+    seed_receipt_path = _write_verified_seed_receipt(
+        tmp_path, run_id=f"seed-{uuid.uuid4().hex[:8]}", source=seed_source
+    )
 
     result = run_clean_room_build(
         model,
@@ -160,6 +207,7 @@ def test_source_edit_mode_rejects_an_edit_whose_old_text_is_absent(tmp_path) -> 
         run_id=f"selftest-source-edit-absent-{tmp_path.name}-{uuid.uuid4().hex[:8]}",
         proposal_format="source_edit",
         seed_source=seed_source,
+        seed_receipt_path=seed_receipt_path,
     )
 
     assert result["attempts"] == 2

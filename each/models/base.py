@@ -65,6 +65,7 @@ class RepairModel(ABC):
         module_path = Path(inspect.getfile(type(self)))
         return {
             "modelId": self.model_id,
+            "adapterType": type(self).__name__,
             "implementationModule": type(self).__module__,
             "implementationSha256": sha256_file(module_path),
         }

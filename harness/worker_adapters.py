@@ -10,17 +10,25 @@ import fnmatch
 import hashlib
 import json
 import os
-from pathlib import Path
 import signal
 import subprocess
 import sys
 import threading
 import time
 import uuid
-from typing import Any, Sequence
+from collections.abc import Sequence
+from pathlib import Path
+from typing import Any
 
-from architrave_runtime import FileLock, RunStore, RuntimeFailure, derive_run_status, find_task, redact, safe_relative_path
-
+from architrave_runtime import (
+    FileLock,
+    RunStore,
+    RuntimeFailure,
+    derive_run_status,
+    find_task,
+    redact,
+    safe_relative_path,
+)
 
 RESULT_SCHEMA = "architrave.worker-result.v1"
 ADAPTERS = {"copilot", "claude", "codex", "shell"}

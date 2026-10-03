@@ -4,12 +4,15 @@ temporary EACH_HOME so tests never touch the user's real signing key."""
 
 from __future__ import annotations
 
+import threading
 from pathlib import Path
 
 import pytest
 from cryptography.hazmat.primitives import serialization
+from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
 
 from each import signing
+from each.paths import FileLock
 
 
 @pytest.fixture(autouse=True)
@@ -40,6 +43,35 @@ def test_private_key_file_has_owner_only_permissions() -> None:
     signing.generate_or_load_signing_key()
     mode = signing.private_key_path().stat().st_mode & 0o777
     assert mode == 0o600
+
+
+def test_missing_public_key_is_recovered_from_the_existing_private_key() -> None:
+    key = signing.generate_or_load_signing_key()
+    signing.public_key_path().unlink()
+
+    loaded = signing.generate_or_load_signing_key()
+
+    assert loaded.private_bytes_raw() == key.private_bytes_raw()
+    assert signing.public_key_path().is_file()
+
+
+def test_corrupt_public_key_is_recovered_from_the_existing_private_key() -> None:
+    key = signing.generate_or_load_signing_key()
+    signing.public_key_path().write_text("not a public key", encoding="utf-8")
+
+    loaded = signing.generate_or_load_signing_key()
+
+    assert loaded.private_bytes_raw() == key.private_bytes_raw()
+    repaired = signing.load_public_key(signing.public_key_path().read_bytes())
+    assert signing.public_key_fingerprint(repaired) == signing.public_key_fingerprint(key.public_key())
+
+
+def test_corrupt_private_key_is_rejected_explicitly() -> None:
+    signing.private_key_path().parent.mkdir(parents=True, exist_ok=True)
+    signing.private_key_path().write_text("not a pem", encoding="utf-8")
+
+    with pytest.raises(ValueError, match="corrupt or incomplete"):
+        signing.generate_or_load_signing_key()
 
 
 def _subprocess_first_use_fingerprint(each_home: str) -> str:
@@ -82,6 +114,44 @@ def test_concurrent_first_use_does_not_overwrite_the_winning_keypair(
     monkeypatch.setenv("EACH_HOME", each_home)
     key = signing.generate_or_load_signing_key()
     assert signing.public_key_fingerprint(key.public_key()) == fingerprints[0]
+
+
+def test_reader_waits_for_the_file_lock_before_loading_an_existing_private_key(tmp_path: Path) -> None:
+    each_home = tmp_path / "each-home"
+    key_dir = each_home / "keys"
+    key_dir.mkdir(parents=True)
+    private_key = Ed25519PrivateKey.generate()
+    full_pem = private_key.private_bytes(
+        encoding=serialization.Encoding.PEM,
+        format=serialization.PrivateFormat.PKCS8,
+        encryption_algorithm=serialization.NoEncryption(),
+    )
+    partial_pem = full_pem[:40]
+    signing_path = key_dir / signing.PRIVATE_KEY_FILENAME
+    signing_path.write_bytes(partial_pem)
+
+    result: dict[str, object] = {}
+    started = threading.Event()
+
+    def _reader() -> None:
+        started.set()
+        result["key"] = signing.generate_or_load_signing_key()
+
+    lock_path = key_dir / signing._LOCK_FILENAME
+    with pytest.MonkeyPatch.context() as monkeypatch:
+        monkeypatch.setenv("EACH_HOME", str(each_home))
+        with FileLock(lock_path):
+            thread = threading.Thread(target=_reader)
+            thread.start()
+            started.wait(timeout=5)
+            assert thread.is_alive()
+            signing_path.write_bytes(full_pem)
+        thread.join(timeout=5)
+
+    assert not thread.is_alive()
+    loaded = result["key"]
+    assert isinstance(loaded, type(private_key))
+    assert loaded.private_bytes_raw() == private_key.private_bytes_raw()
 
 
 def test_sign_and_verify_round_trip_with_only_the_exported_public_key_bytes() -> None:

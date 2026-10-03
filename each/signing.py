@@ -40,29 +40,77 @@ def public_key_path() -> Path:
     return keys_dir() / PUBLIC_KEY_FILENAME
 
 
+def _write_bytes_atomically(path: Path, data: bytes, *, mode: int) -> None:
+    temp_path = path.with_name(f"{path.name}.tmp.{os.getpid()}")
+    fd = os.open(str(temp_path), os.O_WRONLY | os.O_CREAT | os.O_EXCL, mode)
+    try:
+        with os.fdopen(fd, "wb") as handle:
+            handle.write(data)
+            handle.flush()
+            os.fsync(handle.fileno())
+        os.replace(temp_path, path)
+        os.chmod(path, mode)
+    except BaseException:
+        try:
+            temp_path.unlink()
+        except OSError:
+            pass
+        raise
+
+
+def _load_private_key_from_disk(key_path: Path) -> Ed25519PrivateKey:
+    try:
+        return serialization.load_pem_private_key(key_path.read_bytes(), password=None)
+    except ValueError as exc:
+        raise ValueError(f"private signing key at {key_path} is corrupt or incomplete") from exc
+
+
+def _write_public_key_from_private(private_key: Ed25519PrivateKey) -> None:
+    public_pem = private_key.public_key().public_bytes(
+        encoding=serialization.Encoding.PEM,
+        format=serialization.PublicFormat.SubjectPublicKeyInfo,
+    )
+    _write_bytes_atomically(public_key_path(), public_pem, mode=0o644)
+
+
+def _ensure_public_key_matches(private_key: Ed25519PrivateKey) -> None:
+    public_path = public_key_path()
+    expected_pem = private_key.public_key().public_bytes(
+        encoding=serialization.Encoding.PEM,
+        format=serialization.PublicFormat.SubjectPublicKeyInfo,
+    )
+    if not public_path.exists():
+        _write_public_key_from_private(private_key)
+        return
+    try:
+        existing_public = load_public_key(public_path.read_bytes())
+    except (OSError, ValueError):
+        _write_public_key_from_private(private_key)
+        return
+    if existing_public.public_bytes(
+        encoding=serialization.Encoding.PEM,
+        format=serialization.PublicFormat.SubjectPublicKeyInfo,
+    ) != expected_pem:
+        _write_public_key_from_private(private_key)
+
+
 def generate_or_load_signing_key() -> Ed25519PrivateKey:
     """Return the EACH signing key, generating and persisting a new Ed25519
     keypair on first use. Never regenerates an existing key (that would
     silently invalidate every previously issued attestation).
 
-    First use is serialized with an exclusive file lock: without this,
-    concurrent processes could each observe "no key file yet", each
-    generate their own distinct keypair, and overwrite one another's
-    private key file -- silently invalidating whichever attestations were
-    signed by the key that lost the race, with no error raised anywhere.
+    Every reader takes the same exclusive file lock as the writer: a
+    concurrent process must never observe a partially-written private key
+    PEM during first-use creation or public-key recovery.
     """
     key_path = private_key_path()
-    if key_path.exists():
-        return serialization.load_pem_private_key(key_path.read_bytes(), password=None)
-
     lock_path = keys_dir() / _LOCK_FILENAME
     with FileLock(lock_path):
-        # Re-check inside the lock: another process may have generated and
-        # persisted the key while we were waiting to acquire it. Recovering
-        # the existing private key (never regenerating) keeps every signer
-        # using the one key, so all signatures share the same fingerprint.
         if key_path.exists():
-            return serialization.load_pem_private_key(key_path.read_bytes(), password=None)
+            private_key = _load_private_key_from_disk(key_path)
+            os.chmod(key_path, 0o600)
+            _ensure_public_key_matches(private_key)
+            return private_key
 
         private_key = Ed25519PrivateKey.generate()
         pem = private_key.private_bytes(
@@ -70,15 +118,8 @@ def generate_or_load_signing_key() -> Ed25519PrivateKey:
             format=serialization.PrivateFormat.PKCS8,
             encryption_algorithm=serialization.NoEncryption(),
         )
-        fd = os.open(str(key_path), os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
-        with os.fdopen(fd, "wb") as handle:
-            handle.write(pem)
-
-        public_pem = private_key.public_key().public_bytes(
-            encoding=serialization.Encoding.PEM,
-            format=serialization.PublicFormat.SubjectPublicKeyInfo,
-        )
-        public_key_path().write_bytes(public_pem)
+        _write_bytes_atomically(key_path, pem, mode=0o600)
+        _write_public_key_from_private(private_key)
         return private_key
 
 

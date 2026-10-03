@@ -129,6 +129,46 @@ def test_terminal_audit_receives_post_patch_source_not_diff(tmp_path, monkeypatc
 
 @requires_colima_each
 @requires_m8_native_image
+def test_terminal_audit_uses_precaptured_candidate_bytes_even_if_the_worktree_file_is_mutated_after_execution(
+    tmp_path, monkeypatch
+) -> None:
+    import each.executor.container as container_module
+
+    monkeypatch.setattr(xodus_shadow_module, "fetch_file", lambda *_a, **_k: _CACHED_SOURCE)
+    original_run = container_module.ContainerExecutor.run
+    observed: list[str] = []
+    call_count = 0
+
+    def _capturing_audit(source, **kwargs):
+        observed.append(source)
+        return {"checks": {}, "result": "PASS", "reason": "captured"}
+
+    def _mutating_run(self, command, worktree, **kwargs):
+        nonlocal call_count
+        call_count += 1
+        result = original_run(self, command, worktree, **kwargs)
+        if call_count == 5:
+            (worktree / "xsystem.c").write_text("MUTATED AFTER ACCEPTANCE\\n", encoding="utf-8")
+        return result
+
+    monkeypatch.setattr(xodus_shadow_module, "run_audit", _capturing_audit)
+    monkeypatch.setattr(container_module.ContainerExecutor, "run", _mutating_run)
+    approved = _approve_selftest_spec("test-xodus-shadow-precaptured-audit-bytes")
+    model = FixtureModel(_CORRECT_PATCH, model_id="fixture/xodus-shadow-selftest-v1")
+
+    result = run_xodus_shadow_build(
+        model, approved, max_attempts=1, run_id=f"selftest-precap-{tmp_path.name}-{uuid.uuid4().hex[:8]}"
+    )
+
+    assert result["outcome"] == "REPAIR_VERIFIED"
+    assert len(observed) == 1
+    assert "MUTATED AFTER ACCEPTANCE" not in observed[0]
+    receipt = json.loads(Path(result["receipt_json"]).read_text())
+    assert receipt["audit"]["result"] == "PASS"
+
+
+@requires_colima_each
+@requires_m8_native_image
 def test_fixture_model_candidate_is_verified_and_signed(tmp_path, monkeypatch) -> None:
     monkeypatch.setattr(xodus_shadow_module, "fetch_file", lambda *_a, **_k: _CACHED_SOURCE)
     approved = _approve_selftest_spec("test-xodus-shadow-harness-selftest")
@@ -173,6 +213,27 @@ def test_fixture_model_candidate_is_verified_and_signed(tmp_path, monkeypatch) -
     # F3: proposalFormat must be surfaced as a bounded enum, not an
     # arbitrary attempt-controlled string.
     assert summary["attemptProposalFormats"] == ["diff"]
+
+
+@requires_colima_each
+@requires_m8_native_image
+def test_terminal_audit_honestly_reports_invalid_utf8_candidate_source_as_unavailable(tmp_path, monkeypatch) -> None:
+    monkeypatch.setattr(xodus_shadow_module, "fetch_file", lambda *_a, **_k: _CACHED_SOURCE)
+    monkeypatch.setattr(
+        xodus_shadow_module,
+        "_read_candidate_bytes_for_audit",
+        lambda *_a, **_k: b"\xff\xfe",
+    )
+    approved = _approve_selftest_spec("test-xodus-shadow-invalid-utf8")
+    model = FixtureModel(_CORRECT_PATCH, model_id="fixture/xodus-shadow-selftest-v1")
+
+    result = run_xodus_shadow_build(
+        model, approved, max_attempts=1, run_id=f"selftest-invalid-utf8-{tmp_path.name}-{uuid.uuid4().hex[:8]}"
+    )
+
+    receipt = json.loads(Path(result["receipt_json"]).read_text())
+    assert receipt["audit"]["result"] == "UNAVAILABLE"
+    assert "valid UTF-8" in receipt["audit"]["reason"]
 
 
 @requires_colima_each

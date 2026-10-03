@@ -207,6 +207,11 @@ def test_apply_source_edit_rejects_ambiguous_old() -> None:
         apply_source_edit(previous_source=previous, edit={"old": "= 1", "new": "= 2"})
 
 
+def test_apply_source_edit_rejects_overlapping_ambiguous_old() -> None:
+    with pytest.raises(RawProposalRejected, match="occurs 2 times"):
+        apply_source_edit(previous_source="aaa", edit={"old": "aa", "new": "bb"})
+
+
 def test_source_edit_roundtrip_through_derive_unified_diff() -> None:
     original = "def f(a, b):\n    return a + b\n"
     edit = extract_source_edit('{"old": "return a + b", "new": "return a - b"}')

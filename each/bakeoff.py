@@ -35,7 +35,7 @@ from each.demo import (
     _interpret_test_run,
     _result_to_dict,
 )
-from each.executor.container import ContainerExecutor, derive_assurance_level
+from each.executor.container import ContainerExecutor, ContainerExecutorError, derive_assurance_level
 from each.models.base import RepairModel
 from each.patch import PatchRejected, apply_patch, extract_patch_text, parse_patch
 from each.paths import runs_dir
@@ -165,7 +165,24 @@ def run_model_bakeoff(
 
     for attempt_num in range(1, max_attempts + 1):
         worktree, manifest = build_worktree(FIXTURE_ROOT, FIXTURE_ALLOWED_PATHS + FIXTURE_TEST_PATHS)
-        baseline = executor.run(ACCEPTANCE_COMMAND, worktree)
+        try:
+            baseline = executor.run(ACCEPTANCE_COMMAND, worktree)
+        except ContainerExecutorError as exc:
+            attempts.append(
+                {
+                    "attempt": attempt_num,
+                    "prompt": prompt,
+                    "raw_completion": "",
+                    "materials": manifest,
+                    "baseline_result": {},
+                    "patch_text": "",
+                    "touched_paths": [],
+                    "repaired_result": {},
+                    "outcome": f"EXECUTION_ERROR: {exc}",
+                    "audit": common_fields["audit"],
+                }
+            )
+            break
         baseline_verdict = _interpret_test_run(baseline, expected_tests=EXPECTED_TEST_COUNT)
         attempt_baseline = _result_to_dict(baseline)
         raw_completion = model.complete(prompt)
@@ -179,6 +196,7 @@ def run_model_bakeoff(
             "patch_text": "",
             "touched_paths": [],
             "repaired_result": {},
+            "model_identity": model.identity(),
             "audit": common_fields["audit"],
         }
 
@@ -198,7 +216,12 @@ def run_model_bakeoff(
         attempt_record["patch_text"] = patch_text
         attempt_record["touched_paths"] = touched
 
-        repaired = executor.run(ACCEPTANCE_COMMAND, worktree)
+        try:
+            repaired = executor.run(ACCEPTANCE_COMMAND, worktree)
+        except ContainerExecutorError as exc:
+            attempt_record["outcome"] = f"EXECUTION_ERROR: {exc}"
+            attempts.append(attempt_record)
+            break
         # Matches each.demo.run_hello_repair's fail-loud precedent: a
         # FixtureExecutionError means the test run could not be classified
         # as a genuine pass/fail (container launch failure, skipped tests,
@@ -237,6 +260,7 @@ def run_model_bakeoff(
     common_fields["raw_completion"] = selected["raw_completion"]
     common_fields["prompt"] = selected["prompt"]
     common_fields["audit"] = selected["audit"]
+    common_fields["model_identity"] = selected.get("model_identity", common_fields["model_identity"])
     receipt = Receipt(
         patch_text=selected["patch_text"],
         touched_paths=selected["touched_paths"],
@@ -245,6 +269,7 @@ def run_model_bakeoff(
         repaired_result=selected["repaired_result"],
         outcome=final_outcome,
         attempts=attempts,
+        selected_attempt=selected["attempt"],
         **common_fields,
     )
     json_path, md_path = receipt.write(runs_dir() / run_id)

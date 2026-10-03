@@ -163,3 +163,16 @@ def test_build_spec_draft_refuses_to_clobber_an_already_approved_spec(monkeypatc
 def test_build_rejects_path_traversal_task_ids(monkeypatch: pytest.MonkeyPatch, evil_task_id: str) -> None:
     with pytest.raises(SpecWorkflowError, match="invalid task id"):
         build_spec_draft(_request(task_id=evil_task_id))
+
+
+def test_specs_dir_rejects_a_symlinked_specs_directory(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    from each import spec_workflow
+
+    home = tmp_path / "home"
+    home.mkdir()
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    (home / "specs").symlink_to(outside, target_is_directory=True)
+    monkeypatch.setenv("EACH_HOME", str(home))
+    with pytest.raises(ValueError, match="symlink"):
+        spec_workflow.specs_dir()

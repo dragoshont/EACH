@@ -2,8 +2,9 @@
 
 Candidate output and exception messages cannot authenticate their origin.
 Keep their text, paths, test identifiers, assertions and source snippets private.
-Only fixed exception categories and bounded numeric test counts cross this
-boundary; neither is an instruction or an independently trusted observation.
+Only fixed exception categories, bounded numeric test counts, and an explicit
+allowlist of approved single-digit specification-item ids cross this boundary;
+none of them is an instruction or an independently trusted observation.
 """
 
 from __future__ import annotations

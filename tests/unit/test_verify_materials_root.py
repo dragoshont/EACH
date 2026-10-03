@@ -125,3 +125,16 @@ def test_full_artifact_verification_rejects_in_root_symlink(tmp_path: Path) -> N
     result = verify_materials_root(receipt, materials_root)
     assert result["status"] == "FAIL"
     assert "symlink" in result["reason"]
+
+
+def test_full_artifact_verification_rejects_ancestor_symlink(tmp_path: Path) -> None:
+    materials_root = tmp_path / "materials"
+    materials_root.mkdir()
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    linked_dir = materials_root / "linked"
+    linked_dir.symlink_to(outside, target_is_directory=True)
+    receipt = _receipt_with_material("linked/a.c", "x\n")
+    result = verify_materials_root(receipt, materials_root)
+    assert result["status"] == "FAIL"
+    assert "symlink" in result["reason"]

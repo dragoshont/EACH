@@ -6,12 +6,12 @@ from __future__ import annotations
 import argparse
 import contextlib
 import json
-from pathlib import Path
-import shutil
 import subprocess
 import sys
 import uuid
-from typing import Any, Sequence
+from collections.abc import Sequence
+from pathlib import Path
+from typing import Any
 
 from architrave_runtime import RunStore, RuntimeFailure, find_task, redact
 from worker_adapters import git_status, path_allowed

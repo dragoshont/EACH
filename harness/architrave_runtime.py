@@ -16,16 +16,17 @@ import hashlib
 import hmac
 import json
 import os
-from pathlib import Path
 import re
+import secrets
+import stat
 import subprocess
 import sys
 import tempfile
 import uuid
-import secrets
-import stat
-from typing import Any, Callable, Iterable, Iterator, Sequence
-
+from collections.abc import Callable, Sequence
+from pathlib import Path
+from types import TracebackType
+from typing import Any, Self
 
 ZERO_HASH = "0" * 64
 SCHEMA = "architrave.run.v2"
@@ -110,7 +111,11 @@ PRODUCER_ARTIFACT_KINDS = {
     "security-review": {"security-verdict"},
     "policy-engine": {"policy-decision"},
     "external-proof": {"external-proof"},
-    "target-repair": {"target-repair-receipt", "clean-room-experiment-receipt"},
+    "target-repair": {"target-repair-receipt", "clean-room-experiment-receipt", "target-replay-receipt"},
+}
+MILESTONE_APPROVED_SPEC_HASHES = {
+    "m7": "8499cf22255d11c15f1f446c19d504bec21ac03dfbe524439b2af377c65e39b8",
+    "m8": "2c5eca88fdccb0c1a0c94541e0b612d990b7d1dfd5ccfb0389ea61fb9e669c78",
 }
 # Acceptance criteria declare a `verificationType`; this reconciles it with which gate `type`s
 # may legitimately satisfy it (e2e and reality are treated as mutually satisfying, mirroring the
@@ -129,6 +134,21 @@ SURFACE_VALUES = {"web", "electron", "ios", "deployment", "runtime"}
 SURFACE_VERIFICATION_TYPES = {"reality", "e2e"}
 
 
+def outcome_class(outcome: object) -> str:
+    return str(outcome).split(":", 1)[0].strip()
+
+
+def approved_spec_hash_for_criterion(criterion_id: str) -> str | None:
+    if not criterion_id.endswith(("-target-repair-verified", "-clean-room-experiment-complete")):
+        return None
+    prefix = criterion_id.split("-", 1)[0].lower()
+    return MILESTONE_APPROVED_SPEC_HASHES.get(prefix)
+
+
+def verdict_status_allows_pass(status: object) -> bool:
+    return str(status).upper() in {"PASS", "APPROVED"}
+
+
 class RuntimeFailure(Exception):
     """A bounded runtime error suitable for structured CLI output."""
 
@@ -141,11 +161,11 @@ class RuntimeFailure(Exception):
 
 
 def utc_now() -> str:
-    return dt.datetime.now(dt.timezone.utc).isoformat(timespec="seconds").replace("+00:00", "Z")
+    return dt.datetime.now(dt.UTC).isoformat(timespec="seconds").replace("+00:00", "Z")
 
 
 def parse_iso(value: str) -> dt.datetime:
-    return dt.datetime.fromisoformat(value.replace("Z", "+00:00"))
+    return dt.datetime.fromisoformat(value)
 
 
 def canonical_json(value: Any) -> str:
@@ -214,7 +234,7 @@ class FileLock:
         self.path = path
         self.handle: Any = None
 
-    def __enter__(self) -> "FileLock":
+    def __enter__(self) -> Self:
         self.path.parent.mkdir(parents=True, exist_ok=True)
         self.handle = self.path.open("a+b")
         if self.handle.tell() == 0:
@@ -231,7 +251,12 @@ class FileLock:
             fcntl.flock(self.handle.fileno(), fcntl.LOCK_EX)
         return self
 
-    def __exit__(self, exc_type: Any, exc: Any, traceback: Any) -> None:
+    def __exit__(
+        self,
+        exc_type: type[BaseException] | None,
+        exc: BaseException | None,
+        traceback: TracebackType | None,
+    ) -> None:
         if self.handle is None:
             return
         self.handle.seek(0)
@@ -666,7 +691,7 @@ class RunStore:
             raise RuntimeFailure("INVALID_AUTONOMY", f"invalid autonomy scope: {autonomy_scope}")
         if not goal.strip() or not outcome.strip():
             raise RuntimeFailure("INVALID_RUN", "goal and outcome are required")
-        run_id = run_id or f"run-{dt.datetime.now(dt.timezone.utc).strftime('%Y%m%dT%H%M%SZ')}-{uuid.uuid4().hex[:8]}"
+        run_id = run_id or f"run-{dt.datetime.now(dt.UTC).strftime('%Y%m%dT%H%M%SZ')}-{uuid.uuid4().hex[:8]}"
         require_id(run_id, "run id")
         run_dir = self.run_dir(run_id)
         with FileLock(run_dir / ".run.lock"):
@@ -1269,6 +1294,55 @@ class RunStore:
             raise RuntimeFailure("EXTERNAL_PROOF", "external proof does not match a pending checkpoint")
         return self._record_artifact(run_id, kind="external-proof", actor="external-checkpoint", producer="external-proof", **kwargs)
 
+    def _resolve_private_each_run_file(self, path_value: str, *, code: str) -> Path:
+        receipt_file = Path(path_value).expanduser()
+        if not receipt_file.is_absolute():
+            raise RuntimeFailure(code, "receipt path must be an absolute path to the private receipt store")
+        if receipt_file.is_symlink():
+            raise RuntimeFailure(code, "receipt path must not itself be a symlink")
+        each_home = Path(os.environ.get("EACH_HOME", str(Path.home() / ".each"))).expanduser()
+        private_runs_root = (each_home / "runs").resolve()
+        resolved = receipt_file.resolve()
+        try:
+            resolved.relative_to(private_runs_root)
+        except ValueError as exc:
+            raise RuntimeFailure(
+                code,
+                "receipt path must live under the private EACH runs directory, not anywhere else",
+                details={"resolved": str(resolved), "privateRunsRoot": str(private_runs_root)},
+            ) from exc
+        if not resolved.is_file():
+            raise RuntimeFailure(code, "private receipt file does not exist")
+        return resolved
+
+    def _extract_original_producer_sha(self, receipt: dict[str, Any]) -> str:
+        for key in ("producerCommit", "sourceCommit", "commit"):
+            value = receipt.get(key)
+            if isinstance(value, str) and value:
+                return value
+        return "UNKNOWN"
+
+    def _validated_real_model_identity(self, receipt: dict[str, Any], *, error_code: str) -> tuple[str, str]:
+        model_identity = receipt.get("modelIdentity") or {}
+        if not isinstance(model_identity, dict):
+            raise RuntimeFailure(error_code, "private receipt does not declare a structured model identity")
+        model_id = str(model_identity.get("modelId", ""))
+        adapter_type = str(model_identity.get("adapterType", ""))
+        manifest_reference = model_identity.get("modelManifest")
+        if (
+            not model_id
+            or "fixture" in model_id.lower()
+            or adapter_type == "FixtureModel"
+            or not isinstance(manifest_reference, dict)
+            or not manifest_reference
+        ):
+            raise RuntimeFailure(
+                error_code,
+                "private receipt does not declare a real, non-Fixture model identity with a recorded manifest",
+                details={"modelId": model_id, "adapterType": adapter_type},
+            )
+        return model_id, adapter_type
+
     def _record_target_repair_receipt(
         self,
         run_id: str,
@@ -1297,26 +1371,7 @@ class RunStore:
         into the artifact this writes -- only the independently re-derived,
         source-free summary fields are.
         """
-        receipt_file = Path(receipt_path).expanduser()
-        if not receipt_file.is_absolute():
-            raise RuntimeFailure(
-                "TARGET_REPAIR_RECEIPT", "receipt path must be an absolute path to the private receipt store"
-            )
-        if receipt_file.is_symlink():
-            raise RuntimeFailure("TARGET_REPAIR_RECEIPT", "receipt path must not itself be a symlink")
-        each_home = Path(os.environ.get("EACH_HOME", str(Path.home() / ".each"))).expanduser()
-        private_runs_root = (each_home / "runs").resolve()
-        resolved = receipt_file.resolve()
-        try:
-            resolved.relative_to(private_runs_root)
-        except ValueError as exc:
-            raise RuntimeFailure(
-                "TARGET_REPAIR_RECEIPT",
-                "receipt path must live under the private EACH runs directory, not anywhere else",
-                details={"resolved": str(resolved), "privateRunsRoot": str(private_runs_root)},
-            ) from exc
-        if not resolved.is_file():
-            raise RuntimeFailure("TARGET_REPAIR_RECEIPT", "private receipt file does not exist")
+        resolved = self._resolve_private_each_run_file(receipt_path, code="TARGET_REPAIR_RECEIPT")
 
         try:
             receipt = json.loads(resolved.read_text(encoding="utf-8"))
@@ -1336,16 +1391,17 @@ class RunStore:
             capture_output=True,
             text=True,
             timeout=120,
+            check=False,
         )
         if result.returncode != 0:
             raise RuntimeFailure(
                 "TARGET_REPAIR_RECEIPT",
                 "independent `each verify --full` re-check of the private receipt did not PASS",
-                details={"returncode": result.returncode, "stdoutTail": result.stdout[-500:]},
+                details={"returncode": result.returncode},
             )
 
         outcome = str(receipt.get("outcome", ""))
-        if not outcome.startswith("REPAIR_VERIFIED"):
+        if outcome_class(outcome) != "REPAIR_VERIFIED":
             raise RuntimeFailure(
                 "TARGET_REPAIR_RECEIPT",
                 "private receipt does not itself declare a verified repair outcome",
@@ -1353,13 +1409,7 @@ class RunStore:
             )
         if receipt.get("networkIsolationVerified") is not True:
             raise RuntimeFailure("TARGET_REPAIR_RECEIPT", "private receipt does not show network isolation verified")
-        model_id = str((receipt.get("modelIdentity") or {}).get("modelId", ""))
-        if not model_id or "fixture" in model_id.lower():
-            raise RuntimeFailure(
-                "TARGET_REPAIR_RECEIPT",
-                "private receipt does not declare a real, non-Fixture model identity",
-                details={"modelId": model_id},
-            )
+        model_id, adapter_type = self._validated_real_model_identity(receipt, error_code="TARGET_REPAIR_RECEIPT")
         spec_hash = receipt.get("specHash")
         target_run_id = receipt.get("runId")
         if not spec_hash or not target_run_id:
@@ -1380,6 +1430,14 @@ class RunStore:
             "materialsVerification": "PASS",
             "networkIsolationVerified": True,
             "modelId": model_id,
+            "adapterType": adapter_type,
+            "originalProducerSha": self._extract_original_producer_sha(receipt),
+            "selectedAttempt": receipt.get("selectedAttempt"),
+            "attemptProposalFormats": [
+                (attempt.get("proposal_format") if isinstance(attempt, dict) else None)
+                for attempt in receipt.get("attempts") or []
+            ],
+            "seedProvenance": receipt.get("seedProvenance"),
             "receiptSha256": hashlib.sha256(resolved.read_bytes()).hexdigest(),
         }
         current_commit = self.load(run_id)["baseline"]["commit"]
@@ -1426,26 +1484,7 @@ class RunStore:
         claim string -- and the private receipt content (prompts, completions,
         patch, target source) is never copied into the public artifact.
         """
-        receipt_file = Path(receipt_path).expanduser()
-        if not receipt_file.is_absolute():
-            raise RuntimeFailure(
-                "M7_EXPERIMENT_RECEIPT", "receipt path must be an absolute path to the private receipt store"
-            )
-        if receipt_file.is_symlink():
-            raise RuntimeFailure("M7_EXPERIMENT_RECEIPT", "receipt path must not itself be a symlink")
-        each_home = Path(os.environ.get("EACH_HOME", str(Path.home() / ".each"))).expanduser()
-        private_runs_root = (each_home / "runs").resolve()
-        resolved = receipt_file.resolve()
-        try:
-            resolved.relative_to(private_runs_root)
-        except ValueError as exc:
-            raise RuntimeFailure(
-                "M7_EXPERIMENT_RECEIPT",
-                "receipt path must live under the private EACH runs directory, not anywhere else",
-                details={"resolved": str(resolved), "privateRunsRoot": str(private_runs_root)},
-            ) from exc
-        if not resolved.is_file():
-            raise RuntimeFailure("M7_EXPERIMENT_RECEIPT", "private receipt file does not exist")
+        resolved = self._resolve_private_each_run_file(receipt_path, code="M7_EXPERIMENT_RECEIPT")
 
         try:
             receipt = json.loads(resolved.read_text(encoding="utf-8"))
@@ -1463,12 +1502,13 @@ class RunStore:
             capture_output=True,
             text=True,
             timeout=120,
+            check=False,
         )
         if result.returncode != 0:
             raise RuntimeFailure(
                 "M7_EXPERIMENT_RECEIPT",
                 "independent `each verify --full` re-check of the private receipt did not PASS",
-                details={"returncode": result.returncode, "stdoutTail": result.stdout[-500:]},
+                details={"returncode": result.returncode},
             )
 
         outcome = str(receipt.get("outcome", ""))
@@ -1515,17 +1555,20 @@ class RunStore:
                 "(section 129 requires the Auditor to have actually run, not a stub or a forged mapping)",
                 details={"declared": sorted(audit_checks.keys()), "expected": sorted(real_auditor_check_names)},
             )
-        model_id = str((receipt.get("modelIdentity") or {}).get("modelId", ""))
-        if not model_id or "fixture" in model_id.lower():
-            raise RuntimeFailure(
-                "M7_EXPERIMENT_RECEIPT",
-                "private receipt does not declare a real, non-Fixture model identity",
-                details={"modelId": model_id},
-            )
+        model_id, adapter_type = self._validated_real_model_identity(receipt, error_code="M7_EXPERIMENT_RECEIPT")
         spec_hash = receipt.get("specHash")
         target_run_id = receipt.get("runId")
         if not spec_hash or not target_run_id:
             raise RuntimeFailure("M7_EXPERIMENT_RECEIPT", "private receipt is missing specHash or runId")
+
+        if "shadowOnly" in receipt:
+            shadow_only = bool(receipt.get("shadowOnly"))
+        elif "publicationPolicy" in receipt:
+            shadow_only = str(receipt.get("publicationPolicy")).lower() == "shadow-only"
+        else:
+            # Section 129's project-wide default remains shadow-only unless a
+            # receipt explicitly recorded a narrower/different publication fact.
+            shadow_only = True
 
         sanitized_summary = {
             "specHash": spec_hash,
@@ -1535,11 +1578,19 @@ class RunStore:
             "materialsVerification": "PASS",
             "networkIsolationVerified": bool(receipt.get("networkIsolationVerified")),
             "modelId": model_id,
+            "adapterType": adapter_type,
             "auditChecksRun": sorted(audit_checks.keys()),
             "auditResultStatuses": sorted({str(v.get("status")) for v in audit_checks.values() if isinstance(v, dict)}),
             "legalCertification": False,
             "cleanroomCertification": False,
-            "shadowOnly": True,
+            "shadowOnly": shadow_only,
+            "originalProducerSha": self._extract_original_producer_sha(receipt),
+            "selectedAttempt": receipt.get("selectedAttempt"),
+            "attemptProposalFormats": [
+                (attempt.get("proposal_format") if isinstance(attempt, dict) else None)
+                for attempt in receipt.get("attempts") or []
+            ],
+            "seedProvenance": receipt.get("seedProvenance"),
             "receiptSha256": hashlib.sha256(resolved.read_bytes()).hexdigest(),
         }
         current_commit = self.load(run_id)["baseline"]["commit"]
@@ -1551,6 +1602,72 @@ class RunStore:
             run_id,
             artifact_id=artifact_id,
             kind="clean-room-experiment-receipt",
+            path=relative_path,
+            evidence_refs=evidence_refs,
+            actor=actor,
+            producer="target-repair",
+        )
+
+    def _record_target_replay_receipt(
+        self,
+        run_id: str,
+        *,
+        artifact_id: str,
+        receipt_path: str,
+        evidence_refs: Sequence[str] = (),
+        actor: str = "coordinator",
+    ) -> dict[str, Any]:
+        resolved = self._resolve_private_each_run_file(receipt_path, code="TARGET_REPLAY_RECEIPT")
+        try:
+            replay = json.loads(resolved.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError) as exc:
+            raise RuntimeFailure("TARGET_REPLAY_RECEIPT", "private replay receipt is unreadable") from exc
+        if not isinstance(replay, dict):
+            raise RuntimeFailure("TARGET_REPLAY_RECEIPT", "private replay receipt must be a JSON object")
+        fidelity_checks = str(replay.get("fidelity_checks", ""))
+        if "PASS" not in fidelity_checks:
+            raise RuntimeFailure("TARGET_REPLAY_RECEIPT", "replay receipt does not declare fidelity PASS")
+        required_original_hashes = {
+            "original_patch_hash": replay.get("original_patch_hash"),
+            "original_trajectory_hash": replay.get("original_trajectory_hash"),
+            "original_spec_hash": replay.get("original_spec_hash"),
+        }
+        missing = sorted(key for key, value in required_original_hashes.items() if not isinstance(value, str) or not value)
+        if missing:
+            raise RuntimeFailure(
+                "TARGET_REPLAY_RECEIPT",
+                "replay receipt is missing required original hash fields",
+                details={"missing": missing},
+            )
+        original_receipt_path = replay.get("replay_of_original_receipt")
+        if not isinstance(original_receipt_path, str) or not original_receipt_path:
+            raise RuntimeFailure("TARGET_REPLAY_RECEIPT", "replay receipt does not identify the original receipt")
+        original_resolved = self._resolve_private_each_run_file(original_receipt_path, code="TARGET_REPLAY_RECEIPT")
+        current_auditor_result = replay.get("current_auditor_result")
+        if not isinstance(current_auditor_result, dict):
+            raise RuntimeFailure("TARGET_REPLAY_RECEIPT", "replay receipt must declare current_auditor_result")
+
+        sanitized_summary = {
+            "originalReceiptPath": str(original_resolved),
+            "originalSpecHash": required_original_hashes["original_spec_hash"],
+            "originalPatchHash": required_original_hashes["original_patch_hash"],
+            "originalTrajectoryHash": required_original_hashes["original_trajectory_hash"],
+            "originalOutcome": replay.get("original_outcome"),
+            "fidelityChecks": fidelity_checks,
+            "currentAuditorResult": current_auditor_result,
+            "currentAuditorRejected": replay.get("current_auditor_rejected"),
+            "currentAuditorToolVersions": replay.get("current_auditor_tool_versions"),
+            "replayReceiptSha256": hashlib.sha256(resolved.read_bytes()).hexdigest(),
+            "originalReceiptSha256": hashlib.sha256(original_resolved.read_bytes()).hexdigest(),
+        }
+        current_commit = self.load(run_id)["baseline"]["commit"]
+        relative_path, _execution_id = self.write_evidence_receipt(
+            name=f"{artifact_id}.target-replay-summary", commit=current_commit, payload=sanitized_summary
+        )
+        return self._record_artifact(
+            run_id,
+            artifact_id=artifact_id,
+            kind="target-replay-receipt",
             path=relative_path,
             evidence_refs=evidence_refs,
             actor=actor,
@@ -1593,7 +1710,7 @@ class RunStore:
                 raise RuntimeFailure("TASK_NOT_READY", f"task {task_id} is {task['status']}")
             if task["attempts"] >= task["retryPolicy"]["maxAttempts"]:
                 raise RuntimeFailure("RETRY_EXHAUSTED", f"task {task_id} exhausted its retry policy")
-            if task.get("retryNotBefore") and parse_iso(task["retryNotBefore"]) > dt.datetime.now(dt.timezone.utc):
+            if task.get("retryNotBefore") and parse_iso(task["retryNotBefore"]) > dt.datetime.now(dt.UTC):
                 raise RuntimeFailure(
                     "RETRY_BACKOFF",
                     f"task {task_id} is within its declared retry backoff window",
@@ -1654,7 +1771,7 @@ class RunStore:
                 task["sideEffect"]["state"] = "PENDING"
             if task["checkpointPolicy"]["beforeSideEffect"]:
                 append_checkpoint(state, task_id, "TASK_START")
-            acquired = dt.datetime.now(dt.timezone.utc)
+            acquired = dt.datetime.now(dt.UTC)
             expires = acquired + dt.timedelta(seconds=max(1, lease_seconds))
             task["lease"] = {
                 "owner": worker_id,
@@ -1847,7 +1964,7 @@ class RunStore:
             task["status"] = "READY" if dependencies_completed(state, task) else "NOT_READY"
             backoff = max(0.0, float(policy["backoffSeconds"]))
             if backoff:
-                retry_at = dt.datetime.now(dt.timezone.utc) + dt.timedelta(seconds=backoff)
+                retry_at = dt.datetime.now(dt.UTC) + dt.timedelta(seconds=backoff)
                 # isoformat(timespec="seconds") truncates sub-second precision, which could
                 # round the persisted deadline *down* to a moment at or before "now" and let
                 # start_task's RETRY_BACKOFF check pass immediately -- bypassing the declared
@@ -1879,7 +1996,7 @@ class RunStore:
             task = find_task(state, task_id)
             if task["status"] != "RUNNING" or not task["lease"] or task["lease"]["owner"] != worker_id:
                 raise RuntimeFailure("WORKER_OWNERSHIP", "worker does not own the running task")
-            if parse_iso(task["lease"]["expiresAt"]) <= dt.datetime.now(dt.timezone.utc):
+            if parse_iso(task["lease"]["expiresAt"]) <= dt.datetime.now(dt.UTC):
                 raise RuntimeFailure(
                     "WORKER_LEASE_EXPIRED",
                     "worker completion reported after its lease expired",
@@ -2115,34 +2232,57 @@ class RunStore:
                         verdict = self._read_json_receipt(artifact["path"], "semantic")
                         if verdict.get("family") != family or not set(bound_criteria).issubset(set(verdict.get("criteria") or [])):
                             raise RuntimeFailure("SEMANTIC_RECEIPT", "semantic gate does not match verdict family/criteria")
+                if gate_type in {"security", "policy"}:
+                    label = "security" if gate_type == "security" else "policy"
+                    failure_code = "SECURITY_RECEIPT" if gate_type == "security" else "POLICY_RECEIPT"
+                    for artifact in state["artifacts"]:
+                        if artifact["id"] not in artifact_ids:
+                            continue
+                        verdict = self._read_json_receipt(artifact["path"], label)
+                        if not verdict_status_allows_pass(verdict.get("status")):
+                            raise RuntimeFailure(
+                                failure_code,
+                                f"{gate_type} gate does not match a PASS/APPROVED verdict",
+                                details={"artifact": artifact["id"], "status": verdict.get("status")},
+                            )
+                        if not set(bound_criteria).issubset(set(verdict.get("criteria") or [])):
+                            raise RuntimeFailure(
+                                failure_code,
+                                f"{gate_type} gate does not match verdict criteria",
+                                details={"artifact": artifact["id"], "criteria": verdict.get("criteria")},
+                            )
                 if "target-repair" in producers:
-                    # (adversarial review finding) `target-repair-receipt` (genuinely
-                    # REPAIR_VERIFIED) and `clean-room-experiment-receipt` (section
-                    # 129's deliberately weaker "complete receipt, no working-repair
-                    # requirement" bar) share one producer bucket and both resolve to
-                    # the same "runtime" surface, so nothing above stopped a caller
-                    # from binding the WEAKER experiment evidence to a "*-target-
-                    # repair-verified" criterion and laundering an honestly-failed
-                    # repair into that stricter criterion's PASS. Every project
-                    # criterion that ends in this exact, already-established suffix
-                    # (both "m7-target-repair-verified" and
-                    # "m8-target-repair-verified" use it) means "a genuinely verified
-                    # repair" and must only ever be satisfied by the stronger evidence
-                    # kind; a criterion using any other id (e.g.
-                    # "m7-clean-room-experiment-complete") is free to accept either.
                     strict_repair_criteria = {cid for cid in bound_criteria if cid.endswith("-target-repair-verified")}
-                    if strict_repair_criteria:
-                        for artifact in state["artifacts"]:
-                            if artifact["id"] not in artifact_ids or artifact["producer"] != "target-repair":
-                                continue
-                            if artifact["kind"] != "target-repair-receipt":
-                                raise RuntimeFailure(
-                                    "EVIDENCE_KIND_MISMATCH",
-                                    "a *-target-repair-verified criterion requires target-repair-receipt "
-                                    "evidence (a genuinely REPAIR_VERIFIED outcome); weaker "
-                                    "clean-room-experiment-receipt evidence can never satisfy it",
-                                    details={"criteria": sorted(strict_repair_criteria), "artifact": artifact["id"]},
-                                )
+                    milestone_owned_hashes = {
+                        cid: approved_spec_hash_for_criterion(cid)
+                        for cid in bound_criteria
+                        if approved_spec_hash_for_criterion(cid) is not None
+                    }
+                    for artifact in state["artifacts"]:
+                        if artifact["id"] not in artifact_ids or artifact["producer"] != "target-repair":
+                            continue
+                        if strict_repair_criteria and artifact["kind"] != "target-repair-receipt":
+                            raise RuntimeFailure(
+                                "EVIDENCE_KIND_MISMATCH",
+                                "a *-target-repair-verified criterion requires target-repair-receipt "
+                                "evidence (a genuinely REPAIR_VERIFIED outcome); weaker "
+                                "clean-room-experiment-receipt evidence can never satisfy it",
+                                details={"criteria": sorted(strict_repair_criteria), "artifact": artifact["id"]},
+                            )
+                        if milestone_owned_hashes:
+                            summary = self._read_json_receipt(artifact["path"], "target-repair evidence")
+                            for criterion_id, expected_hash in milestone_owned_hashes.items():
+                                if summary.get("specHash") != expected_hash:
+                                    raise RuntimeFailure(
+                                        "EVIDENCE_SPEC_MISMATCH",
+                                        "target-repair evidence specHash does not match the criterion-owned milestone spec",
+                                        details={
+                                            "criterion": criterion_id,
+                                            "artifact": artifact["id"],
+                                            "expectedSpecHash": expected_hash,
+                                            "artifactSpecHash": summary.get("specHash"),
+                                        },
+                                    )
                 if gate_type in {"reality", "e2e"}:
                     # A reality/e2e PASS gate proves exactly one verification surface (web,
                     # electron, ios, deployment, runtime). Evidence spanning zero or more than
@@ -2810,7 +2950,7 @@ class RunStore:
         if summary.get("schema") != "architrave.run.v1":
             raise RuntimeFailure("V1_INVALID", "input is not an architrave.run.v1 summary")
         migrated_id = run_id or f"{summary.get('runId', 'run')}-v2"
-        state = self.create(
+        self.create(
             goal=f"Migrated v1 Run {summary.get('runId', 'unknown')}",
             outcome="Preserve the legacy Run as durable v2 state without claiming new verification.",
             criteria=[
@@ -2832,7 +2972,7 @@ class RunStore:
         legacy_statuses: dict[str, str] = {}
         for index, phase in enumerate(summary.get("phases") or [], start=1):
             task_id = f"legacy-{index}"
-            state = self.add_task(
+            self.add_task(
                 migrated_id,
                 {
                     "id": task_id,

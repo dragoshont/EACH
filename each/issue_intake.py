@@ -19,7 +19,7 @@ from pathlib import Path
 from typing import Any
 
 from each.hashing import sha256_json
-from each.paths import each_home, validate_task_id
+from each.paths import assert_no_symlink_escape, each_home, validate_task_id
 
 _ISSUE_URL_RE = re.compile(
     r"^https://github\.com/(?P<owner>[A-Za-z0-9_.-]+)/(?P<repo>[A-Za-z0-9_.-]+)/issues/(?P<number>\d+)/?$"
@@ -85,6 +85,7 @@ def parse_issue_url(url: str) -> tuple[str, str, int]:
 
 def issue_cache_dir() -> Path:
     path = each_home() / "issue_cache"
+    assert_no_symlink_escape(path, label="issue cache directory")
     path.mkdir(parents=True, exist_ok=True)
     return path
 
@@ -97,9 +98,12 @@ def fetch_issue(url: str, *, task_id: str | None = None) -> CachedIssue:
     """Fetch a single public GitHub issue via the unauthenticated REST API.
 
     Only the exact ``owner/repo/issues/number`` host/path shape is accepted
-    (no redirects followed, no other host reachable) to avoid SSRF-style
-    URL confusion. The response is cached verbatim, content-addressed by a
-    hash of the retrieved fields, alongside its retrieval timestamp.
+    for the user-supplied URL (no other initial host/path shape is
+    reachable through this API). The underlying HTTPS client is the Python
+    standard library's default urllib opener, which may follow server
+    redirects issued by the GitHub API endpoint itself. The response is
+    cached verbatim, content-addressed by a hash of the retrieved fields,
+    alongside its retrieval timestamp.
     """
     owner, repo, number = parse_issue_url(url)
     task_id = task_id or default_task_id(owner, repo, number)

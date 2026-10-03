@@ -12,6 +12,7 @@ from each.executor.container import (
     ContainerExecutorError,
     derive_assurance_level,
 )
+from tests.adversarial._docker_guard import requires_colima_each
 
 
 def test_rejects_network_enabled_profile() -> None:
@@ -112,3 +113,20 @@ def test_protected_paths_reject_absolute_path(tmp_path: Path) -> None:
         executor.build_docker_command(
             ["pytest"], tmp_path, container_name="probe", protected_paths=("/etc/passwd",)
         )
+
+
+@requires_colima_each
+def test_protected_paths_are_actually_read_only_inside_the_real_container(tmp_path: Path) -> None:
+    (tmp_path / "tests").mkdir()
+    protected = tmp_path / "tests" / "test_x.py"
+    protected.write_text("original\n", encoding="utf-8")
+
+    executor = ContainerExecutor()
+    result = executor.run(
+        ["sh", "-c", "echo changed > tests/test_x.py"],
+        tmp_path,
+        protected_paths=("tests/test_x.py",),
+    )
+
+    assert result.exit_code != 0
+    assert protected.read_text(encoding="utf-8") == "original\n"

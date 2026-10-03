@@ -49,6 +49,7 @@ def test_empty_outcome_is_unknown_not_blank() -> None:
 def test_known_proposal_format_passes_through() -> None:
     assert sanitize_proposal_format("diff") == "diff"
     assert sanitize_proposal_format("full_source") == "full_source"
+    assert sanitize_proposal_format("source_edit") == "source_edit"
 
 
 def test_unrecognized_proposal_format_is_never_passed_through_raw() -> None:

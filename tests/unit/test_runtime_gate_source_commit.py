@@ -247,7 +247,11 @@ def _write_receipt(repo: Path, name: str, payload: dict) -> Path:
 def test_f2_receipt_missing_its_declared_commit_is_rejected_at_registration(store_with_run, recorder_name, path_kind):
     store, repo = store_with_run
     current_commit = store.load("test-run")["baseline"]["commit"]
-    payload = {"verdict": "PASS", "family": "gpt", "criteria": ["C1"]} if path_kind == "semantic" else {}
+    payload = (
+        {"verdict": "PASS", "family": "gpt", "criteria": ["C1"]}
+        if path_kind == "semantic"
+        else {"status": "PASS", "criteria": ["C1"]}
+    )
     # Deliberately omit "commit".
     receipt_path = _write_receipt(repo, f"{path_kind}-no-commit", payload)
     recorder = getattr(store, recorder_name)
@@ -281,7 +285,11 @@ def test_f2_old_artifact_cannot_back_a_new_semantic_security_or_policy_gate_afte
     reference it as if it were fresh."""
     store, repo = store_with_run
     old_commit = store.load("test-run")["baseline"]["commit"]
-    payload = {"verdict": "PASS", "family": "gpt", "criteria": ["C1"], "commit": old_commit} if path_kind == "semantic" else {"commit": old_commit}
+    payload = (
+        {"verdict": "PASS", "family": "gpt", "criteria": ["C1"], "commit": old_commit}
+        if path_kind == "semantic"
+        else {"status": "PASS", "criteria": ["C1"], "commit": old_commit}
+    )
     receipt_path = _write_receipt(repo, f"{path_kind}-old", payload)
     recorder = getattr(store, recorder_name)
     recorder("test-run", artifact_id=f"{path_kind}-old", path=str(receipt_path.relative_to(repo)), evidence_refs=[])
@@ -322,7 +330,7 @@ def test_f2_old_artifact_cannot_back_a_new_semantic_security_or_policy_gate_afte
     fresh_payload = (
         {"verdict": "PASS", "family": "gpt", "criteria": ["C1"], "commit": new_commit}
         if path_kind == "semantic"
-        else {"commit": new_commit}
+        else {"status": "PASS", "criteria": ["C1"], "commit": new_commit}
     )
     fresh_path = _write_receipt(repo, f"{path_kind}-fresh", fresh_payload)
     recorder("test-run", artifact_id=f"{path_kind}-fresh", path=str(fresh_path.relative_to(repo)), evidence_refs=[])

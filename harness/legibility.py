@@ -7,13 +7,14 @@ import argparse
 import hashlib
 import json
 import os
-from pathlib import Path
 import struct
 import sys
 import time
 import uuid
 import zlib
-from typing import Any, Callable, Sequence
+from collections.abc import Callable, Sequence
+from pathlib import Path
+from typing import Any
 from urllib.parse import urlsplit
 
 from architrave_runtime import RunStore, RuntimeFailure, redact, utc_now

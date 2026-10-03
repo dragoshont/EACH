@@ -26,6 +26,7 @@ independent audit step).
 
 from __future__ import annotations
 
+import json
 import re
 import uuid
 from pathlib import Path
@@ -286,6 +287,54 @@ def _retry_suffix_for_mode(
     return suffix + previous_candidate_block + requirement_block
 
 
+def _verify_seed_source_provenance(*, seed_source: str, seed_receipt_path: str | Path) -> dict[str, Any]:
+    from each.attestation import verify_materials_root, verify_receipt
+    from each.signing import public_key_path
+
+    receipt_path = Path(seed_receipt_path).expanduser()
+    if not receipt_path.is_file():
+        raise ValueError(f"seed receipt does not exist: {receipt_path}")
+    try:
+        receipt = json.loads(receipt_path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as exc:
+        raise ValueError(f"seed receipt is unreadable: {receipt_path}") from exc
+    if not isinstance(receipt, dict):
+        raise TypeError("seed receipt must be a JSON object")
+    try:
+        public_key_pem = public_key_path().read_bytes()
+    except OSError as exc:
+        raise ValueError("seed receipt public key is unavailable") from exc
+    signature_result = verify_receipt(receipt, public_key_pem)
+    if signature_result["status"] != "PASS":
+        raise ValueError(f"seed receipt failed signature verification: {signature_result['reason']}")
+    materials_result = verify_materials_root(receipt, receipt_path.parent / "materials")
+    if materials_result["status"] != "PASS":
+        raise ValueError(f"seed receipt failed full materials verification: {materials_result['reason']}")
+
+    source_run_id = receipt.get("runId")
+    if not isinstance(source_run_id, str) or not source_run_id:
+        raise ValueError("seed receipt is missing runId")
+    seed_sha256 = sha256_text(seed_source)
+    matching_attempts = [
+        attempt
+        for attempt in receipt.get("attempts") or []
+        if isinstance(attempt, dict) and attempt.get("correction_candidate_hash") == seed_sha256
+    ]
+    if not matching_attempts:
+        raise ValueError("seed_source does not match any candidate recorded in the verified seed receipt")
+    provenance = {
+        "seedSha256": seed_sha256,
+        "sourceRunId": source_run_id,
+    }
+    attempt_number = next(
+        (attempt.get("attempt") for attempt in matching_attempts if isinstance(attempt.get("attempt"), int)),
+        None,
+    )
+    if attempt_number is not None:
+        provenance["sourceAttempt"] = attempt_number
+    return provenance
+
+
 def run_clean_room_build(
     model: RepairModel,
     approved: ApprovedSpec,
@@ -296,6 +345,7 @@ def run_clean_room_build(
     run_id: str | None = None,
     proposal_format: str = "diff",
     seed_source: str | None = None,
+    seed_receipt_path: str | Path | None = None,
     seed_failed_items: tuple[int, ...] = (),
 ) -> dict[str, Any]:
     """Run one sealed Builder attempt sequence for ``approved`` (an M7-style
@@ -317,7 +367,7 @@ def run_clean_room_build(
     validation/audit/receipt pipeline in every mode -- only how one
     candidate's raw text is turned into a patch changes.
 
-    ``seed_source``/``seed_failed_items`` are valid ONLY with
+    ``seed_source``/``seed_receipt_path``/``seed_failed_items`` are valid ONLY with
     ``proposal_format="source_edit"``: they let a fresh, independently
     receipted bounded run continue correcting an existing candidate (e.g.
     one already captured, hash-bound, in a prior run's own receipt) instead
@@ -331,10 +381,17 @@ def run_clean_room_build(
         raise ValueError(f"proposal_format must be 'diff', 'full_source', or 'source_edit', got {proposal_format!r}")
     if proposal_format == "source_edit" and seed_source is None:
         raise ValueError("proposal_format='source_edit' requires seed_source (an existing candidate to edit)")
-    if proposal_format != "source_edit" and (seed_source is not None or seed_failed_items):
-        raise ValueError("seed_source/seed_failed_items are only valid with proposal_format='source_edit'")
+    if proposal_format == "source_edit" and seed_receipt_path is None:
+        raise ValueError("proposal_format='source_edit' requires seed_receipt_path (a verified prior receipt)")
+    if proposal_format != "source_edit" and (seed_source is not None or seed_receipt_path is not None or seed_failed_items):
+        raise ValueError("seed_source/seed_receipt_path/seed_failed_items are only valid with proposal_format='source_edit'")
     approved.verify()
     validate_private_root()
+    seed_provenance = (
+        _verify_seed_source_provenance(seed_source=seed_source, seed_receipt_path=seed_receipt_path)
+        if proposal_format == "source_edit" and seed_source is not None and seed_receipt_path is not None
+        else None
+    )
     packet = approved.packet
     if len(packet.allowed_paths) != 1 or len(packet.acceptance_commands) != 1:
         raise ValueError("run_clean_room_build currently supports exactly one allowed path and one acceptance command")
@@ -420,6 +477,7 @@ def run_clean_room_build(
         "network_isolation_verified": network_isolation_verified,
         "legal_certification": False,
         "cleanroom_certification": False,
+        "seed_provenance": seed_provenance,
     }
 
     if assurance_level != "EACH-P2":

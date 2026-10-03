@@ -73,6 +73,7 @@ class Receipt:
     # makes that binding explicit and checkable instead of leaving a
     # reader to assume it is always the last attempt in ``attempts``.
     selected_attempt: int | None = None
+    seed_provenance: dict[str, Any] | None = None
 
     @property
     def patch_hash(self) -> str:
@@ -109,6 +110,7 @@ class Receipt:
             "cleanroomCertification": self.cleanroom_certification,
             "attempts": self.attempts,
             "selectedAttempt": self.selected_attempt,
+            "seedProvenance": self.seed_provenance,
         }
 
     def write(self, directory: Path, *, materials_source: Path | None = None) -> tuple[Path, Path]:
@@ -165,6 +167,7 @@ class Receipt:
             for rel_path in sorted(self.materials):
                 if rel_path.startswith("/") or ".." in Path(rel_path).parts:
                     raise ValueError(f"refusing to copy forbidden/traversal materials path: {rel_path}")
+                assert_no_symlink_escape(materials_source / rel_path, label="materials source path")
                 # (F2, public review at 6c3e1f3) check is_symlink() on the
                 # UNRESOLVED path first: resolve() already follows any
                 # symlink to its real target, so calling is_symlink() only
@@ -232,6 +235,12 @@ class Receipt:
             f"- Trajectory hash: `{self.trajectory_hash}`",
             f"- Touched paths: {', '.join(self.touched_paths) or '(none)'}",
             f"- Attempts recorded: {len(self.attempts)}",
+            (
+                "- Seed provenance: "
+                f"{self.seed_provenance}"
+                if self.seed_provenance is not None
+                else "- Seed provenance: (none)"
+            ),
             "",
             "## Declared materials (sanitized worktree manifest)",
             *(materials_lines or ["(none)"]),

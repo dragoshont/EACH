@@ -112,3 +112,14 @@ def test_fetch_issue_rejects_path_traversal_task_ids(monkeypatch: pytest.MonkeyP
 def test_load_cached_issue_rejects_path_traversal_task_id() -> None:
     with pytest.raises(IssueIntakeError, match="invalid task id"):
         load_cached_issue("../../../../../../tmp/each_poc_victim")
+
+
+def test_issue_cache_dir_rejects_a_symlinked_cache_directory(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    home = tmp_path / "home"
+    home.mkdir()
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    (home / "issue_cache").symlink_to(outside, target_is_directory=True)
+    monkeypatch.setenv("EACH_HOME", str(home))
+    with pytest.raises(ValueError, match="symlink"):
+        issue_intake.issue_cache_dir()
