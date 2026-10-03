@@ -176,6 +176,83 @@ recovery path are each covered by their own dedicated regression tests instead.)
 Receipts, trajectories, weights, keys, and working target artifacts remain
 outside the public repository.
 
+**Evidence-write exclusive-create fix and gate-freshness refresh (2026-10-03,
+commit `f5ed0cd`):** the active durable Run's earlier ad-hoc registration
+script had written gate evidence to a fixed, deterministic path; a later
+retry of that script silently overwrote already-registered bytes under an
+already-computed artifact digest, permanently tripping the runtime's own
+artifact-tamper check (`ARTIFACT_TAMPERED`) on every later load of the
+original `each-release-completion` Run. That check was never suppressed,
+weakened, or worked around; the damaged Run's private local state remains
+untouched, immutable history. The actual gap -- nothing prevented a caller
+from reusing an evidence path at all -- is now closed structurally:
+`RunStore.write_evidence_receipt()` embeds a fresh execution id into every
+evidence filename and creates it with `O_EXCL`, so a genuine collision fails
+loudly instead of silently overwriting; `_record_target_repair_receipt()`'s
+own evidence write was rewired to use it. All of `base-gate`,
+`audit-models-gate`, and `ruff-doctor` were then re-run fresh and
+re-registered against this exact commit (the successor `each-release-completion-2`
+Run's baseline), closing the gap where those criteria's evidence still
+pointed at an older, pre-merge commit.
+
+**Live M7 re-validation of the two newly-merged root-cause fixes, plus a
+third (2026-10-03, commits `d4224cc`/`db1cdb6`/`6113557`):** two fixes
+merged from a concurrent development thread -- (1) the stateless Builder now
+receives its OWN previous candidate, captured before execution and
+hash-bound, in the next retry prompt (previously it saw only the unchanged
+stub plus an error category); (2) the pytest classifier now correctly
+distinguishes a genuine partial test failure (exit 1, failed > 0, matching
+the expected count) from a genuinely inconclusive run, and surfaces ONLY
+approved-spec-item numbers 1-9 parsed from failing case ids, never raw
+names/messages/paths -- were exercised live, not merely unit-tested. A fresh
+5-attempt run against `ibm-granite/granite-3.3-8b-instruct` (modern
+Apache-2.0 replacement for the deprecated `granite-20b-code-instruct`
+checkpoint; pinned revision `51dd4bc2...`) reproduced the same genuine
+`nonlocal` closure-scoping `SyntaxError` on all 5 attempts (a real,
+recorded model-capacity limit on this specific spec, not a harness defect).
+A fresh 5-attempt run against `Qwen/Qwen2.5-Coder-14B-Instruct` (pinned
+revision `aedcc2d4...`, justified fallback per the recorded Granite-3.3
+failure) got substantially further: all 5 attempts reached a real,
+clean-exit-1 repaired-test run (never inconclusive), live-confirming fix
+(2) above operates correctly in a genuine run -- but outcome stayed
+`REPAIR_NOT_VERIFIED` across all 5, with an identical `test_feedback_hash`
+on every attempt (the model did not act on the approved-item-number
+feedback it was given). A third fix landed immediately after (commit
+`db1cdb6`): retry prompts now re-include the VERBATIM approved
+specification text for exactly the failed item numbers reported by bounded
+feedback (never test code, exception text, or outer-authored content) after
+the model's own previous candidate. A further fresh 5-attempt Qwen2.5-Coder-14B
+run exercising this third fix showed genuine behavioral change -- candidate
+hashes now differ across attempts 3-5 (previously byte-identical across all
+5) -- but still did not converge to a verified repair within the bounded
+budget, and `test_feedback_hash` stayed identical across all 5 (same
+items kept failing). **M7 remains honestly `FAIL`** after three
+independently-verified root-cause fixes and two justified modern local
+models, each exercised live rather than assumed from the fixes' unit tests
+alone. Per the explicit no-blanket-escalation instruction, `granite-34b-code-instruct`
+was not attempted merely for more capacity.
+
+**M8 re-audit/replay under the current (post-patch-source, not diff-based)
+auditor (2026-10-03):** the already-verified M8 receipt
+(`m8-xsystem-sandboxid-opt-fullsource-20261003`, `REPAIR_VERIFIED`,
+`specHash: 2c5eca88...`) was independently replayed -- never regenerated --
+against the CURRENT auditor code. The retained pre-patch source's sha256,
+the receipt's own `patchHash`, and its own `trajectoryHash` were all
+independently recomputed from the real retained artifacts and matched
+exactly; the patch was then re-applied to reconstruct the exact post-patch
+candidate bytes, and `each.audit.run.run_audit()` (current code, which
+audits post-patch SOURCE, not a diff) was run directly against them. Result:
+not rejected, all sub-checks honestly `UNAVAILABLE` (no corpus/license-scanner
+configured), identical to the original. This is recorded as a second,
+explicitly-linked `reality`-gate artifact under the `m8-target-repair-verified`
+criterion (which remains, correctly, unchanged `PASS`) -- the original
+receipt was not mutated, re-signed, or regenerated by cloud.
+
+Cross-family semantic review (GPT-family and Claude-family) and R4
+security/policy review remain the two genuinely external, `UNTESTED`
+blockers to full release completion; they are active coordinator-review
+lanes, not a stop condition for the rest of the program.
+
 ## Recorded user approval
 
 Review task `pallets-itsdangerous-410-review`, based on
