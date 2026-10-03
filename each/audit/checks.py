@@ -55,6 +55,8 @@ def exact_substring_check(candidate: str, corpus: list[str]) -> CheckResult:
     if not corpus:
         return CheckResult(status="UNAVAILABLE", detail="no corpus snippets configured for exact/substring matching")
     normalized_candidate = normalize_text(candidate)
+    if not normalized_candidate:
+        return CheckResult(status="UNAVAILABLE", detail="empty candidate has no comparable source")
     eligible_snippet_count = 0
     for index, snippet in enumerate(corpus):
         normalized_snippet = normalize_text(snippet)

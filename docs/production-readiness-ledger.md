@@ -83,8 +83,8 @@ its authorized exploration without a verified repair.
 | P1 | Freeze production development contract / coordinator | P0 | One tested support row, permissive non-sensitive task class, existing model and measured limits recorded. Reject early exit, forged results, test mutation and wrong audit subject before accepting a repair. Development proceeds without invented release approval; qualification targets freeze before holdout use. | DEVELOPMENT GATE PASS; R4 acceptance/review pending |
 | P2a | Deliver one useful vertical slice / harness implementer | P1 | Dedicated `colima-each`, pinned image, actual per-run no-egress proof, declared input/trajectory hashes and protected validators. Genuine pre-fix failure and independently observed acceptance/negative/regression cases pass; immutable subject is audited; signed retained files verify. Outer agent writes harness/tests, never target repair code or known-fix hints. | BLOCKED: 0/3 repairs, 9 calls; bounded exploration stopped |
 | P2b | Diagnose utility failures and qualify a blind holdout / evaluation owner | P2a, P3, P4 | Account for context, response format, patch application, compile, validation, infrastructure and audit failures separately. Freeze the candidate policy, run the holdout, report every outcome and budget overrun. Do not tune against holdout answers. | PENDING |
-| P3 | Qualify audit availability and policy / audit owner | P1 | Exact-copy, renamed-copy, boilerplate and semantic-equivalent fixtures; permitted reference corpus identity/license recorded; measured false-positive/negative behavior; required missing check cannot produce an audit-qualified acceptance. No Auditor-to-Builder information flow. | PENDING |
-| P4 | Harden supported operations and evidence lifecycle / harness implementer + security reviewer | P1 | Real cancellation, crash, disk-full, corrupt/missing materials, key loss/recovery, permission and concurrent-run exercises. No forged repair PASS, silent lost trajectory, private export or old-key overwrite. Document the local trusted-key boundary. | PENDING |
+| P3 | Qualify audit availability and policy / audit owner | P1 | Exact-copy, renamed-copy, boilerplate and semantic-equivalent fixtures; permitted reference corpus identity/license recorded; measured false-positive/negative behavior; required missing check cannot produce an audit-qualified acceptance. No Auditor-to-Builder information flow. | MEASURED: synthetic holdout fails 5% false-flag bar; required external membership remains unavailable |
+| P4 | Harden supported operations and evidence lifecycle / harness implementer + security reviewer | P1 | Real cancellation, crash, disk-full, corrupt/missing materials, key loss/recovery, permission and concurrent-run exercises. No forged repair PASS, silent lost trajectory, private export or old-key overwrite. Document the local trusted-key boundary. | DEVELOPMENT DRILLS PASS; independent R4 acceptance and broader crash durability remain open |
 | P5 | Package and qualify the release candidate / release owner | P2b, P3, P4 | Fresh supported Mac installation and uninstall of the package only; locked dependencies and immutable executor images; offline sealed workflow; upgrade preserves prior receipts; backup restore and signature verification succeed. Exact source/build provenance retained. | PENDING |
 | P6 | Run a consented private pilot / operator + evaluation owner | P5 | Proposed pilot targets below satisfied; independent human assessment of usefulness; actual failures/interventions recorded; support and recovery runbooks exercised. No public target patches or automatic upstream submissions. | PENDING |
 | P7 | Freeze and approve the release / independent reviewers + product owner | P6 | Configured build/tests, real product tests, security/policy, independent GPT/Claude assessment and canonical full Run.verify pass at the frozen revision. All risk floors covered per criterion. Human go/no-go recorded genuinely. | PENDING |
@@ -241,8 +241,10 @@ unproven. P1 records an initial work estimate; P2a and P3 produce the evidence
 needed to forecast P5-P8. The proposed pilot imposes a minimum seven-day
 observation window, not a total project estimate.
 
-**Next action: independent review of the frozen development candidate, then
-P3/P4 only.** P2a's current exploration is stopped, not silently extended.
+**Next action: independent review of the frozen development candidates and
+disposition of measured P3/P4 qualification gaps.** P3/P4 prerequisite work
+has executed as recorded in section 11; no production acceptance is inferred.
+P2a's current exploration is stopped, not silently extended.
 The original intake direction was to load the accepted research evidence,
 open the production qualification Run, and freeze a small supported envelope and the
 development contract under the user's autonomous implementation authority.
@@ -334,3 +336,41 @@ UNAVAILABLE/not-run for that explicit reason. There is no audit-qualified
 repair, EACH-P3, production-launch, human-adoption or legal-certification claim.
 This utility lane stops at its authorized cap. P3/P4 are the next independent
 dependency-ready engineering workstreams after frozen-candidate review.
+
+## 11. Independent P3/P4 continuation (2026-10-03)
+
+Run `each-production-p3p4-20261003-v2` executes independent prerequisites using
+P1's tested development contract; P1 R4 acceptance remains pending. The original
+failed firstslice Run (revision 69), nine real calls/negative receipts and
+completed research Run (revision 102) remain unchanged. A policy-intake-only
+predecessor was denied before implementation; no utility budget was extended.
+
+Actual [audit measurements](audit-qualification.md): self-authored Apache-2.0
+reference corpus, four disjoint project clusters and 26 units per split.
+Exact 8/8 and renamed 4/4 detections in both; benign false flags 1/14 (7.14%) in
+both, above the frozen engineering 5% target. Three common-code matches per
+split are correct attribution but also expose inappropriate default escalation.
+No label-based suppression or holdout tuning. External training membership and
+mature license scanning remain UNAVAILABLE. P3 qualification is not PASS;
+the consumed synthetic holdout is regression-only on replay.
+
+Actual [operational drills](operator-runbook.md): SIGINT to owned PIDs,
+SIGKILL to owned container CIDs, timeout, real 1 MiB tmpfs ENOSPC, permission
+denial, missing/corrupt/symlink artifacts, concurrent key initialization/runs,
+temporary-key/evidence backup restore and full verification. Existing
+Receipt/signing/path/executor/observer helpers are reused; no crypto/framework
+or target implementation is added. No user's original key is rotated/deleted.
+
+The drill found and fixed an additional real source-fidelity mechanism: Colima
+read stale lengths after an in-place overwrite of a baseline-read file.
+Candidate observation now uses a fresh sanitized worktree with identical
+preimage manifest; actual container/host byte-hash and cancellation-receipt
+regressions pass. Original firstslice acceptance must still be independently
+reviewed; this new candidate does not retroactively qualify its runtime.
+
+P4 implementation/testing is not R4 production acceptance. Missing host
+SIGKILL/power-loss and MLX-interruption guarantees are explicit ceilings, not
+invented PASS. Frozen-source gate counts/hashes are published separately after
+integration. No audit-qualified repair, production release, pilot, legal
+certification or new local-model repair is claimed. P2 utility remains blocked,
+so P2b/P5 are not dependency-ready.

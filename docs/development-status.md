@@ -1,7 +1,11 @@
 # Development status
 
+**Current status (2026-10-03):** M0-M8 research is complete at the accepted
+release documented below; production qualification is not complete. Earlier
+entries are dated development history, not present-tense acceptance.
+
 The user authorized **M0-M8**, with YAGNI and sequential acceptance gates.
-The full program is **not complete**. The user-authorized harness-only
+At this earlier remediation point the full program was **not complete**. The user-authorized harness-only
 remediation received independent Astra **PASS** at
 `9dfd9f97acd55a2253831b5a51606584a251482c`, with 313 audit-enabled tests passing
 at that commit. This closes the reviewed harness defects, not the historical
@@ -791,3 +795,42 @@ durable development recovery; they do not establish a production repair tool.
 Independent review at the frozen implementation revision remains pending.
 P3/P4 may proceed independently; holdout, operational qualification, packaging
 qualification, seven-day pilot and genuine human go/no-go remain unaccepted.
+
+## Independent P3/P4 execution — 2026-10-03
+
+Continuation Run `each-production-p3p4-20261003-v2` uses supported runtime APIs
+and default-deny grants. The initial continuation intake was policy-denied
+before implementation; v2 corrects only that intake. The failed firstslice
+revision 69 and completed research revision 102 are unchanged. P1's tested
+development contract permits independent prerequisites, but R4 P1 acceptance
+is not inherited as PASS. No new utility tasks, real model calls or downloads.
+
+The public Apache-2.0 synthetic audit corpus has separate four-cluster
+calibration/holdout splits, 26 labelled units each. Both detected 8/8 exact and
+4/4 renamed copies, but falsely flagged 1/14 semantic/novel benign units:
+7.14%, above the frozen 5% target. The synthetic holdout is consumed; no repair
+holdout was selected. Common-code matches and inappropriate default escalation
+are separately recorded. External membership/license scanning remain UNAVAILABLE.
+See [audit qualification](audit-qualification.md); no P3 acceptance is claimed.
+
+Operational drills exercise actual exact-owned-PID SIGINT, exact-container-CID
+kill, observer timeout, bounded 1 MiB tmpfs ENOSPC, real permission denial,
+artifact corruption/symlinks, concurrent processes/runs and temporary-key
+backup/restore with original public-key and retained-input verification.
+Concrete lost-key rotation, signing-leaf/lock symlink, private permissions,
+quota trajectory retention and observation-benchmark cancellation defects
+were reproduced and narrowly fixed.
+
+A genuine Colima read-fidelity defect was also reproduced: after baseline-read
+files were overwritten in place, host stat reported 54 bytes but the container
+read 23 bytes in 3/3 public synthetic probes. Candidate validation now reuses
+the existing materializer to create a fresh sanitized worktree with the same
+preimage manifest. Actual container/host byte-hash regression and benchmark
+SIGINT/kill partial-receipt drills passed afterward. This does not reclassify,
+re-sign or regenerate any original negative firstslice receipt.
+
+[The operator runbook](operator-runbook.md) records supported commands and
+explicit limits: no MLX interruption/power-loss guarantee, no automatic prune
+or general recovery CLI, no TEE, no recursive historical cleanup. Independent
+cross-family/security/policy acceptance remains pending. P2 usefulness is still
+blocked at zero of three repairs/nine calls; P2b and P5-P8 do not advance.

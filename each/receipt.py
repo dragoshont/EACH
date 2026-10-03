@@ -4,7 +4,9 @@ of a single repair-run trajectory, including every supplied input.
 
 from __future__ import annotations
 
+import errno
 import json
+import os
 import shutil
 import subprocess
 import time
@@ -13,7 +15,16 @@ from pathlib import Path
 from typing import Any
 
 from each.hashing import sha256_file, sha256_text
-from each.paths import assert_no_symlink_escape, repo_root
+from each.paths import FileLock, assert_no_symlink_escape, repo_root
+
+
+def _write_private_text(path: Path, text: str) -> None:
+    """Exclusive, owner-only, fsynced write. Failed drafts remain private."""
+    fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+    with os.fdopen(fd, "w", encoding="utf-8") as handle:
+        handle.write(text)
+        handle.flush()
+        os.fsync(handle.fileno())
 
 
 def _audit_markdown_lines(audit: dict[str, Any]) -> list[str]:
@@ -117,6 +128,37 @@ class Receipt:
         }
 
     def write(self, directory: Path, *, materials_source: Path | None = None) -> tuple[Path, Path]:
+        """Serialize same-run writers and reserve space before finalization.
+
+        A complete private unsigned draft is retained before copy/signing.
+        It is recovery evidence, never a verified receipt or a success fallback.
+        Disk preflight is advisory, not an OS quota or power-loss guarantee.
+        """
+        assert_no_symlink_escape(directory, label="receipt directory")
+        resolved = directory.resolve()
+        root = repo_root().resolve()
+        if resolved == root or root in resolved.parents:
+            raise ValueError(f"refusing to write a receipt inside the repository working tree: {directory}")
+        parent = directory
+        while not parent.exists():
+            parent = parent.parent
+        required = 4 * len(json.dumps(self.to_dict()).encode("utf-8")) + 1024 * 1024
+        if materials_source is not None:
+            for rel in self.materials:
+                if rel.startswith("/") or ".." in Path(rel).parts:
+                    raise ValueError(f"refusing to copy forbidden/traversal materials path: {rel}")
+                source = materials_source / rel
+                assert_no_symlink_escape(source, label="materials source path")
+                if source.is_file():
+                    required += source.stat().st_size
+        if shutil.disk_usage(parent).free < required:
+            raise OSError(errno.ENOSPC, "insufficient space for private receipt and retained evidence")
+        directory.mkdir(parents=True, exist_ok=True, mode=0o700)
+        directory.chmod(0o700)
+        with FileLock(directory / ".receipt.lock"):
+            return self._write_locked(directory, materials_source=materials_source)
+
+    def _write_locked(self, directory: Path, *, materials_source: Path | None = None) -> tuple[Path, Path]:
         """Write ``receipt.json``/``receipt.md`` under ``directory``.
 
         ``directory`` must not resolve inside this repository's own working
@@ -154,6 +196,9 @@ class Receipt:
         directory.mkdir(parents=True, exist_ok=True)
         from each.attestation import attest_receipt
 
+        _write_private_text(
+            directory / "receipt.pending.json", json.dumps(self.to_dict(), indent=2, sort_keys=True) + "\n",
+        )
         if materials_source is not None:
             materials_root = directory / "materials"
             # (F3) Anchor the trusted materials root to the ALREADY
@@ -205,16 +250,23 @@ class Receipt:
                     raise ValueError(
                         f"refusing to write through an existing materials destination or symlink: {rel_path}"
                     )
-                dst.parent.mkdir(parents=True, exist_ok=True)
+                dst.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
+                current = dst.parent
+                while current != directory:
+                    current.chmod(0o700)
+                    current = current.parent
                 shutil.copyfile(src, dst)
+                dst.chmod(0o600)
 
         receipt_dict = self.to_dict()
         receipt_dict.update(_capture_producer_provenance())
         receipt_dict["attestation"] = attest_receipt(receipt_dict)
-        with json_path.open("x", encoding="utf-8") as handle:
-            handle.write(json.dumps(receipt_dict, indent=2, sort_keys=True) + "\n")
-        with md_path.open("x", encoding="utf-8") as handle:
-            handle.write(self._to_markdown(receipt_dict["attestation"]))
+        staged = directory / "receipt.signed.pending.json"
+        _write_private_text(staged, json.dumps(receipt_dict, indent=2, sort_keys=True) + "\n")
+        _write_private_text(md_path, self._to_markdown(receipt_dict["attestation"]))
+        # Publish only a complete signed JSON file, with atomic no-overwrite
+        # semantics. Keep both drafts indefinitely; never delete evidence.
+        os.link(staged, json_path)
         return json_path, md_path
 
     def _to_markdown(self, attestation: dict[str, Any]) -> str:

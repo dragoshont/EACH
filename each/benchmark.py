@@ -1046,7 +1046,9 @@ def run_benchmark_task(
                 )
                 break
             baseline = _run_task_validation(task, executor, worktree, protected_paths)
-        except ContainerExecutorError as exc:
+        except (ContainerExecutorError, KeyboardInterrupt) as exc:
+            if isinstance(exc, KeyboardInterrupt) and not task.observation_cases:
+                raise
             attempts.append(
                 {
                     "attempt": attempt_num,
@@ -1060,6 +1062,8 @@ def run_benchmark_task(
                     "audit": _no_audit_yet,
                     "outcome": f"EXECUTION_ERROR: {exc}",
                     "generation_attempted": False,
+                    "failureStage": "baseline",
+                    "errorType": type(exc).__name__,
                 }
             )
             break
@@ -1117,7 +1121,7 @@ def run_benchmark_task(
                 }
             )
             break
-        except Exception as exc:
+        except (Exception, KeyboardInterrupt) as exc:
             if not task.observation_cases:
                 raise
             # Preserve an honest signed partial observation-lane receipt.
@@ -1163,6 +1167,15 @@ def run_benchmark_task(
             else:
                 patch_text = extract_patch_text(raw_completion)
             patch = parse_patch(patch_text)
+            if task.observation_cases:
+                # Colima can retain a stale read length for an inode already
+                # observed by the baseline container after an in-place host
+                # rewrite. Start candidate validation from a fresh sanitized
+                # path/inode, using the same existing materializer and preimage.
+                # Never qualify host-only hashes as proof of container bytes.
+                worktree, candidate_manifest = build_worktree(source_root, include_paths)
+                if candidate_manifest != manifest:
+                    raise ValueError("candidate preimage differs from baseline material identity")
             touched = apply_patch(patch, worktree, {task.bug_path})
         except (PatchRejected, RawProposalRejected) as exc:
             attempt_record["outcome"] = f"PATCH_REJECTED: {exc}"
@@ -1202,8 +1215,12 @@ def run_benchmark_task(
                 prompt = base_prompt + _RETRY_SUFFIX.format(reason="the candidate did not compile; try again")
                 continue
             repaired = _run_task_validation(task, executor, worktree, candidate_protected_paths)
-        except ContainerExecutorError as exc:
+        except (ContainerExecutorError, KeyboardInterrupt) as exc:
+            if isinstance(exc, KeyboardInterrupt) and not task.observation_cases:
+                raise
             attempt_record["outcome"] = f"EXECUTION_ERROR: {exc}"
+            attempt_record["failureStage"] = "validation"
+            attempt_record["errorType"] = type(exc).__name__
             attempts.append(attempt_record)
             break
         attempt_record["repaired_result"] = _result_to_dict(repaired)

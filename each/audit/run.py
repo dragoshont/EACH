@@ -8,6 +8,7 @@ just a verdict.
 
 from __future__ import annotations
 
+from importlib.metadata import PackageNotFoundError, version
 from typing import Any
 
 from each.audit.checks import (
@@ -18,21 +19,18 @@ from each.audit.checks import (
 )
 from each.audit.corpus import CorpusMembershipAdapter, NullCorpusAdapter
 
+CHECK_NAMES = frozenset({
+    "exact-substring", "ngram-similarity", "ast-similarity", "license-scan", "corpus-membership",
+})
+
 
 def _tool_versions() -> dict[str, str | None]:
     versions: dict[str, str | None] = {"each-audit": "v0.1-mvp"}
-    try:
-        import tree_sitter
-
-        versions["treeSitter"] = getattr(tree_sitter, "__version__", "unknown")
-    except ImportError:
-        versions["treeSitter"] = None
-    try:
-        import tree_sitter_python
-
-        versions["treeSitterPython"] = getattr(tree_sitter_python, "__version__", "unknown")
-    except ImportError:
-        versions["treeSitterPython"] = None
+    for field, package in (("treeSitter", "tree-sitter"), ("treeSitterPython", "tree-sitter-python")):
+        try:
+            versions[field] = version(package)
+        except PackageNotFoundError:
+            versions[field] = None
     return versions
 
 
@@ -43,6 +41,7 @@ def run_audit(
     corpus_adapter: CorpusMembershipAdapter | None = None,
     license_paths: list[str] | None = None,
     corpus_revision: str = "none",
+    required_checks: tuple[str, ...] = (),
 ) -> dict[str, Any]:
     """Run every M4 check against ``candidate``.
 
@@ -51,6 +50,7 @@ def run_audit(
     honestly reports those checks UNAVAILABLE rather than a fabricated
     PASS — there is no configured comparison corpus in that case).
     """
+    _validate_required_checks(required_checks)
     corpus = corpus or []
     adapter = corpus_adapter or NullCorpusAdapter()
     checks = {
@@ -60,11 +60,27 @@ def run_audit(
         "license-scan": license_scan_check(license_paths),
         "corpus-membership": adapter.check(candidate),
     }
-    return {
+    result = {
         "checks": {name: result.to_dict() for name, result in checks.items()},
         "toolVersions": _tool_versions(),
         "corpusRevision": corpus_revision,
+        "configuration": {
+            "exactMinimumReferenceLength": 20,
+            "ngram": {"n": 3, "flagThreshold": 0.5, "failThreshold": 0.8},
+            "ast": {"language": "python", "flagThreshold": 0.6, "failThreshold": 0.85},
+        },
     }
+    unavailable = [name for name, check in checks.items() if check.status == "UNAVAILABLE"]
+    result["policy"] = {
+        "requiredChecks": list(required_checks),
+        "missingRequiredChecks": [name for name in required_checks if name in unavailable],
+        "optionalUnavailableChecks": [name for name in unavailable if name not in required_checks],
+        "qualifiedForDeclaredChecks": bool(required_checks) and not reject_on_audit_flag(
+            result, required_checks=required_checks,
+        ),
+        "coverageCeiling": "declared-reference-only" if corpus else "unavailable",
+    }
+    return result
 
 
 def any_status(audit_result: dict[str, Any], status: str) -> bool:
@@ -72,7 +88,16 @@ def any_status(audit_result: dict[str, Any], status: str) -> bool:
     return any(check["status"] == status for check in audit_result["checks"].values())
 
 
-def reject_on_audit_flag(audit_result: dict[str, Any], *, reject_statuses: tuple[str, ...] = ("FAIL",)) -> bool:
+def _validate_required_checks(required_checks: tuple[str, ...]) -> None:
+    if set(required_checks) - CHECK_NAMES:
+        raise ValueError("unknown required audit check")
+
+
+def reject_on_audit_flag(
+    audit_result: dict[str, Any], *,
+    reject_statuses: tuple[str, ...] = ("FAIL",),
+    required_checks: tuple[str, ...] = (),
+) -> bool:
     """The terminal-boundary decision point: should this candidate be rejected?
 
     Deliberately takes only the audit *result* (metadata-only evidence, no
@@ -82,4 +107,8 @@ def reject_on_audit_flag(audit_result: dict[str, Any], *, reject_statuses: tuple
     decision can only restart from the original approved spec, because
     nothing else is available to build a new prompt from.
     """
-    return any(audit_result["checks"][name]["status"] in reject_statuses for name in audit_result["checks"])
+    _validate_required_checks(required_checks)
+    checks = audit_result.get("checks", {})
+    if any(checks.get(name, {}).get("status") not in {"PASS", "FLAG", "FAIL"} for name in required_checks):
+        return True
+    return any(check.get("status") in reject_statuses for check in checks.values())

@@ -25,7 +25,8 @@ not correctness, originality or legal clean-room status.
 | Historical benchmark | 25 Python/C/C++/Rust tasks, 75 selected recorded calls, **0 verified repairs**. |
 | Controlled compatibility experiment | M7: **8 passing tests, 1 failure**; complete negative evidence, not a working cache. |
 | Private real-world demonstration | M8: one bounded C repair with verified baseline failure and repaired success. Not full Xodus/Wine/game compatibility. |
-| Audit coverage | Actual experiments report unavailable comparisons honestly. No originality, EACH-P3 or legal-certification claim. |
+| Audit coverage | Synthetic calibration/holdout detect seeded copies, but false flags exceed the frozen target; external membership/scanning remain unavailable. No originality, EACH-P3 or legal-certification claim. |
+| Operations | Isolated interruption, timeout, quota, corruption, concurrency and temporary-key recovery drills implemented; independent production acceptance pending. |
 
 See [development evidence](docs/development-status.md) for exact source
 revisions, gate results and limitations. Independent AI review supports
@@ -197,6 +198,9 @@ Private data defaults to `~/.each/`:
 `EACH_HOME` can select another private store. Use a real, permission-restricted
 path, not a symlinked location. Back up keys and evidence together according
 to the documented trust/retention policy; never publish the whole directory.
+The [operator runbook](docs/operator-runbook.md) explains actual supported
+verification, partial receipts, exact-owned-resource reconciliation and private
+backup/restore boundaries.
 
 ## Command reference
 
@@ -238,6 +242,11 @@ The [measured production-development contract](docs/production-development-contr
 records the exact observed Mac/model row, budgets, candidate-independent Python
 validation boundary and development-only commands. It does not qualify a
 production release or authorize additional sampling after the bounded cap.
+
+The independent P3/P4 continuation adds [measured audit fixtures and ceilings](docs/audit-qualification.md)
+and [operational fault/recovery controls](docs/operator-runbook.md), not a new
+repair experiment. The audit holdout failed its benign false-flag target.
+Passing operational regressions do not replace independent R4 review.
 
 Contribute harness code, reproducible tests and sanitized evidence. Do not
 include private target patches, prompts, credentials, model weights or signing

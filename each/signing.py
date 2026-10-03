@@ -25,7 +25,7 @@ from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey, Ed25519PublicKey
 
 from each.hashing import canonical_json, sha256_bytes
-from each.paths import FileLock, keys_dir
+from each.paths import FileLock, assert_no_symlink_escape, each_home, keys_dir
 
 PRIVATE_KEY_FILENAME = "each-signing-ed25519.pem"
 PUBLIC_KEY_FILENAME = "each-signing-ed25519-public.pem"
@@ -105,13 +105,25 @@ def generate_or_load_signing_key() -> Ed25519PrivateKey:
     """
     key_path = private_key_path()
     lock_path = keys_dir() / _LOCK_FILENAME
+    for path in (key_path, public_key_path(), lock_path):
+        assert_no_symlink_escape(path, label="signing key or lock")
     with FileLock(lock_path):
+        for path in (key_path, public_key_path()):
+            assert_no_symlink_escape(path, label="signing key")
         if key_path.exists():
             private_key = _load_private_key_from_disk(key_path)
             os.chmod(key_path, 0o600)
             _ensure_public_key_matches(private_key)
             return private_key
 
+        # Missing is not first-use when a public identity or historical receipt
+        # survives. Never silently rotate away from the old signing identity.
+        retained_runs = each_home() / "runs"
+        assert_no_symlink_escape(retained_runs, label="retained runs")
+        if public_key_path().exists() or (
+            retained_runs.exists() and any(retained_runs.glob("*/receipt.json"))
+        ):
+            raise ValueError("signing key is missing; restore the original key from a trusted private backup")
         private_key = Ed25519PrivateKey.generate()
         pem = private_key.private_bytes(
             encoding=serialization.Encoding.PEM,

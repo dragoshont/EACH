@@ -29,8 +29,11 @@ class FileLock:
         self.handle: object | None = None
 
     def __enter__(self) -> Self:
+        assert_no_symlink_escape(self.path, label="private lock")
         self.path.parent.mkdir(parents=True, exist_ok=True)
-        self.handle = self.path.open("a+b")
+        flags = os.O_RDWR | os.O_CREAT | os.O_APPEND | getattr(os, "O_NOFOLLOW", 0)
+        fd = os.open(self.path, flags, 0o600)
+        self.handle = os.fdopen(fd, "a+b")
         if os.name == "nt":
             import msvcrt
 
@@ -79,6 +82,7 @@ def runs_dir() -> Path:
     path = each_home() / "runs"
     assert_no_symlink_escape(path, label="runs directory")
     path.mkdir(parents=True, exist_ok=True)
+    path.chmod(0o700)
     return path
 
 
@@ -93,6 +97,7 @@ def keys_dir() -> Path:
     path = each_home() / "keys"
     assert_no_symlink_escape(path, label="keys directory")
     path.mkdir(parents=True, exist_ok=True)
+    path.chmod(0o700)
     return path
 
 
@@ -173,5 +178,6 @@ def validate_private_root() -> Path:
             f"refusing to use EACH_HOME={home_resolved} because it is inside the repository "
             f"working tree {repo_resolved}; set EACH_HOME to a private location outside any checkout"
         )
-    home.mkdir(parents=True, exist_ok=True)
+    home.mkdir(parents=True, exist_ok=True, mode=0o700)
+    home.chmod(0o700)
     return home_resolved

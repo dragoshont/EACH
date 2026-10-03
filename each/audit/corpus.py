@@ -42,6 +42,8 @@ class InMemoryCorpusAdapter:
         if not self._normalized_members:
             return CheckResult(status="UNAVAILABLE", detail="in-memory corpus-membership adapter has no members")
         normalized_candidate = normalize_text(candidate)
+        if not normalized_candidate:
+            return CheckResult(status="UNAVAILABLE", detail="empty candidate has no comparable source")
         for index, member in enumerate(self._normalized_members):
             if member and (member in normalized_candidate or normalized_candidate in member):
                 return CheckResult(
