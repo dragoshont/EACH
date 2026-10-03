@@ -27,6 +27,7 @@ import re
 import shlex
 import subprocess
 import tarfile
+import time
 import urllib.error
 import urllib.request
 import uuid
@@ -1092,6 +1093,7 @@ def run_benchmark_task(
                 }
             )
             break
+        completion_started = time.perf_counter()
         try:
             raw_completion = model.complete(prompt)
         except ContextBudgetExceeded as exc:
@@ -1119,6 +1121,7 @@ def run_benchmark_task(
                     "audit": _no_audit_yet,
                     "outcome": f"BUILDER_CONTEXT_BUDGET_EXCEEDED: {exc}",
                     "generation_attempted": False,
+                    "completion_call_seconds": time.perf_counter() - completion_started,
                 }
             )
             break
@@ -1129,6 +1132,7 @@ def run_benchmark_task(
             # Never emit exception messages, which may include target text.
             attempts.append({
                 "attempt": attempt_num, "generation_attempted": True,
+                "completion_call_seconds": time.perf_counter() - completion_started,
                 "prompt": getattr(model, "last_prompt", None) or prompt,
                 "raw_completion": "", "materials": attempt_materials,
                 "baseline_result": attempt_baseline,
@@ -1144,6 +1148,7 @@ def run_benchmark_task(
         attempt_record: dict[str, Any] = {
             "attempt": attempt_num,
             "generation_attempted": True,
+            "completion_call_seconds": time.perf_counter() - completion_started,
             "prompt": rendered_prompt if rendered_prompt is not None else prompt,
             "raw_completion": raw_completion,
             "materials": attempt_materials,

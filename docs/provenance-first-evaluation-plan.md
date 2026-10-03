@@ -83,3 +83,39 @@ a model or complete a repair trial.
 is established, finish one candidate's dossier before enabling it.
 See [model provenance](model-provenance.md) for primary sources and
 [the production ledger](production-readiness-ledger.md) for later release gates.
+
+## Performance publication and retention
+
+User direction, 2026-10-03: retain all evaluation data so performance results
+can be published. This is not permission to publish private target artifacts.
+
+Keep original specifications, permitted input files, model/dataset eligibility
+evidence, exact model manifests, backend/environment identity, rendered prompts,
+raw responses, every attempt, patches, validation and audit outputs, errors,
+sampling parameters and signed receipts privately. Do not prune failures,
+replace an old run, or delete retained weights/evidence as cleanup. Backups and
+signing-key storage follow the operator runbook; private keys never enter the
+public result package.
+
+Use a fresh report identifier for every experiment. Reports cannot overwrite
+an existing report, including an interrupted report's private diagnostic journal.
+The journal retains materialization errors separately from public summaries.
+Each completed task summary records its original receipt digest.
+
+New task reports record end-to-end task seconds and measured completion-call
+seconds retained in attempt receipts. Completion-call timing includes adapter
+work; it is not pure decoder throughput. Cold loading, tokenizer counts,
+peak memory and tokens/second must be separately measured by a backend that
+exposes them before those numbers are published. Missing historical metrics
+remain unavailable, never zero or retrospectively guessed.
+
+Publish sanitized task outcomes and numeric metrics, cohort size, actual calls,
+both all-task and context-reached denominators, required-audit availability,
+hardware/runtime/source revisions and fixed evaluation conditions. Include
+failed repairs, errors, rejected proposals and budget/context exclusions.
+Use the sanitized report renderer, not a raw private receipt or diagnostic
+journal. Historical unqualified Qwen/Granite capability runs are a separate
+cohort, not measurements of eligible provenance-first models.
+
+Nothing in this retention instruction reopens inference before the access
+and training-lineage prerequisites are satisfied.

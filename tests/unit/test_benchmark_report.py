@@ -8,6 +8,9 @@ is already covered by tests/adversarial/test_benchmark_task.py.
 from __future__ import annotations
 
 import json
+from pathlib import Path
+
+import pytest
 
 from each.benchmark import BenchmarkExecutionError, BenchmarkTask
 from each.benchmark_report import render_sanitized_markdown, run_suite
@@ -218,3 +221,96 @@ def test_sanitized_markdown_contains_no_patch_or_audit_content():
     assert "--- fake ---" not in markdown
     assert "patch" not in markdown.lower() or "No patch text" in markdown
     assert "No patch text, model prompt/completion content, or known-fix source" in markdown
+
+
+def test_reusing_report_id_preserves_data_and_does_not_start_another_task(monkeypatch, tmp_path):
+    calls = []
+
+    def fake_run(task, model, *, max_attempts, run_id):
+        calls.append(task.task_id)
+        path = _fake_receipt_with_flagged_audit(tmp_path, run_id)
+        return {"outcome": "REPAIR_VERIFIED", "receipt_json": path, "attempts": 1}
+
+    monkeypatch.setattr("each.benchmark_report.run_benchmark_task", fake_run)
+    monkeypatch.setattr("each.benchmark_report.each_home", lambda: tmp_path)
+    first = run_suite([_TASK_A], object(), report_id="retained")
+    original = (tmp_path / "benchmarks/retained.json").read_bytes()
+    with pytest.raises(BenchmarkExecutionError, match="already retained"):
+        run_suite([_TASK_A], object(), report_id="retained")
+    assert calls == ["task-a"]
+    assert (tmp_path / "benchmarks/retained.json").read_bytes() == original
+    assert first["report"]["tasks"][0]["receiptSha256"]
+
+
+def test_existing_incomplete_diagnostics_block_identifier_reuse(monkeypatch, tmp_path):
+    directory = tmp_path / "benchmarks"
+    directory.mkdir()
+    (directory / "interrupted-private-diagnostics.jsonl").write_text("original evidence\n")
+    monkeypatch.setattr("each.benchmark_report.each_home", lambda: tmp_path)
+    with pytest.raises(BenchmarkExecutionError, match="already retained"):
+        run_suite([], object(), report_id="interrupted")
+    assert (directory / "interrupted-private-diagnostics.jsonl").read_text() == "original evidence\n"
+
+
+def test_private_error_details_are_retained_but_not_published(monkeypatch, tmp_path):
+    sentinel = "PRIVATE-ERROR-DETAIL"
+
+    def fake_run(*args, **kwargs):
+        raise BenchmarkExecutionError(sentinel)
+
+    monkeypatch.setattr("each.benchmark_report.run_benchmark_task", fake_run)
+    monkeypatch.setattr("each.benchmark_report.each_home", lambda: tmp_path)
+    result = run_suite([_TASK_A], object(), report_id="private-error")
+    private = (tmp_path / "benchmarks/private-error-private-diagnostics.jsonl").read_text()
+    entries = [json.loads(line) for line in private.splitlines()]
+    assert entries[0]["detail"] == sentinel
+    assert entries[1]["retainedTaskSummary"]["outcome"] == "TASK_MATERIALIZATION_FAILED"
+    assert sentinel not in json.dumps(result["report"])
+    assert sentinel not in render_sanitized_markdown(result["report"])
+
+
+def test_timings_are_measured_and_missing_historical_values_are_unavailable(monkeypatch, tmp_path):
+    def fake_run(task, model, *, max_attempts, run_id):
+        path = _fake_receipt_with_flagged_audit(tmp_path, run_id)
+        receipt = json.loads(Path(path).read_text(encoding="utf-8"))
+        receipt["attempts"] = [{"generation_attempted": True, "completion_call_seconds": 1.25}]
+        receipt["patchText"] = "\u03b1"
+        with open(path, "w", encoding="utf-8") as stream:
+            json.dump(receipt, stream)
+        return {"outcome": "REPAIR_VERIFIED", "receipt_json": path, "attempts": 1}
+
+    ticks = iter([100.0, 102.0])
+    monkeypatch.setattr("each.benchmark_report.run_benchmark_task", fake_run)
+    monkeypatch.setattr("each.benchmark_report.each_home", lambda: tmp_path)
+    monkeypatch.setattr("each.benchmark_report.time.perf_counter", lambda: next(ticks))
+    result = run_suite([_TASK_A], object(), report_id="measured")
+    row = result["report"]["tasks"][0]
+    assert row["taskElapsedSeconds"] == 2.0
+    assert row["completionCallSeconds"] == 1.25
+    assert row["patchSizeBytes"] == 2
+    row.pop("completionCallSeconds")
+    assert "unavailable" in render_sanitized_markdown(result["report"])
+
+
+def test_public_outcomes_cannot_export_candidate_diagnostics():
+    report = {
+        "reportId": "safe", "taskCount": 1, "verifiedCount": 0,
+        "tasks": [{
+            "taskId": "a", "repo": "org/a", "license": "MIT",
+            "outcome": "PATCH_REJECTED: PRIVATE-CANDIDATE-SOURCE", "attempts": 1,
+        }],
+    }
+    assert "PRIVATE-CANDIDATE-SOURCE" not in render_sanitized_markdown(report)
+
+
+def test_report_id_cannot_escape_private_store(monkeypatch, tmp_path):
+    monkeypatch.setattr("each.benchmark_report.each_home", lambda: tmp_path)
+    with pytest.raises(ValueError):
+        run_suite([], object(), report_id="../outside")
+
+
+def test_duplicate_tasks_are_rejected_before_execution(monkeypatch, tmp_path):
+    monkeypatch.setattr("each.benchmark_report.each_home", lambda: tmp_path)
+    with pytest.raises(BenchmarkExecutionError, match="distinct identifiers"):
+        run_suite([_TASK_A, _TASK_A], object(), report_id="duplicates")
+    assert not (tmp_path / "benchmarks").exists()
