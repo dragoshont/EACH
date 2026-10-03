@@ -279,3 +279,56 @@ with the actual user decision.
 Resume the existing Run, not a duplicate conductor. Continue
 M4-M8 only after their own requirements pass; retain private shadow outputs and
 never open an upstream Xodus PR.
+
+## M7 edit-proposal mode: implemented, exercised, genuinely still unresolved
+
+A new, smallest-justified `proposal_format="source_edit"` mode was added to
+`each.clean_room.run_clean_room_build()` (and `each.raw_proposal`) so a local
+model can continue correcting its OWN already-mostly-working prior candidate
+via a minimal `{"old","new"}` JSON edit, instead of being asked to regenerate
+the whole file from scratch (which the existing `full_source` mode had been
+doing across five bounded attempts, each discarding a candidate that was
+genuinely 8/9 passing on the approved M7 spec). The harness performs the
+`str.replace` itself (rejecting an absent or ambiguous `old`), then derives
+the final unified diff, via `difflib`, against the ORIGINAL pristine stub
+pre-image -- exactly like `full_source` mode -- preserving the existing
+apply-onto-a-fresh-worktree invariant. Covered by 15 new `raw_proposal` unit
+tests and two new `clean_room`-level `FixtureModel` selftests (happy-path
+minimal-edit verification, and absent-`old` rejection-and-retry-against-the-
+same-seed). 411 tests pass; `ruff check` clean. Committed as `9505440`.
+
+This mode was then exercised for real: a fresh, independently-receipted,
+bounded (max 5 attempts) M7 correction chain
+(`m7-clean-room-lru-cache-qwen14b-source-edit-20261003`), seeded with the
+model's OWN actual last candidate from the prior stuck
+`qwen14b-requirement-fix` run (read directly from that run's own retained
+`materials/`, never hand-edited), against the same unchanged approved spec
+(`8499cf22...`) and the same already-provisioned Qwen2.5-Coder-14B-Instruct
+local model, proper canonical chat template, recorded context/sampling.
+
+Genuine result: `REPAIR_NOT_VERIFIED` after exhausting all 5 attempts.
+Attempt 1 ran but did not pass the real acceptance suite. Attempts 2-3
+applied a syntactically-invalid edit (the model's own `old`/`new` text did
+not preserve the surrounding indentation, producing a real Python
+`IndentationError` at pytest collection time -- correctly classified as
+`REPAIRED_RUN_INCONCLUSIVE`, never conflated with a clean pass/fail).
+Attempts 4-5 were rejected by the harness before any container execution
+because the model's own completion supplied an identical `old`/`new` pair
+(`PATCH_REJECTED`, not an edit) -- the harness correctly never silently
+no-ops or hand-repairs a degenerate edit. No cloud-authored fix, test
+source, or reference implementation was ever shown to the model; only the
+fixed, approved spec text for item 6 and the model's own prior candidate.
+
+`m7-target-repair-verified` remains honestly `FAIL`. Across this project's
+full authorized model roster and all three proposal-format modes
+(`diff`, `full_source`, `source_edit`), the available local models
+(granite-3.3-8b-instruct, Qwen2.5-Coder-14B-Instruct; the original
+granite-20b-code-instruct deprecated checkpoint) have not produced a
+genuinely verified M7 repair within bounded attempts. The partially
+-provisioned granite-34b-code-instruct snapshot (config/tokenizer only, no
+safetensors weight bytes ever actually downloaded) is not a viable
+candidate without a fresh, separately-authorized multi-hour/68GB
+provisioning decision, and the user's own guidance explicitly rejects a
+"bigger model as a blanket substitute for gates" rationale. This is recorded
+as a genuine local-model capability ceiling for this specific clean-room
+spec, not a harness defect, and not force-passed.
