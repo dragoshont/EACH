@@ -948,6 +948,54 @@ class RunStore:
             producer="coordinator",
         )
 
+    def write_evidence_receipt(self, *, name: str, commit: str, payload: dict[str, Any]) -> tuple[str, str]:
+        """Write one evidence receipt file EXCLUSIVELY, under a name that embeds
+        both the exact execution commit and a fresh, unique execution id.
+
+        Real incident this closes: an earlier ad-hoc registration script wrote
+        gate-evidence receipts to a fixed, deterministic path (e.g.
+        ``base-gate-<short-commit>.json``); a later retry of that SAME script
+        (after an unrelated subprocess-environment bug) wrote to the exact same
+        path again with slightly different content, silently replacing already-
+        registered evidence bytes out from under a previously-computed artifact
+        digest -- permanently tripping the runtime's own artifact-tamper check
+        on every subsequent load. That check was working correctly; the gap was
+        that nothing prevented a caller from reusing a path at all.
+
+        This helper is the fix: every call gets its own fresh ``uuid4`` execution
+        id baked into the filename, and the file is created with ``O_EXCL`` (so a
+        genuine uuid collision -- vanishingly unlikely -- fails loudly instead of
+        silently overwriting). No caller can ever cause two registrations to
+        share one evidence path again, by construction, not by convention.
+        Returns ``(relative_path, execution_id)``; the caller still registers the
+        artifact itself (via ``_record_deterministic_result``/``_record_artifact``
+        etc.) exactly as before.
+        """
+        require_id(name, "evidence receipt name")
+        if not commit or not re.fullmatch(r"[0-9a-fA-F]{40}", commit):
+            raise RuntimeFailure("EVIDENCE_RECEIPT", "write_evidence_receipt requires a full 40-hex-char commit")
+        execution_id = uuid.uuid4().hex[:12]
+        evidence_dir = self.repository / ".architrave" / "evidence"
+        evidence_dir.mkdir(parents=True, exist_ok=True)
+        relative = Path(".architrave") / "evidence" / f"{commit[:12]}-{execution_id}-{name}.json"
+        absolute = self.repository / relative
+        content = json.dumps(payload, indent=2).encode("utf-8")
+        try:
+            descriptor = os.open(absolute, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o644)
+        except FileExistsError as exc:
+            raise RuntimeFailure(
+                "EVIDENCE_PATH_EXISTS",
+                f"evidence path already exists and must never be overwritten: {relative}",
+            ) from exc
+        try:
+            with os.fdopen(descriptor, "wb") as handle:
+                handle.write(content)
+        except BaseException:
+            with contextlib.suppress(OSError):
+                absolute.unlink()
+            raise
+        return str(relative), execution_id
+
     def _record_artifact(
         self,
         run_id: str,
@@ -1321,7 +1369,9 @@ class RunStore:
         # re-verified receipt above -- never from caller-supplied claim
         # fields -- and written to a private, gitignored evidence scratch
         # file inside the repo so `_record_artifact` (which requires a
-        # repo-relative path) can register it.
+        # repo-relative path) can register it. Uses the exclusive-create
+        # evidence helper (never a fixed/reusable path) so a retried call
+        # can never silently overwrite an already-registered receipt's bytes.
         sanitized_summary = {
             "specHash": spec_hash,
             "targetRunId": target_run_id,
@@ -1332,16 +1382,16 @@ class RunStore:
             "modelId": model_id,
             "receiptSha256": hashlib.sha256(resolved.read_bytes()).hexdigest(),
         }
-        evidence_dir = self.repository / ".architrave" / "evidence"
-        evidence_dir.mkdir(parents=True, exist_ok=True)
-        summary_path = evidence_dir / f"{artifact_id}.target-repair-summary.json"
-        summary_path.write_text(json.dumps(sanitized_summary, indent=2), encoding="utf-8")
+        current_commit = self.load(run_id)["baseline"]["commit"]
+        relative_path, _execution_id = self.write_evidence_receipt(
+            name=f"{artifact_id}.target-repair-summary", commit=current_commit, payload=sanitized_summary
+        )
 
         return self._record_artifact(
             run_id,
             artifact_id=artifact_id,
             kind="target-repair-receipt",
-            path=str(summary_path.relative_to(self.repository)),
+            path=relative_path,
             evidence_refs=evidence_refs,
             actor=actor,
             producer="target-repair",
