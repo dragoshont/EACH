@@ -213,7 +213,8 @@ def test_bakeoff_preserves_earlier_attempt_data_when_a_later_baseline_is_inconcl
     result = bakeoff_module.run_model_bakeoff(FixtureModel(_BAKEOFF_PATCH), max_attempts=2, run_id="bakeoff-inconclusive")
     receipt = json.loads(Path(result["receipt_json"]).read_text(encoding="utf-8"))
 
-    assert result["outcome"] == "BASELINE_INCONCLUSIVE: contradictory_summary"
+    assert result["outcome"] == "BASELINE_INCONCLUSIVE"
+    assert receipt["outcome"] == "BASELINE_INCONCLUSIVE: contradictory_summary"
     assert len(receipt["attempts"]) == 2
     assert receipt["attempts"][0]["outcome"] == "REPAIR_NOT_VERIFIED"
     assert receipt["attempts"][0]["baseline_result"]["exit_code"] == 1

@@ -140,6 +140,28 @@ capability. The legacy fixture prompt asks for a diff; a base completion/FIM
 model must next be exercised with an appropriate declared prompt contract,
 not judged as an instruction model or tuned against hidden expected patches.
 
+### Documented base-model FIM wiring
+
+The existing bake-off now supports `--proposal-format fim`. It supplies only
+the fixture's behavioral requirement and unchanged function signature as the
+prefix, an empty suffix, and the model's documented FIM control tokens. The
+model authors the body; the harness reconstructs the file and derives a diff.
+No fixed body is supplied to the real model.
+
+One real run, `starcoderbase-fim-wiring-79a96302751d`, at implementation
+`3dd331f50f4886eafbaa6faaddf44db0fdb3ed33` produced a nonempty response and an
+applied candidate. Baseline and candidate validation both exited **1**:
+**REPAIR_NOT_VERIFIED**. Signature and actual retained input files passed
+verification. The candidate ran in a fresh worktree with protected tests;
+the result is not a missing-test or model-access failure.
+
+Receipt SHA-256:
+`46813452709ab0056fc85e3430a2c3f7a746d78cf9bc7f92403a6d5c4ae95a40`.
+Measured loader/harness time was 33.012 seconds; completion-call time was
+13.009 seconds. Neither is pure token throughput. The earlier diff-format
+rejection remains a separate original run. These are wiring/calibration
+results, not evidence that the Xodus behavior has been implemented.
+
 An independent read-only Adversarial Judge reviewed this dossier and retained
 inspection evidence and returned PASS/ELIGIBLE for the exact base checkpoint.
 It explicitly accepted documented inspectable dataset/stage lineage, not

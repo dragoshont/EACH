@@ -47,13 +47,24 @@ is real evidence; it does not by itself reproduce every intermediate filter.
 ## Still to close
 
 - Bind the full base/continuation artifact lineage to the selected checkpoint.
-- Verify the CommitPackFT selected mixture and its relationship to the
-  released records and training recipe, rather than assuming every dataset
-  entry was used.
+- Resolve the exact selected mixture and training recipe. The published paper
+  describes 5,000 CommitPackFT samples, not training on the entire released
+  dataset. The repository's example `finetuning/starcoder/finetune.sh` points
+  to `ArmelR/guanaco-commits`; it is not sufficient by itself to identify the
+  final model's complete training run. The small committed manual mixtures
+  must not be silently substituted for the paper's selected mixture.
 - Assess collection/license/filtering limits and the missing intermediate
   dataset with an independent dossier review.
 - Only after eligibility: provision the exact weights, verify local runtime
   and evaluate the same approved Xodus behavioral packet.
+
+Bounded direct inspection of the first released CommitPackFT record in each
+of Python, JavaScript, Java, Go, C++ and Rust confirmed readable repository,
+commit, old/new path, language and license metadata. This is six records,
+not the exact 5,000 selected examples or an exhaustive license audit. The
+sampled Rust record is labelled **AGPL-3.0**; calling the entire released
+collection permissive would be incorrect. Known license metadata and clear
+dataset identity are not legal clearance for outputs.
 
 No OctoCoder model weights were acquired or inference calls made in this
 assessment step. Training-data access/inspection is not model evaluation.

@@ -191,6 +191,17 @@ partial conversion; preserve and inspect existing artifacts first. The
 `starcoderbase-mlx` loader verifies the conversion/output identities and binds
 the training-lineage dossier into its model manifest.
 
+For a bounded **fixture wiring check** with this base completion model:
+
+```bash
+uv run --extra audit --extra models each model bakeoff \
+  starcoderbase-mlx --proposal-format fim --max-attempts 1
+```
+
+This does not run the private Xodus task. FIM reconstructs the fixture body
+from the model's response, then uses the existing scoped patch and isolated
+test pipeline. All failed attempts and original inputs remain private.
+
 ### Benchmark image setup limitation
 
 Dockerfiles live under `docker/benchmark-runtime`,
