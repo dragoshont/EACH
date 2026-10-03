@@ -834,3 +834,11 @@ explicit limits: no MLX interruption/power-loss guarantee, no automatic prune
 or general recovery CLI, no TEE, no recursive historical cleanup. Independent
 cross-family/security/policy acceptance remains pending. P2 usefulness is still
 blocked at zero of three repairs/nine calls; P2b and P5-P8 do not advance.
+
+The frozen implementation is
+`0ce8302260c70e3a5d882b95c9a3a84db6e56206`: configured base 573 passed with
+three optional-extra skips, explicit audit/models 576 passed with zero skips;
+Ruff, doctor and packaging passed. All 39 added controls passed targeted
+checks without skips. [Frozen metadata and canonical disposition](production-p3p4-evidence.md)
+record FAILED revision 36, P3 FAIL/P4 UNTESTED and unchanged predecessor history.
+This documentation publication does not restamp the implementation's gate SHA.

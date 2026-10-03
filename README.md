@@ -247,6 +247,8 @@ The independent P3/P4 continuation adds [measured audit fixtures and ceilings](d
 and [operational fault/recovery controls](docs/operator-runbook.md), not a new
 repair experiment. The audit holdout failed its benign false-flag target.
 Passing operational regressions do not replace independent R4 review.
+See [the frozen P3/P4 evidence](docs/production-p3p4-evidence.md) for actual
+source identities, test counts and the failed/pending acceptance disposition.
 
 Contribute harness code, reproducible tests and sanitized evidence. Do not
 include private target patches, prompts, credentials, model weights or signing

@@ -368,9 +368,15 @@ preimage manifest; actual container/host byte-hash and cancellation-receipt
 regressions pass. Original firstslice acceptance must still be independently
 reviewed; this new candidate does not retroactively qualify its runtime.
 
+The [frozen integration evidence](production-p3p4-evidence.md) records
+implementation `0ce8302260c70e3a5d882b95c9a3a84db6e56206`: configured base
+573 passed/3 optional skips, explicit audit/models 576 passed/zero skips,
+39 new targeted controls, and the source-free artifact hash. The continuation
+Run is FAILED revision 36 (P3 FAIL, P4 UNTESTED); engineering tasks completed
+do not turn that outcome into production acceptance.
+
 P4 implementation/testing is not R4 production acceptance. Missing host
 SIGKILL/power-loss and MLX-interruption guarantees are explicit ceilings, not
-invented PASS. Frozen-source gate counts/hashes are published separately after
-integration. No audit-qualified repair, production release, pilot, legal
+invented PASS. No audit-qualified repair, production release, pilot, legal
 certification or new local-model repair is claimed. P2 utility remains blocked,
 so P2b/P5 are not dependency-ready.
