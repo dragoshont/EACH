@@ -225,6 +225,25 @@ def test_rejects_a_real_receipt_that_does_not_declare_a_verified_outcome(harness
         )
 
 
+def test_negative_repair_rejection_does_not_export_private_outcome_details(harness):
+    run_store, _repo, each_home = harness
+    sentinel = "PRIVATE_TARGET_SOURCE_SENTINEL"
+    receipt_path = _write_real_receipt(
+        each_home, "m8-private-negative-outcome", outcome=f"REPAIR_NOT_VERIFIED: {sentinel}"
+    )
+    with pytest.raises(art.RuntimeFailure) as caught:
+        run_store._record_target_repair_receipt(
+            "test-run", artifact_id="m8-evidence", receipt_path=str(receipt_path), evidence_refs=[]
+        )
+    error = caught.value
+    cli_payload = {
+        "status": "failed",
+        "error": {"code": error.code, "message": error.message, "details": art.redact(error.details)},
+    }
+    assert error.code == "TARGET_REPAIR_RECEIPT"
+    assert sentinel not in json.dumps(cli_payload)
+
+
 def test_rejects_a_real_receipt_without_network_isolation_verified(harness):
     run_store, _repo, each_home = harness
     receipt_path = _write_real_receipt(each_home, "m8-no-isolation-run", network_isolation=False)

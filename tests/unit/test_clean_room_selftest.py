@@ -21,6 +21,8 @@ from pathlib import Path
 import each.clean_room as clean_room_module
 from each.benchmark import BenchmarkExecutionError
 from each.clean_room import run_clean_room_build
+from each.executor.base import ExecutionResult
+from each.executor.container import NETWORK_PROBE_DENIAL_MARKER
 from each.hashing import sha256_bytes, sha256_text
 from each.models.base import RepairModel
 from each.models.fixture import FixtureModel
@@ -55,6 +57,52 @@ def _approve_selftest_spec(task_id: str) -> ApprovedSpec:
         approved_by="harness-selftest",
     )
     return ApprovedSpec.approve(packet)
+
+
+def test_verified_clean_room_audit_uses_the_preexecution_subject(tmp_path, monkeypatch) -> None:
+    class MutatingExecutor:
+        def __init__(self, *, image: str) -> None:
+            assert image == clean_room_module.BENCHMARK_IMAGE_DIGEST
+            self.image = image
+            self.network = "none"
+            self.calls = 0
+
+        def identity(self) -> dict[str, str]:
+            return {"executor": "mutation-test"}
+
+        def verify_isolation(self, worktree: Path) -> ExecutionResult:
+            return ExecutionResult(("python",), 1, NETWORK_PROBE_DENIAL_MARKER, "")
+
+        def run(self, command: list[str], worktree: Path, **kwargs) -> ExecutionResult:
+            self.calls += 1
+            assert kwargs["protected_paths"] == ("shadow/m7/test_clean_room_lru_cache.py",)
+            if self.calls == 1:
+                return ExecutionResult(tuple(command), 1, "9 failed in 0.01s\n", "")
+            (worktree / "shadow/m7/clean_room_lru_cache.py").write_text("MUTATED AFTER EXECUTION\n", encoding="utf-8")
+            return ExecutionResult(tuple(command), 0, "9 passed in 0.01s\n", "")
+
+    observed: list[str] = []
+    monkeypatch.setenv("EACH_HOME", str(tmp_path / "each-home"))
+    monkeypatch.setattr(clean_room_module, "ContainerExecutor", MutatingExecutor)
+    monkeypatch.setattr(
+        clean_room_module,
+        "run_audit",
+        lambda source, **kwargs: observed.append(source) or {"checks": {}, "result": "PASS", "toolVersions": {}},
+    )
+    result = run_clean_room_build(
+        FixtureModel(_CORRECT_PATCH),
+        _approve_selftest_spec("clean-room-preexecution-audit"),
+        max_attempts=1,
+        run_id="clean-room-preexecution-audit",
+    )
+    receipt = json.loads(Path(result["receipt_json"]).read_text(encoding="utf-8"))
+
+    assert result["outcome"] == "REPAIR_VERIFIED"
+    assert len(observed) == 1
+    assert "MUTATED AFTER EXECUTION" not in observed[0]
+    subject_hash = sha256_bytes(observed[0].encode("utf-8"))
+    assert receipt["auditSubjectSha256"] == subject_hash
+    assert receipt["attempts"][0]["audit_subject_sha256"] == subject_hash
 
 
 def _write_verified_seed_receipt(tmp_path: Path, *, run_id: str, source: str, spec_hash: str = "seed-spec-hash") -> Path:

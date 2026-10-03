@@ -746,9 +746,8 @@ def run_clean_room_build(
         attempt_record["touched_paths"] = touched
         previous_candidate = (worktree / allowed_path).read_text(encoding="utf-8")
         attempt_record["correction_candidate_hash"] = sha256_text(previous_candidate)
-        attempt_record["audit_subject_sha256"] = sha256_bytes(
-            _read_candidate_bytes_for_audit(worktree, touched)
-        )
+        audit_candidate_bytes = _read_candidate_bytes_for_audit(worktree, touched)
+        attempt_record["audit_subject_sha256"] = sha256_bytes(audit_candidate_bytes)
         # An edit that actually applied advances the base THIS run's own
         # later attempts will edit next; a rejected edit (above) must never
         # advance it (retried against the same base instead).
@@ -837,9 +836,7 @@ def run_clean_room_build(
             # Terminal audit only after generation/validation ends; this is
             # the one point where real reference material may be read, and
             # only for comparison -- never surfaced back to the Builder.
-            final_candidate_source = _read_candidate_bytes_for_audit(worktree, touched).decode(
-                "utf-8", errors="replace"
-            )
+            final_candidate_source = audit_candidate_bytes.decode("utf-8")
             final_audit = run_audit(final_candidate_source, corpus=audit_corpus, corpus_revision=corpus_revision)
             if reject_on_audit_flag(final_audit):
                 outcome = "REPAIR_REJECTED_AUDIT"

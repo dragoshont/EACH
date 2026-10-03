@@ -1469,7 +1469,6 @@ class RunStore:
             raise RuntimeFailure(
                 "TARGET_REPAIR_RECEIPT",
                 "private receipt does not itself declare a verified repair outcome",
-                details={"outcome": outcome},
             )
         if receipt.get("networkIsolationVerified") is not True:
             raise RuntimeFailure("TARGET_REPAIR_RECEIPT", "private receipt does not show network isolation verified")
