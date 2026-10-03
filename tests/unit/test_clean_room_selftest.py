@@ -247,8 +247,7 @@ def test_real_test_feedback_from_a_failed_repair_is_wired_into_the_next_attempts
     applies and genuinely runs (against the real no-network container
     executor) but does not implement correct behavior, so the repaired
     test run genuinely fails; attempt 2's actual rendered prompt must then
-    contain bounded, structurally-extracted diagnostic detail (an "E "
-    exception/assertion line or a failing test node id) derived from
+    contain allowlisted exception classifications and bounded counts derived from
     attempt 1's own REAL repaired-run output -- not a repeat of the exact
     same generic retry text, and never any line from the harness's own
     private corpus (there is none here; both patches are self-contained
@@ -281,13 +280,11 @@ def test_real_test_feedback_from_a_failed_repair_is_wired_into_the_next_attempts
     assert result["attempts"] == 2
     assert len(model.prompts) == 2
     first_prompt, second_prompt = model.prompts
-    assert "actual test run" in second_prompt
-    # the bounded extractor surfaces either an "E "-prefixed assertion line
-    # or a "Failing test case(s):" nodeid line -- accept either, since the
-    # exact real pytest wording is not itself asserted here (this is a
-    # structural/plumbing regression, not a pytest-output-format test).
-    assert ("Exception/assertion detail" in second_prompt) or ("Failing test case(s)" in second_prompt)
-    assert "actual test run" not in first_prompt
+    assert "untrusted validation" in second_prompt
+    assert "Exception categories:" in second_prompt or "Reported test counts:" in second_prompt
+    assert "Exception/assertion detail" not in second_prompt
+    assert "Failing test case(s)" not in second_prompt
+    assert "untrusted validation" not in first_prompt
     receipt = json.loads(Path(result["receipt_json"]).read_text())
     assert receipt["attempts"][0]["outcome"] == "REPAIR_NOT_VERIFIED"
     assert receipt["attempts"][0]["test_feedback_hash"]
@@ -447,4 +444,3 @@ def test_later_baseline_launch_failure_preserves_previous_attempt(tmp_path, monk
     assert receipt["assuranceLevel"] == "EACH-P1"
     assert result["outcome"] == "EXECUTION_ERROR"
     assert "PRIVATE_BASELINE_DIAGNOSTIC" not in json.dumps(result)
-
