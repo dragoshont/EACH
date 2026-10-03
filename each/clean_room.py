@@ -755,6 +755,34 @@ def run_clean_room_build(
         # "UNAVAILABLE", never silently to "PASS".
         if reported_attempt.get("materials_integrity", "UNAVAILABLE") != "PASS" and common_fields["assurance_level"] == "EACH-P2":
             common_fields["assurance_level"] = "EACH-P1"
+    if (
+        final_outcome not in {"REPAIR_VERIFIED", "REPAIR_REJECTED_AUDIT"}
+        and final_patch_text
+        and reported_attempt is not None
+        and reported_attempt.get("materials_integrity") == "PASS"
+    ):
+        # Mandate section 129's Builder/Auditor pipeline is run in full even
+        # when validation itself has already, honestly, failed: "what
+        # Auditor found" is one of the seven items the user must always be
+        # able to see, not something only ever recorded on a verified
+        # repair. This is purely observational once reached -- generation
+        # for this bounded run has already ended (the attempt loop above
+        # has exited), so there is no Builder call left for an audit
+        # finding here to ever feed back into (no post-audit retry).
+        final_worktree, _final_manifest = build_worktree(FIXTURE_ROOT, final_touched)
+        try:
+            apply_patch(parse_patch(final_patch_text), final_worktree, set(final_touched))
+        except PatchRejected:
+            # The selected attempt's own retained patch text failed to
+            # reapply cleanly against a fresh pre-image copy -- an internal
+            # inconsistency the terminal audit cannot meaningfully run
+            # against. Recorded honestly as UNAVAILABLE, never guessed.
+            pass
+        else:
+            final_candidate_source = "\n".join(
+                (final_worktree / path).read_text(encoding="utf-8", errors="replace") for path in final_touched
+            )
+            final_audit = run_audit(final_candidate_source, corpus=audit_corpus, corpus_revision=corpus_revision)
     common_fields["audit"] = final_audit
     common_fields["selected_attempt"] = reported_attempt["attempt"] if reported_attempt is not None else None
     receipt = Receipt(

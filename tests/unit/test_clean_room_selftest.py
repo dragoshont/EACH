@@ -324,6 +324,48 @@ def test_a_later_rejected_retry_never_overwrites_an_earlier_classified_attempts_
     # selected one's.
     assert receipt["attempts"][0]["repaired_result"]
     assert receipt["attempts"][1]["patch_text"] == ""  # PATCH_REJECTED: never applied
+    # Mandate section 129's "what Auditor found" item is always populated
+    # once a patch genuinely applied, even when validation itself already,
+    # honestly, failed -- never left UNAVAILABLE just because the repair
+    # was not verified.
+    assert set(receipt["audit"]["checks"]) == {
+        "exact-substring",
+        "ngram-similarity",
+        "ast-similarity",
+        "license-scan",
+        "corpus-membership",
+    }
+
+
+@requires_colima_each
+def test_terminal_audit_runs_on_the_selected_candidate_source_even_when_repair_not_verified(tmp_path) -> None:
+    """Mandate section 129: the terminal auditor must run AFTER all
+    generation has ended even when validation failed, auditing the actual
+    selected candidate SOURCE (not a diff), and its finding must never feed
+    back into another Builder call."""
+    model = FixtureModel(_APPLIES_BUT_FAILS_PATCH, model_id="fixture/clean-room-selftest-v1")
+    approved = _approve_selftest_spec("test-clean-room-terminal-audit-on-failure")
+
+    result = run_clean_room_build(
+        model, approved, max_attempts=1, run_id=f"selftest-audit-fail-{tmp_path.name}-{uuid.uuid4().hex[:8]}"
+    )
+
+    assert result["outcome"] == "REPAIR_NOT_VERIFIED"
+    receipt = json.loads(Path(result["receipt_json"]).read_text())
+    assert receipt["audit"] != {"checks": {}}
+    assert set(receipt["audit"]["checks"]) == {
+        "exact-substring",
+        "ngram-similarity",
+        "ast-similarity",
+        "license-scan",
+        "corpus-membership",
+    }
+    # Audit running (or its finding) never upgrades or retries a failed
+    # validation -- the outcome stays the genuine REPAIR_NOT_VERIFIED, not
+    # REPAIR_REJECTED_AUDIT (that class is reserved for the verified-repair
+    # path where an audit finding is itself terminal).
+    assert receipt["outcome"] == "REPAIR_NOT_VERIFIED"
+    assert receipt["attempts"] == [receipt["attempts"][0]]  # single attempt, no post-audit retry
 
 
 @requires_colima_each
