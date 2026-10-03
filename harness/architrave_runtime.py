@@ -613,11 +613,12 @@ class RunStore:
         self._verify_events(state["runId"], self._read_events(run_dir), pending_cursor)
         return state
 
-    def _load_locked(self, run_id: str) -> tuple[Path, dict[str, Any]]:
+    def _load_locked(self, run_id: str, *, verify_artifacts: bool = True) -> tuple[Path, dict[str, Any]]:
         run_dir = self.run_dir(run_id)
         state = self._recover_pending(run_dir, self._read_state(run_dir))
         validate_run(state)
-        self._verify_artifacts(state)
+        if verify_artifacts:
+            self._verify_artifacts(state)
         events = self._read_events(run_dir)
         self._verify_events(run_id, events, state["eventCursor"])
         if events and events[-1]["payload"].get("stateHash") != self._state_hash(state):
@@ -2339,7 +2340,12 @@ class RunStore:
             if run_dir.name == current_run_id or not (run_dir / "run.json").is_file():
                 continue
             try:
-                other = self.load(run_dir.name)
+                # Resource ownership is authenticated canonical state, not
+                # historical artifact availability. Missing old gate files
+                # must not globally deadlock new development. Still validate
+                # schema, event HMAC chain and stateHash; never trust raw JSON.
+                with FileLock(run_dir / ".run.lock"):
+                    _, other = self._load_locked(run_dir.name, verify_artifacts=False)
             except RuntimeFailure as exc:
                 raise RuntimeFailure(
                     "RESOURCE_STATE_UNREADABLE",

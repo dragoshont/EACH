@@ -22,6 +22,7 @@ from __future__ import annotations
 
 import ast
 import dataclasses
+import json
 import re
 import shlex
 import subprocess
@@ -36,11 +37,14 @@ from each.audit.run import reject_on_audit_flag, run_audit
 from each.demo import _DOCKER_LAUNCH_FAILURE_EXIT_CODES, _result_to_dict
 from each.executor.base import ExecutionResult
 from each.executor.container import ContainerExecutor, ContainerExecutorError, derive_assurance_level
+from each.executor.python_observer import PythonCase
 from each.hashing import sha256_bytes
 from each.models.base import ContextBudgetExceeded, RepairModel
+from each.origin import Origin
 from each.outcome import sanitize_outcome_class
 from each.patch import PatchRejected, apply_patch, extract_patch_text, parse_patch
 from each.paths import assert_no_symlink_escape, cache_dir, runs_dir
+from each.raw_proposal import RawProposalRejected
 from each.receipt import Receipt
 from each.spec import ApprovedSpec, make_spec_packet
 from each.worktree import build_worktree
@@ -131,6 +135,10 @@ class BenchmarkTask:
     # ``_classify_native_execution``'s historical ``validator_exit_one``
     # bug this field exists to make structurally impossible.
     build_command: tuple[str, ...] = ()
+    # Production development supports only standalone JSON-shaped APIs here.
+    # Expected answers never enter the candidate container or Builder prompt.
+    observation_cases: tuple[PythonCase, ...] = ()
+    proposal_format: str = "unified_diff"
 
 
 def _raw_url(repo: str, sha: str, path: str) -> str:
@@ -233,7 +241,10 @@ def _materialize_native_task_sources(task: BenchmarkTask) -> tuple[Path, list[st
     """
     root = cache_dir() / "benchmark" / task.task_id / task.pre_fix_sha / "source"
     assert_no_symlink_escape(root, label="benchmark source cache root")
-    already_cached = root.exists() and any(root.iterdir())
+    already_cached = all(
+        (root / rel).is_file()
+        for rel in (task.bug_path, *task.source_paths, *(rel for rel, _ in task.validator_files))
+    )
     if not already_cached:
         root.mkdir(parents=True, exist_ok=True)
         for rel in (task.bug_path, *task.source_paths):
@@ -282,7 +293,7 @@ def materialize_task_sources(task: BenchmarkTask) -> tuple[Path, list[str]]:
     tarball extraction/pip-install pipeline has no meaning for a C/C++/Rust
     compile-and-validate task.
     """
-    if task.language != "python":
+    if task.language != "python" or task.observation_cases:
         return _materialize_native_task_sources(task)
     root = cache_dir() / "benchmark" / task.task_id / task.pre_fix_sha / "source"
     assert_no_symlink_escape(root, label="benchmark source cache root")
@@ -507,9 +518,35 @@ def _classify_execution(
 ) -> tuple[str | None, dict[str, Any]]:
     """Dispatch to the pytest-summary classifier (Python) or the binary
     compile-and-run classifier (C/C++/Rust), by ``task.language``."""
+    if task.observation_cases:
+        evidence = json.loads(result.stdout)
+        counts_match = (
+            evidence["expectedCases"] == len(task.observation_cases)
+            and evidence["completedCases"] == len(task.observation_cases)
+            and evidence["sourceUnchanged"]
+            and [c["caseId"] for c in evidence["cases"]] == [c.case_id for c in task.observation_cases]
+        )
+        verdict = "passed" if counts_match and result.exit_code == 0 else (
+            "failed" if counts_match and result.exit_code == 1 else None
+        )
+        return verdict, {
+            "classification": verdict or "inconclusive",
+            "reason": "independent_json_observations",
+            "evidence": evidence,
+        }
     if task.language != "python":
         return _classify_native_execution(result)
     return _classify_pytest_execution(result, expected_tests=expected_tests)
+
+
+def _run_task_validation(
+    task: BenchmarkTask, executor: ContainerExecutor, worktree: Path, protected_paths: tuple[str, ...],
+) -> ExecutionResult:
+    if task.observation_cases:
+        from each.executor.python_observer import observe_python
+
+        return observe_python(executor, worktree, task.bug_path, task.observation_cases)
+    return executor.run(_wrapped_test_command(task), worktree, protected_paths=protected_paths)
 
 
 def _read_candidate_bytes_for_audit(worktree: Path, touched: list[str]) -> bytes:
@@ -786,7 +823,10 @@ def retain_task_materials(task: BenchmarkTask, materials_root: Path) -> dict[str
 
     bug_source = (materials_root / task.bug_path).read_text(encoding="utf-8")
     pre_fix_test_sources = [fetch_file(task.repo, task.pre_fix_sha, test_path) for test_path in task.test_paths]
-    excerpt_source, excerpt_start_line, excerpt_end_line = select_prompt_excerpt(bug_source, pre_fix_test_sources)
+    if task.observation_cases:
+        excerpt_source, excerpt_start_line, excerpt_end_line = bug_source, 1, len(bug_source.splitlines())
+    else:
+        excerpt_source, excerpt_start_line, excerpt_end_line = select_prompt_excerpt(bug_source, pre_fix_test_sources)
     excerpt_sha256 = sha256_bytes(excerpt_source.encode("utf-8"))
     excerpt_material_key = f"{task.bug_path}#prompt-excerpt:{excerpt_start_line}-{excerpt_end_line}"
     excerpt_path = materials_root / excerpt_material_key
@@ -816,9 +856,16 @@ def run_benchmark_task(
     run_id = run_id or f"benchmark-{task.task_id}-{uuid.uuid4().hex[:8]}"
     if max_attempts < 1:
         raise ValueError(f"max_attempts must be >= 1, got {max_attempts}")
+    if task.observation_cases and max_attempts > 3:
+        raise ValueError("observation development tasks permit at most three attempts")
 
     source_root, include_paths = materialize_task_sources(task)
     bug_source = (source_root / task.bug_path).read_text(encoding="utf-8")
+    if task.observation_cases and (
+        task.language != "python" or len(bug_source.encode("utf-8")) > 8192
+        or task.test_paths or task.validator_files or task.build_command or task.extra_pip_packages
+    ):
+        raise ValueError("observation support is standalone Python, <=8192 bytes, no in-container tests/deps/build")
     # Deterministic, diff-blind excerpt selection: uses only the pre-fix test
     # file(s)' own public references and the pre-fix bug file's local call
     # graph (never task.fix_sha/diff content) to shrink real multi-KB
@@ -826,7 +873,10 @@ def run_benchmark_task(
     # (see select_prompt_excerpt). Test sources are fetched at pre_fix_sha,
     # not fix_sha, to keep selection independent of the known fix.
     pre_fix_test_sources = [fetch_file(task.repo, task.pre_fix_sha, test_path) for test_path in task.test_paths]
-    excerpt_source, excerpt_start_line, excerpt_end_line = select_prompt_excerpt(bug_source, pre_fix_test_sources)
+    if task.observation_cases:
+        excerpt_source, excerpt_start_line, excerpt_end_line = bug_source, 1, len(bug_source.splitlines())
+    else:
+        excerpt_source, excerpt_start_line, excerpt_end_line = select_prompt_excerpt(bug_source, pre_fix_test_sources)
     excerpt_sha256 = sha256_bytes(excerpt_source.encode("utf-8"))
     excerpt_material_key = f"{task.bug_path}#prompt-excerpt:{excerpt_start_line}-{excerpt_end_line}"
 
@@ -839,7 +889,14 @@ def run_benchmark_task(
         build_commands=[list(task.build_command)] if task.build_command else [],
         acceptance_commands=[list(task.test_command)],
         forbidden_sources=["network", "host-secrets", "host-home-mount", "known-fix-disclosure"],
-        approved_by="local-benchmark-operator",
+        approved_by="authorized-engineering-coordinator" if task.observation_cases else "local-benchmark-operator",
+        material_origins={
+            "problem_statement": Origin.PUBLIC_OPEN_SOURCE,
+            "allowed_paths": Origin.PUBLIC_OPEN_SOURCE,
+            "build_commands": Origin.USER_ASSERTION,
+            "acceptance_commands": Origin.USER_ASSERTION,
+            "forbidden_sources": Origin.USER_ASSERTION,
+        } if task.observation_cases else None,
     )
     approved = ApprovedSpec.approve(spec_packet)
     approved.verify()
@@ -858,6 +915,17 @@ def run_benchmark_task(
         start_line=excerpt_start_line,
         end_line=excerpt_end_line,
     )
+    if task.proposal_format == "full_source":
+        if not task.observation_cases:
+            raise ValueError("full_source benchmark proposals require a standalone observation task")
+        base_prompt = (
+            f"Repair this public Python source according to the behavioral contract.\n"
+            f"{task.problem_statement}\nOnly {task.bug_path} may change. Preserve other behavior.\n"
+            f"Complete original file:\n```python\n{bug_source}\n```\n"
+            "Return only the complete new file between BEGIN_SOURCE and END_SOURCE markers."
+        )
+    elif task.proposal_format != "unified_diff":
+        raise ValueError("unsupported benchmark proposal format")
 
     _no_audit_yet = {
         "checks": {},
@@ -933,7 +1001,10 @@ def run_benchmark_task(
                         "attempt": attempt_num,
                         "prompt": prompt,
                         "raw_completion": "",
-                        "materials": {},
+                        "materials": {
+                            **{rel: sha256_bytes((source_root / rel).read_bytes()) for rel in include_paths},
+                            excerpt_material_key: excerpt_sha256,
+                        } if task.observation_cases else {},
                         "baseline_result": {},
                         "patch_text": "",
                         "touched_paths": [],
@@ -974,7 +1045,7 @@ def run_benchmark_task(
                     }
                 )
                 break
-            baseline = executor.run(_wrapped_test_command(task), worktree, protected_paths=protected_paths)
+            baseline = _run_task_validation(task, executor, worktree, protected_paths)
         except ContainerExecutorError as exc:
             attempts.append(
                 {
@@ -997,7 +1068,7 @@ def run_benchmark_task(
         baseline_verdict, baseline_classification = _classify_execution(
             task, baseline, expected_tests=expected_tests
         )
-        if baseline_verdict is None:
+        if baseline_verdict is None or (task.observation_cases and baseline_verdict != "failed"):
             attempts.append(
                 {
                     "attempt": attempt_num,
@@ -1046,6 +1117,24 @@ def run_benchmark_task(
                 }
             )
             break
+        except Exception as exc:
+            if not task.observation_cases:
+                raise
+            # Preserve an honest signed partial observation-lane receipt.
+            # Never emit exception messages, which may include target text.
+            attempts.append({
+                "attempt": attempt_num, "generation_attempted": True,
+                "prompt": getattr(model, "last_prompt", None) or prompt,
+                "raw_completion": "", "materials": attempt_materials,
+                "baseline_result": attempt_baseline,
+                "baseline_classification": baseline_classification,
+                "patch_text": "", "touched_paths": [], "repaired_result": {},
+                "repaired_classification": {"classification": "unavailable", "reason": "not_run"},
+                "audit": _no_audit_yet, "outcome": "EXECUTION_ERROR",
+                "failureStage": "generation", "errorType": type(exc).__name__,
+                "model_identity": model.identity(),
+            })
+            break
         rendered_prompt = getattr(model, "last_prompt", None)
         attempt_record: dict[str, Any] = {
             "attempt": attempt_num,
@@ -1064,10 +1153,18 @@ def run_benchmark_task(
         }
 
         try:
-            patch_text = extract_patch_text(raw_completion)
+            if task.proposal_format == "full_source":
+                from each.raw_proposal import derive_unified_diff, extract_full_source
+
+                patch_text = derive_unified_diff(
+                    path=task.bug_path, original_text=bug_source,
+                    proposed_text=extract_full_source(raw_completion),
+                )
+            else:
+                patch_text = extract_patch_text(raw_completion)
             patch = parse_patch(patch_text)
             touched = apply_patch(patch, worktree, {task.bug_path})
-        except PatchRejected as exc:
+        except (PatchRejected, RawProposalRejected) as exc:
             attempt_record["outcome"] = f"PATCH_REJECTED: {exc}"
             attempts.append(attempt_record)
             prompt = base_prompt + _RETRY_SUFFIX.format(reason=str(exc))
@@ -1104,7 +1201,7 @@ def run_benchmark_task(
                 attempts.append(attempt_record)
                 prompt = base_prompt + _RETRY_SUFFIX.format(reason="the candidate did not compile; try again")
                 continue
-            repaired = executor.run(_wrapped_test_command(task), worktree, protected_paths=candidate_protected_paths)
+            repaired = _run_task_validation(task, executor, worktree, candidate_protected_paths)
         except ContainerExecutorError as exc:
             attempt_record["outcome"] = f"EXECUTION_ERROR: {exc}"
             attempts.append(attempt_record)
@@ -1163,6 +1260,10 @@ def run_benchmark_task(
         audit_subject_sha256=selected.get("audit_subject_sha256"),
         **common_fields,
     )
+    if task.observation_cases:
+        retained = retain_task_materials(task, runs_dir() / run_id / "materials")
+        if retained != selected["materials"]:
+            raise ValueError("retained observation inputs differ from selected attempt")
     json_path, md_path = receipt.write(runs_dir() / run_id)
     try:
         known_fix_sha256: str | None = sha256_bytes(materialize_known_fix(task).encode("utf-8"))

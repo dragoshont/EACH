@@ -75,3 +75,24 @@ def test_a_different_pre_fix_sha_is_never_served_from_another_shas_cache(monkeyp
     # actually asks for a different sha.
     assert task_a.pre_fix_sha in str(root_a)
     assert task_b.pre_fix_sha in str(root_b)
+
+
+def test_partial_standalone_cache_is_completed_not_trusted(monkeypatch, tmp_path):
+    from each.executor.python_observer import PythonCase
+
+    monkeypatch.setattr(benchmark_module, "cache_dir", lambda: tmp_path)
+    task = BenchmarkTask(
+        task_id="partial-cache", repo="example/lib", license="MIT",
+        pre_fix_sha="a" * 40, fix_sha="b" * 40, bug_path="api.py",
+        source_paths=("LICENCE",), test_paths=(), test_command=("observer",),
+        problem_statement="public contract", observation_cases=(PythonCase("case", "f", ()),),
+    )
+    root = tmp_path / "benchmark" / task.task_id / task.pre_fix_sha / "source"
+    root.mkdir(parents=True)
+    (root / "api.py").write_text("partial download")
+    monkeypatch.setattr(benchmark_module, "fetch_file", lambda repo, sha, path: f"pinned {path}\n")
+    actual, paths = materialize_task_sources(task)
+    assert actual == root
+    assert paths == ["LICENCE", "api.py"]
+    assert (root / "LICENCE").read_text() == "pinned LICENCE\n"
+    assert (root / "api.py").read_text() == "pinned api.py\n"

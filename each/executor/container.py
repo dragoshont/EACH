@@ -98,6 +98,7 @@ class ContainerExecutor(Executor):
         *,
         container_name: str,
         protected_paths: tuple[str, ...] = (),
+        read_only_worktree: bool = False,
     ) -> list[str]:
         """Build the ``docker run`` argv for one execution.
 
@@ -140,7 +141,7 @@ class ContainerExecutor(Executor):
             "--env-file",
             "/dev/null",
             "-v",
-            f"{worktree}:/work:rw",
+            f"{worktree}:/work:{'ro' if read_only_worktree else 'rw'}",
         ]
         for rel_path in protected_paths:
             if rel_path.startswith("/") or ".." in Path(rel_path).parts:
@@ -188,10 +189,12 @@ class ContainerExecutor(Executor):
         timeout: int = 120,
         container_name: str | None = None,
         protected_paths: tuple[str, ...] = (),
+        read_only_worktree: bool = False,
     ) -> ExecutionResult:
         container_name = container_name or f"each-exec-{uuid.uuid4().hex}"
         docker_cmd = self.build_docker_command(
-            command, worktree, container_name=container_name, protected_paths=protected_paths
+            command, worktree, container_name=container_name, protected_paths=protected_paths,
+            read_only_worktree=read_only_worktree,
         )
         try:
             proc = subprocess.run(
