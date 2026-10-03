@@ -174,6 +174,107 @@ def test_question_answer_format_records_exact_backend_input(monkeypatch, tmp_pat
     assert model.identity()["promptFormat"] == "question-answer"
 
 
+@pytest.mark.parametrize("failure", ["context", "render", "tokenize", "backend"])
+def test_failed_call_does_not_inherit_previous_prompt_or_tokens(monkeypatch, tmp_path, failure):
+    model = _model(tmp_path, max_position_embeddings=10, max_tokens=5, monkeypatch=monkeypatch)
+    calls = []
+
+    def generate(*args, **kwargs):
+        calls.append(kwargs["prompt"])
+        if len(calls) == 2:
+            raise RuntimeError("fixture backend failure")
+        return "fixture response"
+
+    monkeypatch.setattr("mlx_lm.generate", generate)
+    model.complete("first request")
+    assert model.last_input_token_count == 2
+    request = "second request has eight words and exceeds budget" if failure == "context" else "different next request"
+
+    def fail(*args, **kwargs):
+        raise RuntimeError(f"fixture {failure} failure")
+
+    if failure == "render":
+        monkeypatch.setattr(model, "_render_prompt", fail)
+    elif failure == "tokenize":
+        monkeypatch.setattr(_FakeTokenizer, "encode", fail)
+    with pytest.raises(RuntimeError):
+        model.complete(request)
+    assert model.last_raw_prompt == request
+    assert model.last_generation_attempted is (failure == "backend")
+    assert len(calls) == (2 if failure == "backend" else 1)
+    assert model.last_prompt == (None if failure == "render" else f"[rendered]{request}")
+    expected_tokens = None if failure in {"render", "tokenize"} else len(request.split())
+    assert model.identity()["contextPolicy"]["lastInputTokenCount"] == expected_tokens
+
+
+@pytest.mark.parametrize("failure", ["context", "render", "backend"])
+def test_bakeoff_retry_failure_records_only_current_request(monkeypatch, tmp_path, failure):
+    import json
+
+    from each import bakeoff
+    from each.attestation import verify_materials_root, verify_receipt
+    from each.executor.base import ExecutionResult
+    from each.executor.container import NETWORK_PROBE_DENIAL_MARKER
+    from each.signing import public_key_path
+
+    monkeypatch.setenv("EACH_HOME", str(tmp_path / "each-home"))
+    base_prompt = bakeoff._PROMPT_TEMPLATE.format(
+        problem="greet() returns 'Hell, <name>' instead of 'Hello, <name>'.",
+        allowed_paths=bakeoff.FIXTURE_ALLOWED_PATHS,
+        path=bakeoff.FIXTURE_ALLOWED_PATHS[0],
+        source=bakeoff._BUG_SOURCE,
+    )
+    model = _model(
+        tmp_path, max_position_embeddings=len(base_prompt.split()) + 5 if failure == "context" else 2048,
+        max_tokens=5, monkeypatch=monkeypatch,
+    )
+    calls = []
+
+    def fail_render(prompt):
+        raise RuntimeError("fixture render failure")
+
+    def generate(*args, **kwargs):
+        calls.append(kwargs["prompt"])
+        if failure == "render":
+            monkeypatch.setattr(model, "_render_prompt", fail_render)
+        if len(calls) == 2:
+            raise RuntimeError("fixture backend failure")
+        return "not a patch"
+
+    monkeypatch.setattr("mlx_lm.generate", generate)
+    monkeypatch.setattr(
+        bakeoff.ContainerExecutor, "verify_isolation",
+        lambda *a, **k: ExecutionResult(("python",), 1, NETWORK_PROBE_DENIAL_MARKER, ""),
+    )
+    monkeypatch.setattr(
+        bakeoff.ContainerExecutor, "run",
+        lambda *a, **k: ExecutionResult(("python",), 1, "Ran 1 test in 0.01s\n\nFAILED (failures=1)\n", ""),
+    )
+    result = bakeoff.run_model_bakeoff(model, max_attempts=2)
+    path = Path(result["receipt_json"])
+    receipt = json.loads(path.read_text())
+    first, failed = receipt["attempts"]
+    assert len(calls) == (2 if failure == "backend" else 1)
+    assert failed["prompt"] != first["prompt"]
+    assert failed["raw_request"] != first["raw_request"]
+    assert failed["prompt"] == ("" if failure == "render" else f"[rendered]{failed['raw_request']}")
+    assert failed["rendered_prompt_available"] is (failure != "render")
+    assert failed["generation_attempted"] is (failure == "backend")
+    assert failed["failureStage"] == ("generation" if failure == "backend" else "generation_preflight")
+    assert failed["failureClassification"] == (
+        "backend_generation_failed" if failure == "backend" else "generation_not_started"
+    )
+    assert failed["errorType"] == ("ContextBudgetExceeded" if failure == "context" else "RuntimeError")
+    assert failed["raw_completion"] == ""
+    tokens = failed["model_identity"]["contextPolicy"]["lastInputTokenCount"]
+    assert tokens == (None if failure == "render" else len(failed["prompt"].split()))
+    assert tokens != first["model_identity"]["contextPolicy"]["lastInputTokenCount"]
+    assert receipt["prompt"] == failed["prompt"]
+    assert receipt["modelIdentity"] == failed["model_identity"]
+    assert verify_receipt(receipt, public_key_path().read_bytes())["status"] == "PASS"
+    assert verify_materials_root(receipt, path.parent / "materials")["status"] == "PASS"
+
+
 def test_default_sampling_identity_is_unchanged_greedy(monkeypatch, tmp_path) -> None:
     """Without ever calling configure_sampling, identity() reports exactly
     the same deterministic greedy defaults as before this feature existed

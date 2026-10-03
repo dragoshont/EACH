@@ -39,7 +39,7 @@ from each.demo import (
 )
 from each.executor.container import ContainerExecutor, ContainerExecutorError, derive_assurance_level
 from each.hashing import sha256_bytes
-from each.models.base import RepairModel
+from each.models.base import ContextBudgetExceeded, RepairModel
 from each.outcome import sanitize_outcome_class
 from each.patch import PatchRejected, apply_patch, extract_patch_text, parse_patch
 from each.paths import runs_dir
@@ -141,10 +141,15 @@ def run_model_bakeoff(
     approved.verify()
 
     executor = ContainerExecutor()
-    probe_worktree, _probe_manifest = build_worktree(FIXTURE_ROOT, FIXTURE_ALLOWED_PATHS + FIXTURE_TEST_PATHS)
-    isolation_result = executor.verify_isolation(probe_worktree)
-    assurance_level = derive_assurance_level(executor, isolation_result)
-    isolation_evidence = _result_to_dict(isolation_result)
+    probe_worktree, probe_manifest = build_worktree(FIXTURE_ROOT, FIXTURE_ALLOWED_PATHS + FIXTURE_TEST_PATHS)
+    try:
+        isolation_result = executor.verify_isolation(probe_worktree)
+    except ContainerExecutorError as exc:
+        assurance_level = "EACH-P1"
+        isolation_evidence = {"errorType": type(exc).__name__, "errorDetail": str(exc)}
+    else:
+        assurance_level = derive_assurance_level(executor, isolation_result)
+        isolation_evidence = _result_to_dict(isolation_result)
 
     base_prompt = _PROMPT_TEMPLATE.format(
         problem=spec_packet.problem_statement,
@@ -174,20 +179,28 @@ def run_model_bakeoff(
             "reason": "no validated candidate exists; terminal audit has not run",
         },
         "assurance_level": assurance_level,
+        "network_isolation_verified": assurance_level == "EACH-P2",
     }
 
     if assurance_level != "EACH-P2":
         outcome = "ISOLATION_UNVERIFIED"
+        isolation_evidence.update({
+            "status": "failed",
+            "failureStage": "isolation",
+            "generation_attempted": False,
+            "validation_attempted": False,
+        })
+        common_fields["prompt"] = ""
         receipt = Receipt(
             patch_text="",
             touched_paths=[],
-            materials={},
+            materials=probe_manifest,
             baseline_result={},
             repaired_result={},
             outcome=outcome,
             **common_fields,
         )
-        json_path, md_path = receipt.write(runs_dir() / run_id)
+        json_path, md_path = receipt.write(runs_dir() / run_id, materials_source=FIXTURE_ROOT)
         return {"outcome": outcome, "receipt_json": str(json_path), "receipt_md": str(md_path), "attempts": 0}
 
     attempts: list[dict[str, Any]] = []
@@ -251,13 +264,21 @@ def run_model_bakeoff(
             )
             break
         completion_started = time.perf_counter()
+        model.last_prompt = None
         try:
             raw_completion = model.complete(prompt)
         except (RuntimeError, OSError, ValueError, TypeError, ImportError, MemoryError, KeyboardInterrupt) as exc:
+            generation_attempted = (
+                False if isinstance(exc, ContextBudgetExceeded)
+                else getattr(model, "last_generation_attempted", None)
+            )
             attempts.append({
                 "attempt": attempt_num,
                 "proposal_format": proposal_format,
-                "prompt": getattr(model, "last_prompt", None) or prompt,
+                "raw_request": prompt,
+                "prompt": getattr(model, "last_prompt", None) or "",
+                "rendered_prompt_available": model.last_prompt is not None,
+                "generation_attempted": generation_attempted,
                 "raw_completion": "",
                 "materials": manifest,
                 "baseline_result": attempt_baseline,
@@ -266,7 +287,12 @@ def run_model_bakeoff(
                 "repaired_classification": {"classification": "unavailable", "reason": "not_run"},
                 "audit": common_fields["audit"],
                 "outcome": "EXECUTION_ERROR",
-                "failureStage": "generation",
+                "failureStage": "generation_preflight" if generation_attempted is False else "generation",
+                "failureClassification": (
+                    "generation_not_started" if generation_attempted is False
+                    else "backend_generation_failed" if generation_attempted is True
+                    else "generation_stage_unknown"
+                ),
                 "errorType": type(exc).__name__,
                 "generation_error_detail": str(exc),
                 "completion_call_seconds": time.perf_counter() - completion_started,
@@ -278,7 +304,10 @@ def run_model_bakeoff(
             "attempt": attempt_num,
             "proposal_format": proposal_format,
             "completion_call_seconds": time.perf_counter() - completion_started,
+            "raw_request": prompt,
             "prompt": rendered_prompt if rendered_prompt is not None else prompt,
+            "rendered_prompt_available": rendered_prompt is not None,
+            "generation_attempted": True,
             "raw_completion": raw_completion,
             "materials": manifest,
             "baseline_result": attempt_baseline,

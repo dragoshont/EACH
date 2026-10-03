@@ -193,6 +193,15 @@ No further Base utility attempts or other model evaluations ran in this slice.
 Private prompts, responses, candidate source, keys, data records and weights
 were not exported.
 
+The subsequent bounded review correction addresses failure evidence only:
+isolation-probe exceptions and unsuccessful exits finalize signed private
+receipts with both original inputs and explicit no-generation/no-validation
+status. MLX resets per-call metadata before preflight; failed retries retain
+the current raw request separately from any available rendered input and
+distinguish preflight rejection from backend generation failure. Synthetic
+regressions cover these paths without new model inference. The original
+successful wiring receipt and all earlier negative evidence remain unchanged.
+
 Primary sources:
 - [OctoCoder model card](https://huggingface.co/bigcode/octocoder/blob/0f863c63e38ba80fc2c4010f34a7f46d537a9eee/README.md)
 - [OctoPack paper](https://arxiv.org/html/2308.07124v2)

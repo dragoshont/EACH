@@ -9,6 +9,8 @@ import pytest
 from each import bakeoff
 from each.attestation import verify_materials_root, verify_receipt
 from each.executor.base import ExecutionResult
+from each.executor.container import ContainerExecutorError
+from each.hashing import sha256_file
 from each.models.fixture import FixtureModel
 from each.signing import public_key_path
 from tests.adversarial._docker_guard import requires_colima_each
@@ -40,6 +42,60 @@ def test_missing_fixture_test_module_is_not_a_genuine_failing_test():
     verdict, classification = bakeoff._classify_fixture_run(result, expected_tests=1)
     assert verdict is None
     assert classification["reason"] == "test_collection_failed"
+
+
+@pytest.mark.parametrize("proposal_format", ["diff", "fim"])
+@pytest.mark.parametrize("failure", ["missing-docker", "timeout", "exit-125"])
+def test_isolation_failure_retains_signed_originals_without_generation(
+    tmp_path, monkeypatch, proposal_format, failure,
+):
+    monkeypatch.setenv("EACH_HOME", str(tmp_path / "each-home"))
+    calls = {"generation": 0, "validation": 0}
+
+    def probe(self, worktree):
+        if failure == "exit-125":
+            return ExecutionResult(("python",), 125, "", "fixture container launch failure")
+        raise ContainerExecutorError(f"fixture {failure}")
+
+    def validation(*args, **kwargs):
+        calls["validation"] += 1
+        pytest.fail("isolation failure must not execute validation")
+
+    def generation(prompt):
+        calls["generation"] += 1
+        pytest.fail("isolation failure must not invoke the model")
+
+    monkeypatch.setattr(bakeoff.ContainerExecutor, "verify_isolation", probe)
+    monkeypatch.setattr(bakeoff.ContainerExecutor, "run", validation)
+    model = FixtureModel("unused")
+    monkeypatch.setattr(model, "complete", generation)
+    result = bakeoff.run_model_bakeoff(model, max_attempts=1, proposal_format=proposal_format)
+    path = Path(result["receipt_json"])
+    receipt = json.loads(path.read_text())
+    assert result["outcome"] == "ISOLATION_UNVERIFIED"
+    assert result["attempts"] == 0
+    assert calls == {"generation": 0, "validation": 0}
+    assert receipt["baselineResult"] == receipt["repairedResult"] == {}
+    assert receipt["prompt"] == receipt["rawCompletion"] == ""
+    assert receipt["attempts"] == []
+    assert receipt["networkIsolationVerified"] is False
+    assert receipt["assuranceLevel"] == "EACH-P1"
+    evidence = receipt["isolationEvidence"]
+    assert evidence["status"] == "failed"
+    assert evidence["failureStage"] == "isolation"
+    assert evidence["generation_attempted"] is evidence["validation_attempted"] is False
+    if failure == "exit-125":
+        assert evidence["exit_code"] == 125
+    else:
+        assert evidence["errorType"] == "ContainerExecutorError"
+        assert evidence["errorDetail"] == f"fixture {failure}"
+    assert receipt["materials"] == {
+        name: sha256_file(bakeoff.FIXTURE_ROOT / name)
+        for name in bakeoff.FIXTURE_ALLOWED_PATHS + bakeoff.FIXTURE_TEST_PATHS
+    }
+    assert len(receipt["materials"]) == 2
+    assert verify_receipt(receipt, public_key_path().read_bytes())["status"] == "PASS"
+    assert verify_materials_root(receipt, path.parent / "materials")["status"] == "PASS"
 
 
 @requires_colima_each

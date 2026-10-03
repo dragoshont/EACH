@@ -53,10 +53,9 @@ class MLXRepairModel(RepairModel):
         self._prompt_format = prompt_format
         self._model = None
         self._tokenizer = None
-        # last_prompt (inherited from RepairModel) is set to the exact
-        # backend-encoded string after chat-template rendering -- that is
-        # what callers (each.benchmark/each.bakeoff) record as a receipt's
-        # "prompt" field, because that is what the model actually received.
+        # last_prompt is the current call's rendered input, when available.
+        # generationAttempted distinguishes a rejected preflight from an
+        # actual backend invocation; neither inherits a previous call's data.
         # last_raw_prompt keeps the pre-render controller request distinct,
         # so replaying a saved receipt's (already-rendered) prompt through
         # complete() is never silently double-wrapped by a second
@@ -64,6 +63,7 @@ class MLXRepairModel(RepairModel):
         # receipt's rendered prompt field, when reproducing an attempt.
         self.last_raw_prompt: str | None = None
         self.last_input_token_count: int | None = None
+        self.last_generation_attempted = False
         self._temperature = 0.0
         self._seed: int | None = None
 
@@ -107,6 +107,7 @@ class MLXRepairModel(RepairModel):
             "reservedOutputTokens": self._max_tokens,
             "lastInputTokenCount": self.last_input_token_count,
         }
+        identity["generationAttempted"] = self.last_generation_attempted
         if self._model_config:
             identity["runtimeModelConfig"] = dict(self._model_config)
         if self._prompt_format != "auto":
@@ -141,8 +142,10 @@ class MLXRepairModel(RepairModel):
         (recorded as ``None``, not assumed unlimited by a magic default).
         """
         rendered = self._render_prompt(prompt)
+        self.last_prompt = rendered
         self._ensure_loaded()
         input_token_count = len(self._tokenizer.encode(rendered))
+        self.last_input_token_count = input_token_count
         limit = self._manifest.max_position_embeddings
         if limit is not None and input_token_count + self._max_tokens > limit:
             raise ContextBudgetExceeded(
@@ -169,22 +172,25 @@ class MLXRepairModel(RepairModel):
         self._seed = seed
 
     def complete(self, prompt: str) -> str:
-        rendered, input_token_count = self.check_context_budget(prompt)
+        self.last_raw_prompt = prompt
+        self.last_prompt = None
+        self.last_input_token_count = None
+        self.last_generation_attempted = False
+        rendered, _input_token_count = self.check_context_budget(prompt)
         import mlx_lm
         from mlx_lm.sample_utils import make_sampler
 
-        self.last_raw_prompt = prompt
-        self.last_prompt = rendered
-        self.last_input_token_count = input_token_count
         if self._seed is not None:
             import mlx.core as mx
 
             mx.random.seed(self._seed)
+        sampler = make_sampler(temp=self._temperature)
+        self.last_generation_attempted = True
         return mlx_lm.generate(
             self._model,
             self._tokenizer,
             prompt=rendered,
             max_tokens=self._max_tokens,
-            sampler=make_sampler(temp=self._temperature),
+            sampler=sampler,
             verbose=False,
         )
