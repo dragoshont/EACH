@@ -653,3 +653,82 @@ possible; this session's materials-retention fix applies going forward only.
 Recovering genuine original bytes retroactively, or producing a fresh local
 benchmark run if the originals are unavailable, remains open and untouched —
 no historical bytes have been fabricated or implied to exist.
+
+### Final release: `each-release-mandate-aligned-v6` COMPLETED at `e3c0cf45b7091cb361f146b7338009bfa0fc7f53`
+
+This entry is a **publication of the already-reviewed source**, not a new
+implementation review — no source change accompanies this commit.
+
+Reviewed implementation commit `e3c0cf45b7091cb361f146b7338009bfa0fc7f53`
+("Preserve independent risk gates for target-owned acceptance criteria")
+fixed the last confirmed defect: `record_gate()`'s target-evidence-ownership
+enforcement had been applying to every gate type, which made it structurally
+impossible for an independent deterministic or semantic risk gate to ever
+bind to a `targetEvidence`-owning criterion (`m7-clean-room-experiment-complete`,
+`m8-target-repair-verified`, `m8-replay-validation-64b3e8a`). The fix scopes
+that enforcement to `gate_type in {"reality", "e2e"}` only, leaving full
+target-ownership/kind/purpose/spec-hash matching intact for reality/e2e
+evidence, while deterministic and semantic gates now correctly bind without
+requiring a forbidden target-repair producer.
+
+The durable Run `each-release-mandate-aligned-v6` was resumed onto this
+commit via the supported `resume(accept_commit=True)` API (same Run, no new
+successor needed), and every piece of evidence was freshly re-derived and
+re-registered at the new baseline through `RunStore`'s own supported methods
+— `_record_artifact`, `record_gate`, `set_criterion`,
+`_record_semantic_verdict`, `_record_security_verdict`,
+`_record_policy_decision`, `_record_m7_experiment_receipt`,
+`_record_target_repair_receipt`, `_record_target_replay_receipt`,
+`_record_external_proof`, `add_task`, `start_task`, `wait_external`,
+`resolve_external`, `grant_task_attempt`, `finish_worker`, `complete_task`,
+and finally `verify`. No canonical Run state was hand-edited.
+
+Final acceptance matrix (all 11 criteria, fresh at `e3c0cf4`):
+
+| Criterion | Status |
+|---|---|
+| `harness-rootcause-fix` | PASS |
+| `a3bf1f4-successor-defect-fix` | PASS |
+| `base-gate` | PASS |
+| `audit-models-gate` | PASS |
+| `ruff-doctor` | PASS |
+| `m6-mixed-language-coverage` | PASS |
+| `m7-clean-room-experiment-complete` | PASS |
+| `m8-target-repair-verified` | PASS |
+| `m8-replay-validation-64b3e8a` | PASS |
+| `cross-family-semantic-review` | PASS |
+| `security-policy-review-r4` | PASS |
+
+The two release-wide criteria were set to PASS from genuinely independent,
+freshly produced GPT-family and Claude-family semantic verdicts (not
+self-authored), plus dedicated security and policy verdict gates. Their
+`e2e-or-reality` requirement was satisfied by a real local Ed25519-signed
+runtime-reality proof: a `SIGNING_REQUIRED` external checkpoint was opened,
+a source-free payload combining a fresh container read-only-kernel-isolation
+probe, a fresh network-isolation probe (genuine `errno 101` denial connecting
+to `1.1.1.1:443` through the product's own no-network container executor,
+not a bootstrap-level probe), and sanitized M7/M8/full-suite summaries was
+signed with the existing `each/signing.py` Ed25519 key (outside Git), verified
+independently twice, registered as an `external-proof` artifact, and the
+checkpoint resolved — all through supported APIs. This signature is a local
+cryptographic operation under a trusted local coordinator/key-holder
+boundary; it is explicitly **not** a human-approval claim, hardware
+attestation, or TEE proof.
+
+`missing_gate_requirements()` returns zero gaps across all 11 criteria. The
+Run's own `store.verify()` reports `status: "COMPLETED"`, `completed: true`,
+with empty `failedCriteria`/`untestedCriteria`/`blockedExternalCriteria`/
+`missingEvidence`/`incompleteTasks`/`pendingExternalCheckpoints`. Schema
+validation (`harness/validate_run_v2.py`) reports PASS (revision 100, 11
+acceptance criteria, 101 events).
+
+**Retained historical limits, unchanged:** M6's 25 historical tasks (22
+Python + 3 native) are re-verified, not re-generated; original producer SHAs
+are preserved. M7's experiment outcome remains a genuine negative
+(`REPAIR_NOT_VERIFIED`, unseeded, 3 attempts); its audit coverage was honestly
+`UNAVAILABLE` (no reference corpus), never coerced to PASS. M8's historical
+target-repair receipt keeps its legacy `UNKNOWN` original producer SHA and
+audit-subject hash; only the current replay's reconstructed subject hash is
+asserted as current proof. No TEE, no legal/clean-room certification, no
+upstream Xodus PR, no P3 coverage claim, no hardware attestation, and no
+human-approval claim is made anywhere in this evidence chain.
