@@ -138,10 +138,17 @@ def build_manifest_from_snapshot(
     config = json.loads(config_path.read_text())
     quantization: dict[str, Any] = config.get("quantization", {})
     # The declared supported context window (mandate: never let a prompt
-    # silently exceed what the checkpoint actually supports). Honestly
-    # recorded as None if the config does not declare one, rather than
-    # guessing a default.
+    # silently exceed what the checkpoint actually supports). Most HF
+    # architectures declare this as "max_position_embeddings", but the
+    # GPT-2/GPT-BigCode family (e.g. granite-20b-code-instruct's own
+    # config.json: model_type="gpt_bigcode") uses "n_positions" for the
+    # identical concept instead -- falling back to it here is reading the
+    # same declared value under its real field name for that architecture,
+    # not guessing a default. Honestly recorded as None only if the config
+    # declares neither field.
     max_position_embeddings = config.get("max_position_embeddings")
+    if max_position_embeddings is None:
+        max_position_embeddings = config.get("n_positions")
 
     return ModelManifest(
         repo_id=repo_id,
