@@ -131,6 +131,14 @@ def _run_suite(
                     "completionCallSeconds": 0.0,
                 }
             )
+        except (Exception, KeyboardInterrupt) as exc:
+            diagnostics.write(json.dumps({
+                "taskId": task.task_id, "stage": "task",
+                "errorType": type(exc).__name__, "detail": str(exc),
+                "taskElapsedSeconds": time.perf_counter() - started,
+            }) + "\n")
+            diagnostics.flush()
+            raise
         diagnostics.write(json.dumps({"taskId": task.task_id, "retainedTaskSummary": task_results[-1]}) + "\n")
         diagnostics.flush()
 

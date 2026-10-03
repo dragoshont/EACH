@@ -44,7 +44,7 @@ from each.models.base import ContextBudgetExceeded, RepairModel
 from each.origin import Origin
 from each.outcome import sanitize_outcome_class
 from each.patch import PatchRejected, apply_patch, extract_patch_text, parse_patch
-from each.paths import assert_no_symlink_escape, cache_dir, runs_dir
+from each.paths import assert_no_symlink_escape, cache_dir, runs_dir, validate_task_id
 from each.raw_proposal import RawProposalRejected
 from each.receipt import Receipt
 from each.spec import ApprovedSpec, make_spec_packet
@@ -856,6 +856,7 @@ def run_benchmark_task(
     function's executor/model work begins), never during execution.
     """
     run_id = run_id or f"benchmark-{task.task_id}-{uuid.uuid4().hex[:8]}"
+    validate_task_id(run_id)
     if max_attempts < 1:
         raise ValueError(f"max_attempts must be >= 1, got {max_attempts}")
     if task.observation_cases and max_attempts > 3:
@@ -902,6 +903,16 @@ def run_benchmark_task(
     )
     approved = ApprovedSpec.approve(spec_packet)
     approved.verify()
+
+    materials_root = runs_dir() / run_id / "materials"
+    assert_no_symlink_escape(materials_root, label="benchmark retained inputs")
+    materials_root.mkdir(parents=True, exist_ok=False, mode=0o700)
+    _retained_tree, retained_manifest = build_worktree(source_root, include_paths, dest=materials_root)
+    excerpt_path = materials_root / excerpt_material_key
+    assert_no_symlink_escape(excerpt_path, label="benchmark retained excerpt")
+    excerpt_path.parent.mkdir(parents=True, exist_ok=True)
+    excerpt_path.write_text(excerpt_source, encoding="utf-8")
+    retained_materials = {**retained_manifest, excerpt_material_key: excerpt_sha256}
 
     executor = ContainerExecutor(image=_benchmark_image_for(task))
     probe_worktree, _probe_manifest = build_worktree(source_root, include_paths)
@@ -952,7 +963,7 @@ def run_benchmark_task(
         receipt = Receipt(
             patch_text="",
             touched_paths=[],
-            materials={excerpt_material_key: excerpt_sha256},
+            materials=retained_materials,
             baseline_result={},
             repaired_result={},
             outcome=outcome,
@@ -1003,10 +1014,7 @@ def run_benchmark_task(
                         "attempt": attempt_num,
                         "prompt": prompt,
                         "raw_completion": "",
-                        "materials": {
-                            **{rel: sha256_bytes((source_root / rel).read_bytes()) for rel in include_paths},
-                            excerpt_material_key: excerpt_sha256,
-                        } if task.observation_cases else {},
+                        "materials": retained_materials,
                         "baseline_result": {},
                         "patch_text": "",
                         "touched_paths": [],
@@ -1125,10 +1133,8 @@ def run_benchmark_task(
                 }
             )
             break
-        except (Exception, KeyboardInterrupt) as exc:
-            if not task.observation_cases:
-                raise
-            # Preserve an honest signed partial observation-lane receipt.
+        except (RuntimeError, OSError, ValueError, TypeError, ImportError, MemoryError, KeyboardInterrupt) as exc:
+            # Preserve the attempted call before finalizing its failed receipt.
             # Never emit exception messages, which may include target text.
             attempts.append({
                 "attempt": attempt_num, "generation_attempted": True,
@@ -1141,6 +1147,7 @@ def run_benchmark_task(
                 "repaired_classification": {"classification": "unavailable", "reason": "not_run"},
                 "audit": _no_audit_yet, "outcome": "EXECUTION_ERROR",
                 "failureStage": "generation", "errorType": type(exc).__name__,
+                "generation_error_detail": str(exc),
                 "model_identity": model.identity(),
             })
             break
@@ -1293,10 +1300,8 @@ def run_benchmark_task(
         audit_subject_sha256=selected.get("audit_subject_sha256"),
         **common_fields,
     )
-    if task.observation_cases:
-        retained = retain_task_materials(task, runs_dir() / run_id / "materials")
-        if retained != selected["materials"]:
-            raise ValueError("retained observation inputs differ from selected attempt")
+    if retained_materials != selected["materials"]:
+        raise ValueError("retained benchmark inputs differ from selected attempt")
     json_path, md_path = receipt.write(runs_dir() / run_id)
     try:
         known_fix_sha256: str | None = sha256_bytes(materialize_known_fix(task).encode("utf-8"))

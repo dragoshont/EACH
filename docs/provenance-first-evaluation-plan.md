@@ -101,6 +101,11 @@ Use a fresh report identifier for every experiment. Reports cannot overwrite
 an existing report, including an interrupted report's private diagnostic journal.
 The journal retains materialization errors separately from public summaries.
 Each completed task summary records its original receipt digest.
+New benchmark tasks archive their original input files and prompt excerpt
+before execution/generation. Expected backend failures retain a signed partial
+attempt with its measured call duration and private diagnostic. Unexpected
+task errors are journalled and re-raised; an incomplete suite is not published
+as a completed comparison or invented zero-call result.
 
 New task reports record end-to-end task seconds and measured completion-call
 seconds retained in attempt receipts. Completion-call timing includes adapter

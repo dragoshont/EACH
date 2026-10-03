@@ -11,6 +11,7 @@ import each.benchmark as benchmark_module
 from each.benchmark import BenchmarkTask
 from each.executor.base import ExecutionResult
 from each.executor.container import NETWORK_PROBE_DENIAL_MARKER, ContainerExecutorError
+from each.hashing import sha256_file
 from each.models.fixture import FixtureModel
 
 PATCH = """BEGIN_PATCH
@@ -80,7 +81,7 @@ def _fake_build_worktree(source_root: Path, include_paths: list[str], dest: Path
         target = worktree / rel
         target.parent.mkdir(parents=True, exist_ok=True)
         target.write_bytes(src.read_bytes())
-    return worktree, {rel: "hash" for rel in include_paths}
+    return worktree, {rel: sha256_file(worktree / rel) for rel in include_paths}
 
 
 def test_bakeoff_preserves_generation_data_in_a_partial_receipt_after_a_repaired_run_timeout(tmp_path, monkeypatch):
@@ -100,7 +101,10 @@ def test_bakeoff_preserves_generation_data_in_a_partial_receipt_after_a_repaired
     assert receipt["attempts"][0]["outcome"].startswith("EXECUTION_ERROR")
 
 
-def test_benchmark_preserves_generation_data_in_a_partial_receipt_after_a_repaired_run_timeout(tmp_path, monkeypatch):
+@pytest.mark.parametrize("generation_error", [None, RuntimeError, benchmark_module.BenchmarkExecutionError, KeyboardInterrupt])
+def test_benchmark_preserves_generation_data_in_a_partial_receipt_after_a_repaired_run_timeout(
+    tmp_path, monkeypatch, generation_error
+):
     source_root = tmp_path / "source"
     (source_root / "pkg").mkdir(parents=True)
     (source_root / "tests").mkdir(parents=True)
@@ -137,13 +141,30 @@ END_PATCH
         test_command=("pytest", "tests/test_module.py", "-q"),
         problem_statement="greet() returns Hell instead of Hello",
     )
+    if generation_error:
+        def fail_generation(prompt):
+            raise generation_error("PRIVATE-GENERATION-FAILURE")
+        monkeypatch.setattr(model, "complete", fail_generation)
 
     result = benchmark_module.run_benchmark_task(task, model, max_attempts=1, run_id="benchmark-partial")
 
     assert result["outcome"] == "EXECUTION_ERROR"
     receipt = json.loads(Path(result["receipt_json"]).read_text(encoding="utf-8"))
     assert receipt["selectedAttempt"] == 1
-    assert receipt["attempts"][0]["raw_completion"]
-    assert receipt["attempts"][0]["patch_text"]
+    if generation_error:
+        attempt = receipt["attempts"][0]
+        assert attempt["generation_attempted"] is True
+        assert attempt["failureStage"] == "generation"
+        assert attempt["errorType"] == generation_error.__name__
+        assert attempt["completion_call_seconds"] >= 0
+        assert attempt["generation_error_detail"] == "PRIVATE-GENERATION-FAILURE"
+        assert attempt["raw_completion"] == ""
+    else:
+        assert receipt["attempts"][0]["raw_completion"]
+        assert receipt["attempts"][0]["patch_text"]
     assert receipt["attempts"][0]["model_identity"]["adapterType"] == "FixtureModel"
     assert receipt["attempts"][0]["outcome"].startswith("EXECUTION_ERROR")
+    from each.attestation import verify_materials_root, verify_receipt
+    from each.signing import public_key_path
+    assert verify_materials_root(receipt, Path(result["receipt_json"]).parent / "materials")["status"] == "PASS"
+    assert verify_receipt(receipt, public_key_path().read_bytes())["status"] == "PASS"

@@ -314,3 +314,23 @@ def test_duplicate_tasks_are_rejected_before_execution(monkeypatch, tmp_path):
     with pytest.raises(BenchmarkExecutionError, match="distinct identifiers"):
         run_suite([_TASK_A, _TASK_A], object(), report_id="duplicates")
     assert not (tmp_path / "benchmarks").exists()
+
+
+def test_unexpected_task_failure_is_retained_privately_then_propagated(monkeypatch, tmp_path):
+    def fake_run(task, model, *, max_attempts, run_id):
+        if task.task_id == "task-b":
+            raise RuntimeError("PRIVATE-UNEXPECTED-DETAIL")
+        path = _fake_receipt_with_flagged_audit(tmp_path, run_id)
+        return {"outcome": "REPAIR_VERIFIED", "receipt_json": path, "attempts": 1}
+
+    monkeypatch.setattr("each.benchmark_report.run_benchmark_task", fake_run)
+    monkeypatch.setattr("each.benchmark_report.each_home", lambda: tmp_path)
+    with pytest.raises(RuntimeError, match="PRIVATE-UNEXPECTED-DETAIL"):
+        run_suite([_TASK_A, _TASK_B], object(), report_id="unexpected")
+    path = tmp_path / "benchmarks/unexpected-private-diagnostics.jsonl"
+    entries = [json.loads(line) for line in path.read_text().splitlines()]
+    assert entries[0]["retainedTaskSummary"]["taskId"] == "task-a"
+    assert entries[1]["taskId"] == "task-b"
+    assert entries[1]["errorType"] == "RuntimeError"
+    assert entries[1]["detail"] == "PRIVATE-UNEXPECTED-DETAIL"
+    assert not (tmp_path / "benchmarks/unexpected.json").exists()
