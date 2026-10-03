@@ -3,7 +3,13 @@ from __future__ import annotations
 import pytest
 
 from each.patch import parse_patch
-from each.raw_proposal import RawProposalRejected, derive_unified_diff, extract_full_source
+from each.raw_proposal import (
+    RawProposalRejected,
+    apply_source_edit,
+    derive_unified_diff,
+    extract_full_source,
+    extract_source_edit,
+)
 
 
 def test_extract_full_source_happy_path() -> None:
@@ -120,3 +126,92 @@ def test_derive_unified_diff_rejects_eof_case_even_with_multiple_hunks() -> None
     proposed = "\n".join(lines)  # no trailing newline on the reconstructed text
     with pytest.raises(RawProposalRejected, match="trailing newline"):
         derive_unified_diff(path="f.py", original_text=original, proposed_text=proposed)
+
+
+# Edit-proposal mode (`extract_source_edit`/`apply_source_edit`): the
+# smallest-surface alternative to both diff-shaped and full-source-shaped
+# output. These synthetic examples use unrelated toy arithmetic, never the
+# real clean-room-lru-cache fixture content.
+
+
+def test_extract_source_edit_happy_path() -> None:
+    completion = '{"old": "return a + b", "new": "return a - b"}'
+    assert extract_source_edit(completion) == {"old": "return a + b", "new": "return a - b"}
+
+
+def test_extract_source_edit_tolerates_one_closed_markdown_fence() -> None:
+    completion = '```json\n{"old": "x = 1", "new": "x = 2"}\n```'
+    assert extract_source_edit(completion) == {"old": "x = 1", "new": "x = 2"}
+
+
+def test_extract_source_edit_rejects_invalid_json() -> None:
+    with pytest.raises(RawProposalRejected, match="not valid JSON"):
+        extract_source_edit("not json at all")
+
+
+def test_extract_source_edit_rejects_non_object_json() -> None:
+    with pytest.raises(RawProposalRejected, match="JSON object"):
+        extract_source_edit('["old", "new"]')
+
+
+def test_extract_source_edit_rejects_missing_key() -> None:
+    with pytest.raises(RawProposalRejected, match="exactly the keys"):
+        extract_source_edit('{"old": "x = 1"}')
+
+
+def test_extract_source_edit_rejects_extra_key() -> None:
+    with pytest.raises(RawProposalRejected, match="exactly the keys"):
+        extract_source_edit('{"old": "x = 1", "new": "x = 2", "reason": "fix"}')
+
+
+def test_extract_source_edit_rejects_non_string_value() -> None:
+    with pytest.raises(RawProposalRejected, match="must both be JSON strings"):
+        extract_source_edit('{"old": "x = 1", "new": 2}')
+
+
+def test_extract_source_edit_rejects_empty_old() -> None:
+    with pytest.raises(RawProposalRejected, match="non-empty"):
+        extract_source_edit('{"old": "", "new": "x = 2"}')
+
+
+def test_extract_source_edit_rejects_identical_old_and_new() -> None:
+    with pytest.raises(RawProposalRejected, match="identical"):
+        extract_source_edit('{"old": "x = 1", "new": "x = 1"}')
+
+
+def test_extract_source_edit_rejects_oversized_response() -> None:
+    huge = "a" * 25_000
+    with pytest.raises(RawProposalRejected, match="bounded size limit"):
+        extract_source_edit('{"old": "' + huge + '", "new": "b"}')
+
+
+def test_extract_source_edit_rejects_prose_around_json() -> None:
+    with pytest.raises(RawProposalRejected, match="not valid JSON"):
+        extract_source_edit('Here is my edit: {"old": "x = 1", "new": "x = 2"}')
+
+
+def test_apply_source_edit_happy_path() -> None:
+    previous = "def f():\n    x = 1\n    return x\n"
+    edit = {"old": "x = 1", "new": "x = 2"}
+    assert apply_source_edit(previous_source=previous, edit=edit) == "def f():\n    x = 2\n    return x\n"
+
+
+def test_apply_source_edit_rejects_absent_old() -> None:
+    with pytest.raises(RawProposalRejected, match="does not occur"):
+        apply_source_edit(previous_source="def f():\n    return 1\n", edit={"old": "x = 1", "new": "x = 2"})
+
+
+def test_apply_source_edit_rejects_ambiguous_old() -> None:
+    previous = "x = 1\ny = 1\n"
+    with pytest.raises(RawProposalRejected, match="occurs 2 times"):
+        apply_source_edit(previous_source=previous, edit={"old": "= 1", "new": "= 2"})
+
+
+def test_source_edit_roundtrip_through_derive_unified_diff() -> None:
+    original = "def f(a, b):\n    return a + b\n"
+    edit = extract_source_edit('{"old": "return a + b", "new": "return a - b"}')
+    proposed = apply_source_edit(previous_source=original, edit=edit)
+    diff_text = derive_unified_diff(path="f.py", original_text=original, proposed_text=proposed)
+    assert diff_text
+    patch = parse_patch(diff_text)
+    assert len(patch) == 1

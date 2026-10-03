@@ -28,13 +28,94 @@ parsing fails.
 from __future__ import annotations
 
 import difflib
+import json
+import re
 
 SOURCE_BEGIN = "BEGIN_SOURCE"
 SOURCE_END = "END_SOURCE"
 
+# (edit-proposal mode) A still-smaller-surface alternative to both
+# diff-shaped and full-source-shaped output: when a candidate is already
+# mostly correct (e.g. a prior bounded correction chain converged on a
+# generally-working file that still fails one approved requirement), asking
+# the model to regenerate or re-diff the ENTIRE file gives it maximal
+# surface area to silently reintroduce an already-fixed defect while fixing
+# another. Asking for the smallest possible find-and-replace edit to its own
+# previously-captured candidate bounds the blast radius of each individual
+# correction attempt to exactly the text it names.
+_EDIT_FENCE_RE = re.compile(r"^```(?:json)?\s*\n(.*)\n```$", re.DOTALL)
+EDIT_MAX_RESPONSE_CHARS = 20_000
+EDIT_MAX_FIELD_CHARS = 10_000
+
 
 class RawProposalRejected(RuntimeError):
-    """Raised when a full-source completion cannot be safely parsed."""
+    """Raised when a full-source or edit-proposal completion cannot be safely parsed."""
+
+
+def extract_source_edit(completion: str) -> dict[str, str]:
+    """Parse a strict, minimal JSON edit object: ``{"old": "...", "new": "..."}``.
+
+    The harness performs the actual substitution itself (see
+    :func:`apply_source_edit`) once ``old`` is confirmed to occur exactly
+    once in the model's own previously-captured candidate source, then
+    still derives the final unified diff with ``difflib`` against the
+    original known pre-image -- exactly as :func:`extract_full_source`/
+    :func:`derive_unified_diff` already do for full-file proposals. Only
+    how one candidate's raw text becomes two known-good strings changes.
+
+    Rejects: a non-JSON-object completion, missing/extra top-level keys,
+    non-string values, an empty ``old``, ``old == new`` (a no-op
+    masquerading as an edit), and an oversized response or field (a
+    bounded sanity limit, never a content-based judgement). Tolerates one
+    optional, fully-closed enclosing markdown code fence (some
+    instruction-tuned models wrap JSON output in one regardless of
+    instructions) but never a second fence or unfenced prose around the
+    object.
+    """
+    text = completion.strip()
+    if len(text) > EDIT_MAX_RESPONSE_CHARS:
+        raise RawProposalRejected(f"edit-proposal response exceeds the bounded size limit ({len(text)} chars)")
+    fence_match = _EDIT_FENCE_RE.match(text)
+    if fence_match:
+        text = fence_match.group(1).strip()
+    try:
+        payload = json.loads(text)
+    except json.JSONDecodeError as exc:
+        raise RawProposalRejected(f"edit-proposal response is not valid JSON: {exc}") from exc
+    if not isinstance(payload, dict):
+        raise RawProposalRejected("edit-proposal response must be a JSON object")
+    if set(payload.keys()) != {"old", "new"}:
+        raise RawProposalRejected(
+            f"edit-proposal response must have exactly the keys 'old' and 'new', got {sorted(payload.keys())!r}"
+        )
+    old, new = payload["old"], payload["new"]
+    if not isinstance(old, str) or not isinstance(new, str):
+        raise RawProposalRejected("edit-proposal 'old' and 'new' must both be JSON strings")
+    if len(old) > EDIT_MAX_FIELD_CHARS or len(new) > EDIT_MAX_FIELD_CHARS:
+        raise RawProposalRejected("edit-proposal 'old'/'new' field exceeds the bounded size limit")
+    if not old:
+        raise RawProposalRejected("edit-proposal 'old' must be non-empty")
+    if old == new:
+        raise RawProposalRejected("edit-proposal 'old' and 'new' are identical; not an edit")
+    return {"old": old, "new": new}
+
+
+def apply_source_edit(*, previous_source: str, edit: dict[str, str]) -> str:
+    """Apply a validated ``{"old", "new"}`` edit to ``previous_source`` via a
+    single, deterministic ``str.replace`` -- never a partial, fuzzy, or
+    first/last-occurrence match. Requires ``old`` to occur in
+    ``previous_source`` EXACTLY once: an absent or ambiguous (multiple
+    equally-valid) occurrence is rejected rather than silently guessed at.
+    """
+    old, new = edit["old"], edit["new"]
+    occurrences = previous_source.count(old)
+    if occurrences == 0:
+        raise RawProposalRejected("edit-proposal 'old' text does not occur in the previous candidate source")
+    if occurrences > 1:
+        raise RawProposalRejected(
+            f"edit-proposal 'old' text occurs {occurrences} times in the previous candidate source; must be unique"
+        )
+    return previous_source.replace(old, new, 1)
 
 
 def extract_full_source(completion: str) -> str:

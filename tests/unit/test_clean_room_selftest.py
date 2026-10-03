@@ -83,6 +83,92 @@ def test_fixture_model_candidate_is_verified_and_signed(tmp_path) -> None:
 
 
 @requires_colima_each
+def test_source_edit_mode_applies_minimal_json_edit_to_seed_candidate(tmp_path) -> None:
+    """Edit-proposal mode (``proposal_format="source_edit"``): seed an
+    existing, mostly-correct candidate (standing in for a genuine prior
+    bounded correction chain's own captured candidate) with exactly one
+    known, deliberately-introduced bug, and confirm the harness applies a
+    minimal ``{"old", "new"}`` JSON edit from the model to reach a verified
+    repair -- never by asking the model to regenerate or re-diff the whole
+    file. The final patch is still derived (via ``difflib``) against the
+    ORIGINAL pristine stub pre-image, exactly like ``full_source`` mode.
+    """
+    from each.patch import apply_patch, parse_patch
+    from each.worktree import build_worktree
+
+    approved = _approve_selftest_spec("test-clean-room-source-edit-selftest")
+    allowed_path = "shadow/m7/clean_room_lru_cache.py"
+    worktree, _manifest = build_worktree(
+        clean_room_module.FIXTURE_ROOT, [allowed_path, "shadow/m7/test_clean_room_lru_cache.py"]
+    )
+    apply_patch(parse_patch(_CORRECT_PATCH), worktree, {allowed_path})
+    correct_source = (worktree / allowed_path).read_text()
+
+    # A single-line, deliberately introduced bug: cache_clear() no longer
+    # resets `hits` to 0 (breaking approved spec item 3 only; every other
+    # requirement remains genuinely satisfied by this candidate).
+    buggy_line = "pass  # intentionally buggy for this harness self-test"
+    fixed_line = "hits[0] = 0"
+    assert correct_source.count(fixed_line) == 1
+    seed_source = correct_source.replace(fixed_line, buggy_line, 1)
+    assert seed_source != correct_source
+
+    edit_json = json.dumps({"old": buggy_line, "new": fixed_line})
+    model = FixtureModel(edit_json, model_id="fixture/clean-room-selftest-source-edit-v1")
+
+    result = run_clean_room_build(
+        model,
+        approved,
+        max_attempts=1,
+        run_id=f"selftest-source-edit-{tmp_path.name}-{uuid.uuid4().hex[:8]}",
+        proposal_format="source_edit",
+        seed_source=seed_source,
+        seed_failed_items=(3,),
+    )
+
+    assert result["outcome"] == "REPAIR_VERIFIED"
+    assert result["attempts"] == 1
+    receipt = json.loads(Path(result["receipt_json"]).read_text())
+    assert receipt["attempts"][0]["outcome"] == "REPAIR_VERIFIED"
+    assert receipt["attempts"][0]["proposal_format"] == "source_edit"
+    assert receipt["patchText"]
+    # The applied patch still represents the complete transformation from
+    # the pristine original stub (which raises NotImplementedError), not a
+    # diff relative to the seed candidate.
+    assert "NotImplementedError" in receipt["patchText"]
+
+
+@requires_colima_each
+def test_source_edit_mode_rejects_an_edit_whose_old_text_is_absent(tmp_path) -> None:
+    """A model completion whose ``old`` text does not occur (verbatim) in
+    the seed candidate must be rejected (PATCH_REJECTED) and retried
+    against the SAME unmodified seed, never silently applied elsewhere or
+    advanced to a different base.
+    """
+    approved = _approve_selftest_spec("test-clean-room-source-edit-absent-old")
+    seed_source = (
+        "def lru_cache_clean_room(maxsize=128, typed=False):\n"
+        "    raise NotImplementedError('seed placeholder')\n"
+    )
+    edit_json = json.dumps({"old": "this text is not present anywhere", "new": "replacement"})
+    model = FixtureModel(edit_json, model_id="fixture/clean-room-selftest-source-edit-v1")
+
+    result = run_clean_room_build(
+        model,
+        approved,
+        max_attempts=2,
+        run_id=f"selftest-source-edit-absent-{tmp_path.name}-{uuid.uuid4().hex[:8]}",
+        proposal_format="source_edit",
+        seed_source=seed_source,
+    )
+
+    assert result["attempts"] == 2
+    receipt = json.loads(Path(result["receipt_json"]).read_text())
+    assert all(attempt["outcome"].startswith("PATCH_REJECTED") for attempt in receipt["attempts"])
+    assert "does not occur" in receipt["attempts"][0]["outcome"]
+
+
+@requires_colima_each
 def test_clean_room_fails_closed_when_isolation_cannot_be_verified(tmp_path, monkeypatch) -> None:
     """Same fail-closed branch each.bakeoff proves: the probe still runs for
     real, only the *derived* assurance level is forced non-P2, so no
