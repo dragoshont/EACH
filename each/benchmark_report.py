@@ -80,11 +80,11 @@ def _run_suite(
                     "attempts": result["attempts"],
                     # A preflight/complete() context-budget rejection consumes
                     # a loop iteration ("attempts") but never actually calls
-                    # the model: counting it as a genuine generation attempt
+                    # generation: counting it as a genuine generation attempt
                     # would misrepresent context-ineligible tasks as real
                     # repair-capability evidence. generationCallCount is the
-                    # number of times model.complete() genuinely ran and
-                    # returned for this task (0 for an eligibility rejection).
+                    # number of recorded generation attempts, including
+                    # failures after the call started (0 for context rejection).
                     "generationCallCount": generation_call_count,
                     "generationEligible": generation_call_count > 0,
                     "patchSizeBytes": len(receipt.get("patchText", "").encode("utf-8")),

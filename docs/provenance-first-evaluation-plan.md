@@ -119,3 +119,11 @@ cohort, not measurements of eligible provenance-first models.
 
 Nothing in this retention instruction reopens inference before the access
 and training-lineage prerequisites are satisfied.
+
+A read-only retention inventory on 2026-10-03 found **14 existing benchmark
+reports and 175 distinct referenced receipt files**, with no missing receipt
+files. Its private inventory digest is
+`5bf86162cd3dea18311c7a19e3e3b3a200acb6972f98714168ab925f07715b35`.
+No original files were changed or deleted and no generation calls were made.
+This inventories receipt identity, not a new model comparison or full-material
+qualification of every historical run.
