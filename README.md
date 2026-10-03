@@ -55,11 +55,18 @@ execution platform described here.
 
 ### 1. Install prerequisites and clone
 
+**Experimental development branch—not a versioned production release.**
+These instructions use `dragoshont-each-project-bootstrap`, which contains the
+implemented CLI and development evidence. As of 2026-10-03, default `main`
+remains the bootstrap snapshot and is not the implementation described here.
+Use the explicit branch below until a versioned release is actually published;
+this does not imply production qualification.
+
 With [Homebrew](https://brew.sh/) already installed:
 
 ```bash
 brew install git uv docker colima jq
-git clone https://github.com/dragoshont/EACH.git
+git clone --branch dragoshont-each-project-bootstrap https://github.com/dragoshont/EACH.git
 cd EACH
 uv python install 3.12
 uv sync --locked
