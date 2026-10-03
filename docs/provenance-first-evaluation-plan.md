@@ -4,6 +4,76 @@ Status: access and lineage assessment; **no qualified neural-model trial yet**.
 User-directed reset: 2026-10-03. Access prerequisites come before model loading,
 adapter work, repair trials or production qualification.
 
+## Focused outcome: findings to independent implementation
+
+The user's objective is a two-agent workflow, not a generic repair leaderboard:
+
+```text
+Frontier investigator
+  -> public API evidence + recorded black-box observations
+  -> origin review + approved behavioral packet
+  -> separate Builder using an EACH-qualified local model
+  -> private candidate + independent behavior/regression validation
+  -> terminal attribution audit + signed retained evidence
+```
+
+**Models:** qualify access and inspectable base/post-training dataset lineage
+once per exact model artifact, with a retained dossier. A new model, adapter,
+fine-tune or materially changed lineage requires reassessment. The Builder
+agent should consume the eligibility decision rather than making ad hoc
+training-provenance judgments on every task. Missing evidence blocks use.
+
+**Harness:** enforce the separation between investigator and Builder, exact
+allowed materials, model eligibility, isolated execution, truthful validation,
+terminal audit and complete receipts. Reuse existing components; change them
+only for a concrete failure in this workflow. The catalog currently blocks
+unqualified models; this is not yet a working qualified-model pipeline.
+
+**Tasks:** independently implement one representative behavior from the user's
+Xodus work, then expand to its remaining bounded behaviors. Unrelated humanize
+trials remain history and do not answer whether this objective works.
+
+This reduces repeated provenance uncertainty through reviewed evidence and
+enforced policy. It cannot guarantee lawful training, originality, upstream
+acceptability or legal clean-room status.
+
+### Investigator-to-Builder contract
+
+- A frontier model's unsupported finding is `MODEL_INFERENCE`, not a measured
+  `BLACK_BOX_OBSERVATION`. Reproduce it or exclude it from a sensitive packet.
+- Each observation records the tested artifact/version, platform, input,
+  output/error, procedure, time and evidence hash. Distinguish measured behavior,
+  public documentation, user assertions and unresolved hypotheses.
+- The behavioral packet contains interface, requirements, edge cases,
+  expected outcomes and source references. It excludes frontier-generated
+  implementation, patches, pseudocode, source-derived algorithms and hidden
+  investigator context. A paraphrased implementation is not a clean spec.
+- Existing AI-derived fork patches are not Builder inputs. Preserve them
+  separately for post-generation evaluation only. A pre-change source baseline
+  must be permitted, pinned and checked for prior AI-derived modifications.
+- A fresh Builder context receives only that packet and explicitly permitted
+  baseline files. It never inherits the frontier conversation or unrestricted
+  repository history. Sensitive approval is genuine and hash-bound.
+- Preserve private validation evidence. Report only approved bounded feedback;
+  no matching reference source or Auditor-derived implementation details return
+  to Builder. A target that cannot be validated credibly remains unverified.
+
+### First Xodus task: resolve the source range before implementation
+
+Metadata-only observation on 2026-10-03 found both
+`dragoshont/xodus-macos:main` and `xodus-gaming/xodus:main` at
+`a3afa0569332e32ce2677c0edc643ef85477ee3e`. Therefore current `main` versus
+current upstream is not an identified change set. The fork also has
+`dragoshont-macos-handoff-plan` at
+`2dee8b33fc050a981a6ff98cc66fca32a444a20e`; its name alone does not establish
+that it contains the intended work.
+
+First identify the actual before/after commits or worktree containing the
+frontier changes. Inspect metadata and public behavioral evidence first, not
+the AI-generated implementation. Record origin for existing findings; do not
+label their provenance clean merely because they are already on `main`.
+No target code was read or generated during this metadata check.
+
 ## Ordered steps
 
 | Step | Action | Exit condition |
@@ -12,11 +82,12 @@ adapter work, repair trials or production qualification.
 | 2. Training lineage | Identify the exact checkpoint, base-training mixture, dataset versions, source identifiers, filtering and every continued/instruction/preference/synthetic/distillation stage. Review accessible records and coverage limits. | A short independently assessed dossier is ELIGIBLE, with no required UNKNOWN stage. No family name, hash or license alone grants eligibility. |
 | 3. Local runtime | Only for an eligible model, acquire/hash the approved weights and verify one existing supported backend on the Mac. Record any format conversion and actual sampling/context behavior. | Real local completion with recorded artifact/runtime identity; no cloud target generation or silent model substitution. |
 | 4. Wiring test | Exercise one real-model fixture through the existing scoped patch, isolated validation, terminal audit and signed-retained-file pipeline. Use completion/FIM for base models and the documented instruction format for instruct models. | Actual stages and failures are inspectable. A fixture repair is a wiring result, not a usefulness benchmark. |
-| 5. Small repair trial | Freeze three fresh permissive historical tasks, hidden human fixes, identical input policy and three attempts per task for each eligible candidate. Keep the consumed Qwen development cluster out of this comparison. | Report all attempts: response validity, scoped application, build, acceptance/regression, isolation, time and evidence completeness. Unsupported validation stays inconclusive, never verified. |
+| 5. Xodus pilot | Resolve the user's actual change range; freeze one representative permitted Xodus behavior, approved investigator packet and pre-change baseline. Keep the frontier implementation hidden. Use the same packet and documented attempt policy for each eligible candidate. | A real local-model implementation passes independently observed behavior and regression checks; full evidence is retained. Negative/inconclusive outcomes remain explicit. |
 | 6. Selection | Compare provenance eligibility and utility as separate dimensions, using the recorded results. | Choose an eligible candidate with demonstrated useful repair or preserve an honest negative result. No provenance relaxation to improve the score. |
 
-This is the initial small comparison, not the later production holdout or
-pilot. No extra infrastructure or qualification framework is needed.
+This supersedes the earlier generic three-task exploration as the next task
+priority. It is not the later production holdout or a claim of full-fork
+compatibility. No extra infrastructure or qualification framework is needed.
 
 ## Candidates and access priority
 

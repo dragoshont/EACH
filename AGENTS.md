@@ -23,6 +23,16 @@ relax this requirement. FixtureModel remains a harness test, not a qualified
 neural model. Historical Qwen runs are preserved but excluded from
 provenance-first qualification.
 
+**Focused objective, 2026-10-03:** frontier models investigate public API and
+black-box behavior; a separate agent using EACH implements from an approved
+behavioral packet with a training-lineage-qualified model. Frontier findings
+are not automatically observations or permitted Builder input. Preserve source
+origins, raw observation evidence and uncertainty; exclude frontier patches,
+implementation explanations, hidden context and Auditor findings from Builder.
+Prioritize one representative change from the user's Xodus fork, not unrelated
+utility benchmarks. Access/lineage first, minimal harness changes second,
+actual task evaluation third. Never promise elimination of provenance/legal risk.
+
 Use the Architrave knowledge profile, durable Run state, small vertical slices,
 deterministic gates, and independent adversarial review. Do not build a UI,
 daemon, database, RAG system, hosted backend, or custom cryptography.

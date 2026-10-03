@@ -23,6 +23,10 @@ The active prerequisite order and candidate access decisions are in the
 [provenance-first evaluation plan](provenance-first-evaluation-plan.md).
 That plan precedes calibration, utility reopening and the later production
 qualification tasks below.
+The user has further focused the objective on frontier black-box findings
+becoming independent Xodus implementations through a separate EACH Builder.
+The evaluation plan's investigator/Builder boundary and Xodus pilot now govern
+task selection; the generic benchmark roadmap must not displace that objective.
 
 ## 1. Target outcome
 
