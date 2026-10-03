@@ -519,3 +519,137 @@ a brand-new `EACH_HOME` (no model cache reuse) reproduced the same `412
 passed`/zero-skip/clean-ruff/clean-doctor/successful-`uv build` result,
 corroborating this is a reproducible fact about the commit, not an
 environment fluke.
+
+## Three fresh independent re-reviews at `632e331`, convergent fix batch, and a successor Run (`7d9c6f9`)
+
+A security-review agent and two independent code-review agents (one modeling
+a "GPT-family" posture, one a "Claude-family" posture) were dispatched fresh
+against the pinned `632e33151d857e81b6e6c752618d225b3c7c2c60` checkout.
+
+**Security re-review**: all prior P1/P2/P3/Astra/Claude findings confirmed
+genuinely fixed; 447 passed/0 skipped; ruff clean; no new issues.
+
+**GPT-family re-review**: 6 genuinely fixed, 6 partially fixed, 1 not fixed
+(model-identity validation was still effectively string-based).
+
+**Claude-family re-review**: independently converged on the same core gaps
+and additionally found a concrete new bypass: `record_gate()`'s
+target-evidence validation block was gated behind
+`if "target-repair" in producers:`, so a criterion declaring `targetEvidence`
+ownership bound ONLY to a non-`target-repair`-producer artifact (e.g.
+`external-proof`) skipped the entire kind/purpose/specHash check.
+
+### Integrated fix batch (commit `a14e983`)
+
+One coherent batch closed all seven convergent counterexample classes:
+1. Criterion-owned `targetEvidence` (kind/purpose/targetSpecHash) moved from
+   name-inferred milestone-prefix matching to real schema-validated data on
+   each criterion (`normalize_target_evidence()` in
+   `harness/architrave_runtime.py`); `MILESTONE_APPROVED_SPEC_HASHES` removed
+   entirely. `validate_recorded_real_model_identity()` added in
+   `each/models/base.py` with a real adapter-class allowlist
+   (`REAL_MODEL_ADAPTER_CLASS_PATHS`), rejecting any receipt that doesn't
+   declare an allowlisted `adapterClassPath` plus structurally complete
+   manifest/generation-parameter data.
+2. Receipt emission now captures the actual producing harness commit and
+   clean/dirty state at generation/validation/audit time
+   (`each/receipt.py`), distinct from any installed/legacy `UNKNOWN` baseline.
+3. `_record_target_replay_receipt()` added: sound replay-subject
+   verification reusing the real `verify_receipt()`/materials-verification/
+   `ContainerExecutor` pipeline end-to-end, exact-enum fidelity checks (no
+   substring/placeholder acceptance), byte-exact candidate reconstruction
+   from retained pristine preimage + patch compared against
+   `auditSubjectSha256`.
+4. Private projections (M7 summaries, rejection payloads, replay exports)
+   now use bounded enums/typed hashes/safe identifiers; no raw outcome
+   dicts, absolute paths, or arbitrary diagnostic strings cross the
+   source-free boundary.
+5. `_verify_seed_source_provenance()` (`each/clean_room.py`) now requires
+   matching current approved spec + model identity, a selected eligible
+   attempt, byte-exact preimage+patch reconstruction (not just hash
+   comparison), and transitive ancestry verification with bounded-depth
+   cycle rejection.
+6. Trusted pre-exec audit-subject capture (already correct for M8) is now
+   applied consistently to M2 bakeoff and M6 benchmark sibling code paths:
+   subject hash is bound to the signed, selected, PRE-execution candidate,
+   never a post-execution reread of mutable source.
+7. Classification-failure handling in bakeoff/benchmark now persists the
+   returned `ExecutionResult` BEFORE classification and finalizes every
+   inconclusive/non-test outcome with accumulated attempt/model-identity
+   state intact, instead of silently defaulting to `{}`.
+
+**A second, narrower bypass was found and fixed directly during independent
+verification of the delegated batch** (not by the delegated agent): the
+item-1 gating condition above was initially still
+`if "target-repair" in producers:` — exactly the AstraR1 bypass — leaving a
+window where a `targetEvidence`-owning criterion bound only to non-target-
+repair evidence skipped validation entirely. Fixed by widening the gate to
+`if "target-repair" in producers or any_criterion_owns_target_evidence:`,
+confirmed via a genuine `git stash` before/after test
+(`test_target_evidence_owning_criterion_rejects_non_target_repair_producer_evidence`)
+that fails pre-fix and passes post-fix.
+
+466 tests passed (0 skipped, up from 447), ruff clean, `each doctor` PASS,
+`uv build` succeeded. Committed as `a14e983`, pushed normally (fast-forward,
+no amend) to `dragoshont-each-project-bootstrap`.
+
+### Legacy real-model-identity compatibility fix (commit `7d9c6f9`)
+
+Attempting to re-register the genuine, already-signed M7/M8 receipts
+(`~/.each/runs/m7-clean-room-lru-cache-qwen14b-terminal-audit-20261003/receipt.json`,
+`~/.each/runs/m8-xsystem-sandboxid-opt-fullsource-20261003/receipt.json`)
+against the hardened `validate_recorded_real_model_identity()` surfaced a
+genuine backward-compatibility gap: both receipts predate this session's
+addition of `adapterClassPath`/`adapterType` to `RepairModel.identity()` and
+only ever recorded `implementationModule`/`implementationSha256`. The
+validator's unconditional `adapterClassPath` requirement would have
+permanently orphaned this real evidence for no genuine provenance reason.
+
+Fix: accept the legacy shape ONLY when `implementationModule` (plus a
+non-empty `implementationSha256`) uniquely and unambiguously resolves to
+exactly one entry in `REAL_MODEL_ADAPTER_CLASS_PATHS` — never derived from
+caller-controlled `modelId`/`adapterType` text, which this legacy shape
+doesn't even carry. A legacy receipt declaring the FixtureModel's own
+`implementationModule` (`each.models.fixture`) is still rejected (covered by
+`test_rejects_a_legacy_fixture_receipt_declaring_the_fixture_implementation_module`).
+468 tests passed, 0 skipped; ruff clean. Committed as `7d9c6f9` (separate
+commit, no amend/force-push per explicit instruction), pushed to
+`dragoshont-each-project-bootstrap`.
+
+### Successor Run `each-release-mandate-aligned-v2`
+
+The original durable Run `each-release-mandate-aligned` has no supported API
+to retroactively add the new `targetEvidence` structured field to an
+already-created criterion (only `create()` accepts full criteria
+definitions). Rather than manually editing canonical Run state (forbidden),
+a genuine successor Run `each-release-mandate-aligned-v2` was created via the
+supported `store.create()` API, re-asserting the EXACT same 8-criterion
+acceptance matrix with `targetEvidence` properly declared on
+`m7-clean-room-experiment-complete` and `m8-target-repair-verified`. The
+predecessor Run remains immutable and untouched; its historical criterion
+statuses after this session's baseline move are explicitly understood as
+STALE relative to the new commit and are never reported as current evidence.
+
+At the final frozen commit `7d9c6f96c5bf750ef850049805c1d4a8f50783e7`, the
+successor Run's acceptance matrix is:
+
+| Criterion | Status |
+|---|---|
+| `harness-rootcause-fix` | PASS |
+| `base-gate` | PASS |
+| `audit-models-gate` | PASS |
+| `ruff-doctor` | PASS |
+| `m7-clean-room-experiment-complete` | PASS |
+| `m8-target-repair-verified` | PASS |
+| `cross-family-semantic-review` | UNTESTED (genuinely pending; the user/coordinator will independently obtain and supply this verdict) |
+| `security-policy-review-r4` | UNTESTED (genuinely pending, same as above) |
+
+### Known, explicitly tracked limitation (carried forward, not resolved)
+
+The 22-task historical Granite-8B-128k benchmark report (`102321Z`) has
+signed receipts but no retained `materials/` directories, so full
+byte-exact reconstruction/verification of those 22 historical records is not
+possible; this session's materials-retention fix applies going forward only.
+Recovering genuine original bytes retroactively, or producing a fresh local
+benchmark run if the originals are unavailable, remains open and untouched —
+no historical bytes have been fabricated or implied to exist.
