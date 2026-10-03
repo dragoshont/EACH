@@ -665,8 +665,9 @@ def run_xodus_shadow_build(
         except BenchmarkExecutionError as exc:
             attempt_record["outcome"] = f"EXECUTION_ERROR: {exc}"
             attempts.append(attempt_record)
-            prompt = base_prompt + _retry_suffix_for_mode(proposal_format, reason="the previous patch could not be evaluated cleanly")
-            continue
+            final_outcome = attempt_record["outcome"]
+            selected_attempt_record = attempt_record
+            break
 
         # Candidate-authored C runs with full read/write access to the same
         # mount the harness scaffold files live in (see

@@ -577,6 +577,62 @@ def test_xodus_shadow_candidate_build_failure_is_decisive_and_skips_acceptance(
 
 @requires_colima_each
 @requires_m8_native_image
+def test_xodus_shadow_later_candidate_run_launch_failure_replaces_prior_selected_attempt(
+    tmp_path, monkeypatch,
+) -> None:
+    import each.executor.container as container_module
+
+    monkeypatch.setattr(xodus_shadow_module, "fetch_file", lambda *_a, **_k: _CACHED_SOURCE)
+    original_run = container_module.ContainerExecutor.run
+    call_count = 0
+
+    def fail_second_candidate_run(self, command, worktree, **kwargs):
+        nonlocal call_count
+        call_count += 1
+        if call_count == 7:
+            return ExecutionResult(tuple(command), 125, "", "private launch detail")
+        return original_run(self, command, worktree, **kwargs)
+
+    class SequenceModel(FixtureModel):
+        def __init__(self) -> None:
+            super().__init__(_APPLIES_BUT_LEAVES_BUG_PATCH, model_id="fixture/xodus-shadow-selftest-v1")
+            self.responses = [_APPLIES_BUT_LEAVES_BUG_PATCH, _CORRECT_PATCH]
+            self.calls = 0
+
+        def complete(self, prompt: str) -> str:
+            response = self.responses[self.calls]
+            self.calls += 1
+            return response
+
+    monkeypatch.setattr(container_module.ContainerExecutor, "run", fail_second_candidate_run)
+    approved = _approve_selftest_spec("test-xodus-shadow-later-run-launch-failure")
+    model = SequenceModel()
+    result = run_xodus_shadow_build(
+        model,
+        approved,
+        max_attempts=2,
+        run_id=f"selftest-later-run-launch-{tmp_path.name}-{uuid.uuid4().hex[:8]}",
+    )
+
+    assert call_count == 7
+    assert model.calls == 2
+    assert result["outcome"] == "EXECUTION_ERROR"
+    receipt_path = Path(result["receipt_json"])
+    receipt = json.loads(receipt_path.read_text())
+    assert len(receipt["attempts"]) == 2
+    assert receipt["attempts"][0]["outcome"] == "REPAIR_NOT_VERIFIED"
+    assert receipt["attempts"][1]["outcome"].startswith("EXECUTION_ERROR")
+    assert receipt["selectedAttempt"] == 2
+    assert receipt["outcome"].startswith("EXECUTION_ERROR")
+    assert receipt["repairedResult"]["exit_code"] == 125
+    summary = summarize_receipt(receipt_path)
+    assert summary["outcome"] == "EXECUTION_ERROR"
+    assert summary["selectedAttempt"] == 2
+    assert "private launch detail" not in json.dumps(summary)
+
+
+@requires_colima_each
+@requires_m8_native_image
 def test_exhausting_all_attempts_on_a_rejected_patch_reports_that_real_outcome_not_a_false_repair_not_verified(
     tmp_path,
 ) -> None:
