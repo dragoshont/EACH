@@ -1155,13 +1155,58 @@ class RunStore:
         verdict = self._read_json_receipt(kwargs["path"], "semantic")
         if verdict.get("verdict") != "PASS" or verdict.get("family") not in {"gpt", "claude"} or not verdict.get("criteria"):
             raise RuntimeFailure("SEMANTIC_RECEIPT", "semantic verdict receipt is invalid")
-        return self._record_artifact(run_id, kind="semantic-verdict", actor="semantic-review", producer="semantic-judge", **kwargs)
+        declared_commit = verdict.get("commit")
+        if not declared_commit or not isinstance(declared_commit, str):
+            # (F2) A semantic review verdict that doesn't declare the exact
+            # commit it actually reviewed cannot be trusted as fresh evidence
+            # once the baseline has moved on -- without this, an old verdict
+            # file could be registered as a brand-new artifact any time after
+            # resume(accept_commit=True) and pass the gate-binding freshness
+            # check purely because `sourceCommit` is stamped at registration
+            # time, never because the review itself actually covered the
+            # current code.
+            raise RuntimeFailure("SEMANTIC_RECEIPT", "semantic verdict receipt does not declare its reviewed commit")
+        return self._record_artifact(
+            run_id,
+            kind="semantic-verdict",
+            actor="semantic-review",
+            producer="semantic-judge",
+            declared_commit=declared_commit,
+            **kwargs,
+        )
 
     def _record_security_verdict(self, run_id: str, **kwargs: Any) -> dict[str, Any]:
-        return self._record_artifact(run_id, kind="security-verdict", actor="security-review", producer="security-review", **kwargs)
+        verdict = self._read_json_receipt(kwargs["path"], "security")
+        declared_commit = verdict.get("commit")
+        if not declared_commit or not isinstance(declared_commit, str):
+            # (F2) Same rationale as _record_semantic_verdict: a security
+            # review verdict must declare the exact commit it actually
+            # reviewed, not merely get stamped fresh at registration time.
+            raise RuntimeFailure("SECURITY_RECEIPT", "security verdict receipt does not declare its reviewed commit")
+        return self._record_artifact(
+            run_id,
+            kind="security-verdict",
+            actor="security-review",
+            producer="security-review",
+            declared_commit=declared_commit,
+            **kwargs,
+        )
 
     def _record_policy_decision(self, run_id: str, **kwargs: Any) -> dict[str, Any]:
-        return self._record_artifact(run_id, kind="policy-decision", actor="policy-engine", producer="policy-engine", **kwargs)
+        decision = self._read_json_receipt(kwargs["path"], "policy")
+        declared_commit = decision.get("commit")
+        if not declared_commit or not isinstance(declared_commit, str):
+            # (F2) Same rationale: a policy decision must declare the exact
+            # commit it was actually evaluated against.
+            raise RuntimeFailure("POLICY_RECEIPT", "policy decision receipt does not declare its evaluated commit")
+        return self._record_artifact(
+            run_id,
+            kind="policy-decision",
+            actor="policy-engine",
+            producer="policy-engine",
+            declared_commit=declared_commit,
+            **kwargs,
+        )
 
     def _record_external_proof(self, run_id: str, **kwargs: Any) -> dict[str, Any]:
         proof = self._read_json_receipt(kwargs["path"], "external")
@@ -1825,28 +1870,34 @@ class RunStore:
                         "PASS gate evidence has an untrusted producer",
                         details={"gateType": gate_type, "producers": sorted(producers)},
                     )
-                if gate_type == "deterministic":
-                    # (F7) A PASS deterministic gate's own "sourceCommit" stamp (below)
-                    # records only what commit was current WHEN THIS GATE was registered --
-                    # it proves nothing about whether the referenced artifact was actually
-                    # produced against that same source. Without this check, an artifact
-                    # recorded under an earlier baseline could be replayed as evidence for a
-                    # brand-new gate registered after `resume(accept_commit=True)` moved the
-                    # baseline, letting stale evidence look like fresh proof. Require every
-                    # referenced artifact to independently declare the CURRENT baseline
-                    # commit as its own recorded source, not merely be referenced here.
-                    current_commit = state["baseline"].get("commit")
-                    stale = sorted(
-                        artifact["id"]
-                        for artifact in state["artifacts"]
-                        if artifact["id"] in artifact_ids and artifact.get("sourceCommit") != current_commit
+                # (F2/F7) A PASS gate's own "sourceCommit" stamp (below) records only
+                # what commit was current WHEN THIS GATE was registered -- it proves
+                # nothing about whether the referenced artifact was actually produced
+                # against that same source. Without this check, ANY producer's
+                # artifact recorded under an earlier baseline (not just a
+                # deterministic test-suite receipt, but a semantic/security/policy
+                # review verdict or a reality target-repair receipt too) could be
+                # replayed as evidence for a brand-new gate registered after
+                # `resume(accept_commit=True)` moved the baseline, stamping stale
+                # evidence as fresh proof for the new commit. Require every
+                # referenced artifact -- for every gate type -- to independently
+                # declare the CURRENT baseline commit as its own recorded source, not
+                # merely be referenced here. This governs gate EVIDENCE artifacts
+                # only; it is unrelated to -- and never invalidates -- an
+                # already-granted human spec approval, which has its own
+                # commit-independent signature/hash scheme.
+                current_commit = state["baseline"].get("commit")
+                stale = sorted(
+                    artifact["id"]
+                    for artifact in state["artifacts"]
+                    if artifact["id"] in artifact_ids and artifact.get("sourceCommit") != current_commit
+                )
+                if stale:
+                    raise RuntimeFailure(
+                        "EVIDENCE_STALE_COMMIT",
+                        f"{gate_type} PASS gate evidence was not produced against the current baseline commit",
+                        details={"artifacts": stale, "baseline": current_commit},
                     )
-                    if stale:
-                        raise RuntimeFailure(
-                            "EVIDENCE_STALE_COMMIT",
-                            "deterministic PASS gate evidence was not produced against the current baseline commit",
-                            details={"artifacts": stale, "baseline": current_commit},
-                        )
                 if gate_type == "semantic":
                     for artifact in state["artifacts"]:
                         if artifact["id"] not in artifact_ids:
