@@ -351,3 +351,14 @@ consolidated commit fixed:
   "the local caller is already the single trusted operator" boundary every
   other `actor=` parameter in that module relies on, not a claim of
   real authentication.
+- **Qualified-model filesystem concurrency.** Qualified converted artifacts are
+  pinned in trusted source by conversion-record and complete output-file hashes.
+  The lazy MLX loader verifies the complete snapshot immediately before and
+  after backend load while holding a cooperative sibling file lock. This
+  serializes cooperating loaders and rejects a persistent backend-open writer
+  mutation. The provisioner and arbitrary filesystem writers do not acquire
+  this loader lock.
+  It is not atomic hardware-backed measurement: a malicious process running as
+  the same trusted local operator can ignore the cooperative lock and attempt
+  precisely timed file substitution. EACH does not claim protection from that
+  same-user adversary, TEE attestation or remote proof of loaded weights.

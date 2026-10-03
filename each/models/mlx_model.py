@@ -13,6 +13,7 @@ from typing import Any
 
 from each.model_manifest import ModelManifest, verify_snapshot_matches
 from each.models.base import ContextBudgetExceeded, RepairModel
+from each.paths import FileLock
 
 __all__ = ["ContextBudgetExceeded", "MLXRepairModel"]
 
@@ -69,17 +70,27 @@ class MLXRepairModel(RepairModel):
 
     def _ensure_loaded(self) -> None:
         if self._model is None:
-            drift = verify_snapshot_matches(Path(self._snapshot_dir), self._manifest)
-            if drift:
-                raise RuntimeError(
-                    "refusing to load: snapshot directory has drifted from its recorded "
-                    f"manifest since provisioning ({'; '.join(drift)})"
-                )
-            import mlx_lm
+            snapshot = Path(self._snapshot_dir)
+            load_lock = snapshot.parent / f".{snapshot.name}.load.lock"
+            with FileLock(load_lock):
+                drift = verify_snapshot_matches(snapshot, self._manifest)
+                if drift:
+                    raise RuntimeError(
+                        "refusing to load: snapshot directory has drifted from its recorded "
+                        f"manifest since provisioning ({'; '.join(drift)})"
+                    )
+                import mlx_lm
 
-            self._model, self._tokenizer = mlx_lm.load(
-                self._snapshot_dir, **({"model_config": self._model_config} if self._model_config else {})
-            )
+                model, tokenizer = mlx_lm.load(
+                    self._snapshot_dir, **({"model_config": self._model_config} if self._model_config else {})
+                )
+                post_load_drift = verify_snapshot_matches(snapshot, self._manifest)
+                if post_load_drift:
+                    raise RuntimeError(
+                        "refusing loaded model: snapshot changed while the backend opened it "
+                        f"({'; '.join(post_load_drift)})"
+                    )
+                self._model, self._tokenizer = model, tokenizer
 
     @property
     def model_id(self) -> str:

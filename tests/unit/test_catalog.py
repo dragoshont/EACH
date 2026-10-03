@@ -134,6 +134,12 @@ def test_qualified_conversion_binds_lineage_and_rejects_output_drift(monkeypatch
         "trainingPerformed": False,
     }
     (root / "conversion.json").write_text(json.dumps(record))
+    synthetic_profile = {
+        **profile,
+        "conversion_sha256": sha256_file(root / "conversion.json"),
+        "output_files": record["outputFilesSha256"],
+    }
+    monkeypatch.setattr(catalog, "qualified_profile", lambda requested: synthetic_profile if requested == name else profile)
     result = load_model(f"{name}-mlx")
     assert result.manifest.to_dict()["trainingDataProvenance"]["modelRevision"] == profile["revision"]
     assert result.manifest.max_position_embeddings == 8192
@@ -146,6 +152,104 @@ def test_qualified_conversion_binds_lineage_and_rejects_output_drift(monkeypatch
     (root / "extra.json").unlink()
     (root / "model-00001-of-00007.safetensors").write_bytes(b"changed")
     with pytest.raises(UnavailableModelError, match="changed"):
+        load_model(f"{name}-mlx")
+
+
+@pytest.mark.parametrize("name", ["starcoderbase", "octocoder"])
+def test_qualified_conversion_rejects_coordinated_artifact_and_manifest_replacement(monkeypatch, tmp_path, name):
+    """Updating conversion.json alongside replaced bytes cannot redefine an authorized artifact."""
+    monkeypatch.setattr(catalog, "models_dir", lambda: tmp_path)
+    profile = catalog.qualified_profile(name)
+    root = tmp_path / "qualified" / f"{name}-fp16" / profile["revision"]
+    root.mkdir(parents=True)
+    for filename, digest in profile["output_files"].items():
+        (root / filename).write_bytes(f"placeholder-for-{digest}".encode())
+    conversion = {
+        "sourceRepo": profile["repo"],
+        "sourceRevision": profile["revision"],
+        "operation": profile["operation"],
+        "sourceWeightsSha256": profile["weights"],
+        "outputFilesSha256": {
+            filename: sha256_file(root / filename)
+            for filename in profile["output_files"]
+        },
+        "tensorRoundTripVerified": True,
+        "trainingPerformed": False,
+    }
+    (root / "conversion.json").write_text(json.dumps(conversion))
+    with pytest.raises(UnavailableModelError, match="qualified source artifact"):
+        load_model(f"{name}-mlx")
+
+
+@pytest.mark.parametrize("name", ["starcoderbase", "octocoder"])
+def test_qualified_conversion_rejects_untrusted_output_map_before_manifest(monkeypatch, tmp_path, name):
+    monkeypatch.setattr(catalog, "models_dir", lambda: tmp_path)
+    profile = catalog.qualified_profile(name)
+    root = tmp_path / "qualified" / f"{name}-fp16" / profile["revision"]
+    root.mkdir(parents=True)
+    forged_outputs = {"model.safetensors": "0" * 64}
+    conversion = {
+        "sourceRepo": profile["repo"],
+        "sourceRevision": profile["revision"],
+        "operation": profile["operation"],
+        "sourceWeightsSha256": profile["weights"],
+        "outputFilesSha256": forged_outputs,
+        "tensorRoundTripVerified": True,
+        "trainingPerformed": False,
+    }
+    (root / "conversion.json").write_text(json.dumps(conversion))
+    forged_profile = {
+        **profile,
+        "conversion_sha256": sha256_file(root / "conversion.json"),
+    }
+    monkeypatch.setattr(catalog, "qualified_profile", lambda requested: forged_profile if requested == name else profile)
+    monkeypatch.setattr(
+        catalog,
+        "build_manifest_from_snapshot",
+        lambda *_a, **_k: pytest.fail("untrusted output map must fail before manifest construction"),
+    )
+    with pytest.raises(UnavailableModelError, match="qualified source artifact"):
+        load_model(f"{name}-mlx")
+
+
+@pytest.mark.parametrize("name", ["starcoderbase", "octocoder"])
+def test_qualified_conversion_detects_replacement_before_manifest_capture(monkeypatch, tmp_path, name):
+    monkeypatch.setattr(catalog, "models_dir", lambda: tmp_path)
+    monkeypatch.setattr(catalog, "_mlx_runtime_version", lambda: "test-runtime")
+    profile = catalog.qualified_profile(name)
+    root = tmp_path / "qualified" / f"{name}-fp16" / profile["revision"]
+    root.mkdir(parents=True)
+    for index in range(1, 8):
+        (root / f"model-{index:05d}-of-00007.safetensors").write_bytes(b"synthetic-test-weights")
+    (root / "config.json").write_text('{"n_positions":8192}')
+    (root / "tokenizer.json").write_text("{}")
+    weight_map = {f"tensor.{i}": f"model-{i:05d}-of-00007.safetensors" for i in range(1, 8)}
+    (root / "model.safetensors.index.json").write_text(json.dumps({"weight_map": weight_map}))
+    output_files = {path.name: sha256_file(path) for path in root.iterdir()}
+    conversion = {
+        "sourceRepo": profile["repo"],
+        "sourceRevision": profile["revision"],
+        "operation": profile["operation"],
+        "sourceWeightsSha256": profile["weights"],
+        "outputFilesSha256": output_files,
+        "tensorRoundTripVerified": True,
+        "trainingPerformed": False,
+    }
+    (root / "conversion.json").write_text(json.dumps(conversion))
+    trusted_profile = {
+        **profile,
+        "conversion_sha256": sha256_file(root / "conversion.json"),
+        "output_files": output_files,
+    }
+    monkeypatch.setattr(catalog, "qualified_profile", lambda requested: trusted_profile if requested == name else profile)
+    real_builder = catalog.build_manifest_from_snapshot
+
+    def replace_then_build(*args, **kwargs):
+        (root / "conversion.json").write_text(json.dumps({**conversion, "trainingPerformed": True}))
+        return real_builder(*args, **kwargs)
+
+    monkeypatch.setattr(catalog, "build_manifest_from_snapshot", replace_then_build)
+    with pytest.raises(UnavailableModelError, match="changed during verification"):
         load_model(f"{name}-mlx")
 
 

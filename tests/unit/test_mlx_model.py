@@ -11,6 +11,8 @@ bake-off/benchmark tests, which load actual local model weights.
 from __future__ import annotations
 
 import sys
+import threading
+import time
 from pathlib import Path
 from types import ModuleType
 
@@ -112,6 +114,77 @@ def test_runtime_model_configuration_is_applied_and_recorded(tmp_path, monkeypat
     model._ensure_loaded()
     assert observed == [{"model_config": {"tie_word_embeddings": False}}]
     assert model.identity()["runtimeModelConfig"] == {"tie_word_embeddings": False}
+
+
+def test_lazy_load_rejects_snapshot_changed_while_backend_opens_it(tmp_path, monkeypatch):
+    root = _snapshot(tmp_path, max_position_embeddings=8192)
+    manifest = build_manifest_from_snapshot(
+        root, repo_id="fixture/model", license="Apache-2.0",
+        runtime_name="fixture", runtime_version="1", conversion_chain="fixture",
+    )
+
+    def mutate_during_load(path, **kwargs):
+        del path, kwargs
+        (root / "model.safetensors").write_bytes(b"changed during backend load")
+        return _FakeModel(), _FakeTokenizer()
+
+    monkeypatch.setattr("mlx_lm.load", mutate_during_load, raising=False)
+    model = MLXRepairModel(root, manifest)
+    with pytest.raises(RuntimeError, match="snapshot changed while"):
+        model._ensure_loaded()
+    assert model._model is None
+    assert model._tokenizer is None
+
+
+def test_lazy_load_serializes_two_cooperating_loaders_for_same_snapshot(tmp_path, monkeypatch):
+    root = _snapshot(tmp_path, max_position_embeddings=8192)
+    manifest = build_manifest_from_snapshot(
+        root, repo_id="fixture/model", license="Apache-2.0",
+        runtime_name="fixture", runtime_version="1", conversion_chain="fixture",
+    )
+    first_inside = threading.Event()
+    release_first = threading.Event()
+    second_started = threading.Event()
+    second_inside = threading.Event()
+    call_count = 0
+    count_lock = threading.Lock()
+
+    def controlled_load(path, **kwargs):
+        nonlocal call_count
+        del path, kwargs
+        with count_lock:
+            call_count += 1
+            current = call_count
+        if current == 1:
+            first_inside.set()
+            assert release_first.wait(timeout=5)
+        else:
+            second_inside.set()
+        return _FakeModel(), _FakeTokenizer()
+
+    monkeypatch.setattr("mlx_lm.load", controlled_load, raising=False)
+    first = MLXRepairModel(root, manifest)
+    second = MLXRepairModel(root, manifest)
+    first_thread = threading.Thread(target=first._ensure_loaded)
+
+    def load_second():
+        second_started.set()
+        second._ensure_loaded()
+
+    second_thread = threading.Thread(target=load_second)
+    first_thread.start()
+    assert first_inside.wait(timeout=5)
+    second_thread.start()
+    assert second_started.wait(timeout=5)
+    time.sleep(0.1)
+    assert not second_inside.is_set()
+    release_first.set()
+    first_thread.join(timeout=5)
+    second_thread.join(timeout=5)
+    assert not first_thread.is_alive()
+    assert not second_thread.is_alive()
+    assert second_inside.is_set()
+    assert call_count == 2
 
 
 def test_context_budget_passes_when_prompt_and_output_fit(monkeypatch, tmp_path) -> None:

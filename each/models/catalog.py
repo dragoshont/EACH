@@ -9,6 +9,7 @@ adapter) rather than silently omitted.
 
 from __future__ import annotations
 
+import hashlib
 from collections.abc import Callable
 from dataclasses import replace
 from importlib.metadata import PackageNotFoundError, version
@@ -27,6 +28,25 @@ STARCODERBASE_SOURCE_WEIGHTS = {
     "pytorch_model-00005-of-00007.bin": "fdaf103942e2a0757e576c2d64811b7a9f9c093f77bbfb7635235eeca7ece52b",
     "pytorch_model-00006-of-00007.bin": "aa2f8410b362aad53a0dea6511fac7460fd2e64a3c0bbe2c142324ed15587f1a",
     "pytorch_model-00007-of-00007.bin": "a0a6a38cfae8b0418e8b79ec30b6e14a0dfdd24a8237c238e98c80da6f3f5d1c",
+}
+STARCODERBASE_CONVERSION_SHA256 = "48bc14f9240345e8c81a5586e71a9f0ce7102fdc9ac80ded74199869653dbed7"
+STARCODERBASE_OUTPUT_FILES = {
+    "README.md": "d3da47af55f61b85039733235b3697ac62da2f86f9e2e3d267268f282906d26a",
+    "config.json": "15388cc9aec122696c90ea09eef715b3eabbb40dbd163e2ef3022558486ef652",
+    "generation_config.json": "2cc1aa5aa9e15df6e1aff95c6f47a4dd8dca202b8f607a082a310122436dd6be",
+    "merges.txt": "74b0a4bc1a97ebc1d227f69231b18574374ba052fb945b0fa0aa91d3c32504a2",
+    "model-00001-of-00007.safetensors": "13aa8525c8cb80dcc4993813e826ee15361718ddbe2304618d9d8363ed0bbc68",
+    "model-00002-of-00007.safetensors": "b6ad083c598a003f10c932ede91a509dcd0a394eff11c839d2554d737e4b1a19",
+    "model-00003-of-00007.safetensors": "2cde31a23a4765affc9137622eb35e5458af9af897e71846f7b699af91d05b84",
+    "model-00004-of-00007.safetensors": "cdf9da38c536b1cc07716226ee5a42f5b5372cbc7ab58bd89967bd8d768da1b6",
+    "model-00005-of-00007.safetensors": "4436bd44704e6669ac6f8cc82cf3a6dda380bbfc00f0ec93eae720cb9f7e3b60",
+    "model-00006-of-00007.safetensors": "c5fd0f2d564a8a2fdae479f45ef02a1b9c6622de675c52c217ba49ce979d1b9f",
+    "model-00007-of-00007.safetensors": "53bcdbb9f6b4b5eaf7af28caab333104a6f7f017ff350409e7e10b03491f2517",
+    "model.safetensors.index.json": "aadf1d70d35575587fdfe1dfeb7beda8a63bcd9663ff385818c0bcd2968f6c18",
+    "special_tokens_map.json": "0823292e24ea07b89317e9ede9d08da2a1b6c014290c06908a7ad04f1efd6719",
+    "tokenizer.json": "42b5a37ba11199f024f2b8873e1ecba98da33166e16f700bf7cb2304b0a5583f",
+    "tokenizer_config.json": "95684c52ad9a970dbbb17576ee2237cb62902c1eff6804c7c91a4d6219a4a6d7",
+    "vocab.json": "20175afb9f164fad4829aca2279f8df7eeff1e2e3f671378aaa287a740aff09f",
 }
 STARCODERBASE_LINEAGE = {
     "status": "ELIGIBLE",
@@ -60,6 +80,25 @@ OCTOCODER_SOURCE_WEIGHTS = dict(zip(
         "b053bc62199e0d4636f6819412fb45065311f71a886194a14309ebbb1608c69b",
     ], strict=True,
 ))
+OCTOCODER_CONVERSION_SHA256 = "6432ad00b631f340dee0665b8b9e29be678ed765c95a42f434184341ef3e0aca"
+OCTOCODER_OUTPUT_FILES = {
+    "README.md": "3d935543684971419a2328817b84af5f16b52a218ddf595ffad586c6b62fa072",
+    "config.json": "747885d285914374fa4f630e1ecfcd3a35149d86b7598759b0bdcd58334ee439",
+    "generation_config.json": "634b0b7323db9a5f1421a068af9f79c9a2b403496a74cd2ce44e6207af41d912",
+    "merges.txt": "303127a244b0078878156c17229f36d11b7a3a3f8e47b7cfdbb304ff46be5030",
+    "model-00001-of-00007.safetensors": "b7a16a596bea36e9d7bcef51c39606511f7b71a9937765a9f1d31d2c3dac9f54",
+    "model-00002-of-00007.safetensors": "3fd47345858ece602413108baef3d378acba6d605637a0239216432dcb5ae4ab",
+    "model-00003-of-00007.safetensors": "b8e8f1ffa9650464fbb35463efed64c1cce204f0c249f847b6f7c70211837b15",
+    "model-00004-of-00007.safetensors": "c0361b47d87edd118bc3c8988771b12e98d16b228320fd4d7651fa1dfdf5ef91",
+    "model-00005-of-00007.safetensors": "385f422c14238b7823d8f69cc55507dc561164140e2325fdf708b60898d97ac2",
+    "model-00006-of-00007.safetensors": "6ea998c7c0699315afca94b9e403505faa688f9ba3d6f450b927f3c93cb75e21",
+    "model-00007-of-00007.safetensors": "84f561e0893eed749437a8f609c9cf5909a6a3c9a9bc0225321a61c533cf2dbc",
+    "model.safetensors.index.json": "25fdee8041250cedc75ff77eb2354b854aa53d4832289ab23ba3939bfe25cb5b",
+    "special_tokens_map.json": "0823292e24ea07b89317e9ede9d08da2a1b6c014290c06908a7ad04f1efd6719",
+    "tokenizer.json": "9af07a3123a1f4d75dcb85fbdc4c62f9b7873d23fa39c449d2240c3e33eb3ab5",
+    "tokenizer_config.json": "4d8a576be1b7a37446e07a524202302c08ddc116e68b2e042d9fe4eaef46192e",
+    "vocab.json": "20175afb9f164fad4829aca2279f8df7eeff1e2e3f671378aaa287a740aff09f",
+}
 OCTOCODER_LINEAGE = {
     "status": "ELIGIBLE",
     "scope": "documented-inspectable-training-dataset-lineage",
@@ -107,12 +146,14 @@ OCTOCODER_LINEAGE = {
 def qualified_profile(name: str) -> dict:
     """Only the two independently assessed original artifacts; no family fallback."""
     if name == "starcoderbase":
-        revision, weights, lineage, source_format = (
+        revision, weights, lineage, source_format, conversion_sha256, output_files = (
             STARCODERBASE_REVISION, STARCODERBASE_SOURCE_WEIGHTS, STARCODERBASE_LINEAGE, "pytorch",
+            STARCODERBASE_CONVERSION_SHA256, STARCODERBASE_OUTPUT_FILES,
         )
     elif name == "octocoder":
-        revision, weights, lineage, source_format = (
+        revision, weights, lineage, source_format, conversion_sha256, output_files = (
             OCTOCODER_REVISION, OCTOCODER_SOURCE_WEIGHTS, OCTOCODER_LINEAGE, "safetensors",
+            OCTOCODER_CONVERSION_SHA256, OCTOCODER_OUTPUT_FILES,
         )
     else:
         raise UnavailableModelError("training-data provenance is not qualified")
@@ -126,6 +167,7 @@ def qualified_profile(name: str) -> dict:
     return {
         "name": name, "repo": f"bigcode/{name}", "revision": revision,
         "weights": weights, "lineage": lineage, "source_format": source_format,
+        "conversion_sha256": conversion_sha256, "output_files": output_files,
         "operation": f"{source_format}-fp32-to-safetensors-fp16",
     }
 
@@ -159,16 +201,18 @@ def _qualified_mlx(name: str, *, max_tokens: int) -> RepairModel:
     import json
 
     try:
-        conversion = json.loads(conversion_path.read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError) as exc:
+        conversion_bytes = conversion_path.read_bytes()
+        conversion = json.loads(conversion_bytes)
+    except (OSError, UnicodeDecodeError, json.JSONDecodeError) as exc:
         raise UnavailableModelError(f"{name} conversion record is unreadable") from exc
     if (
-        not isinstance(conversion, dict)
+        hashlib.sha256(conversion_bytes).hexdigest() != profile["conversion_sha256"]
+        or not isinstance(conversion, dict)
         or conversion.get("sourceRepo") != profile["repo"]
         or conversion.get("sourceRevision") != profile["revision"]
         or conversion.get("operation") != profile["operation"]
         or conversion.get("sourceWeightsSha256") != profile["weights"]
-        or not isinstance(conversion.get("outputFilesSha256"), dict)
+        or conversion.get("outputFilesSha256") != profile["output_files"]
         or conversion.get("tensorRoundTripVerified") is not True
         or conversion.get("trainingPerformed") is not False
     ):
@@ -185,6 +229,8 @@ def _qualified_mlx(name: str, *, max_tokens: int) -> RepairModel:
             + " -> local FP16 safetensors; retained conversion.json"
         ),
     )
+    if manifest.files_sha256.get("conversion.json") != profile["conversion_sha256"]:
+        raise UnavailableModelError(f"qualified {name} conversion changed during verification")
     for filename, expected in conversion["outputFilesSha256"].items():
         if manifest.files_sha256.get(filename) != expected:
             raise UnavailableModelError(f"qualified {name} converted artifact has changed")
