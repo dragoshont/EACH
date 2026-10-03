@@ -31,6 +31,14 @@ Architrave source: `~/src/architrave`, canonical
 
 ## Continuation
 
+The [dual-lane launch addendum](EACH_DUAL_LANE_ADDENDUM.md) now makes model
+qualification finite. Verify the retained exact StarCoderBase artifact and use
+it as initial Builder if authorized; finish the defined OctoCoder work and
+record other candidate blockers without delaying launch. Do not repeat passed
+milestones or require a successful repair as proof of model provenance.
+The exact-artifact [registry](model-qualifications/registry.json) keeps lineage,
+runtime, rights evidence and capability outcomes separate.
+
 Use `docs/EACH_MILESTONE_PROMPTS.md` for the milestone-specific work, with the
 user-authorized continuation to the next milestone only after the current gate
 passes. Do not download coding models before M1 passes.

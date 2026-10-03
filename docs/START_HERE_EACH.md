@@ -1,4 +1,14 @@
-# START HERE — EACH Bootstrap Pack
+# START HERE — EACH
+
+The archive instructions below are historical bootstrap guidance. The user
+subsequently authorized sequential M0-M8 completion and the current
+[dual-lane launch addendum](EACH_DUAL_LANE_ADDENDUM.md).
+Start with [current development control](DEVELOPMENT_CONTROL.md), the
+[qualification registry](model-qualifications/registry.json), and the
+[provenance-first execution state](provenance-first-evaluation-plan.md).
+Do not restart completed milestones or delay launch to search for more models.
+
+## Original bootstrap pack
 
 This archive contains:
 
@@ -20,4 +30,5 @@ docs/EACH_MILESTONE_PROMPTS.md
 
 Then give Architrave the M0+M1 prompt from the milestone file.
 
-Important: do not ask Architrave to execute all milestones in a single run.
+The original stopping guidance is superseded by the user's later autonomous
+M0-M8 authorization; acceptance criteria and information boundaries remain.

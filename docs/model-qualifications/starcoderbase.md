@@ -2,8 +2,12 @@
 
 Assessment date: 2026-10-03. **Independent dossier decision:
 eligible for the bounded provenance-first research trial.** This is not a legal,
-originality, corpus-membership or production-readiness certificate. The exact provisioned artifact must still be bound to this evidence before
-loading; the decision does not qualify other models or complete a runtime test.
+originality, corpus-membership or production-readiness certificate.
+**Launch-cycle decision: AUTHORIZED, initial/reference Builder.** The retained
+original files, converted files, conversion record, tokenizer/configuration and
+signed runtime identities have now been verified against the
+[exact-artifact registry](registry.json). This does not qualify another
+checkpoint or imply that the failed wiring repairs succeeded.
 
 ## Exact candidate and meaning of eligibility
 
@@ -167,7 +171,8 @@ inspection evidence and returned PASS/ELIGIBLE for the exact base checkpoint.
 It explicitly accepted documented inspectable dataset/stage lineage, not
 exhaustive per-record attribution. This is one independent research eligibility
 assessment, not cross-family production or legal acceptance.
-Bind only this exact model and evidence to the loader, retain
-all original/conversion hashes, then run a real local wiring test before the
-approved Xodus behavioral task. OctoCoder and StarCoder2 require separate
-stage/dataset assessments; Qwen remains excluded.
+Use only the exact registry-bound artifact through the official loader for the
+approved Xodus behavioral task. Existing wiring evidence need not be repeated
+to seek a successful repair before launch. OctoCoder was assessed separately;
+StarCoder2 remains blocked and Qwen excluded. Conversion-record SHA-256:
+`48bc14f9240345e8c81a5586e71a9f0ce7102fdc9ac80ded74199869653dbed7`.

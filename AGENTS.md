@@ -33,6 +33,18 @@ Prioritize one representative change from the user's Xodus fork, not unrelated
 utility benchmarks. Access/lineage first, minimal harness changes second,
 actual task evaluation third. Never promise elimination of provenance/legal risk.
 
+**Launch convergence, 2026-10-03:** follow
+`docs/EACH_DUAL_LANE_ADDENDUM.md`. Verify retained StarCoderBase evidence and
+authorize that exact artifact as the initial Builder if it passes. Negative
+repair attempts do not invalidate provenance. Finish only the defined OctoCoder
+evaluation, retain the StarCoder2 synthetic-ancestry blocker, and do one bounded
+Comma v0.1-2T document assessment; no further model research or provisioning in
+this launch cycle. One authorized Builder plus required isolation/receipt gates
+is enough: do not wait for another model, a stronger model or custom fine-tuning.
+Keep candidate-question transfer distinct from implementation transfer; classify
+unsupported implementation-derived requirements as REPRO_REQUIRED. Maintain the
+finite exact-artifact registry and genuine sensitive-Spec approval.
+
 Use the Architrave knowledge profile, durable Run state, small vertical slices,
 deterministic gates, and independent adversarial review. Do not build a UI,
 daemon, database, RAG system, hosted backend, or custom cryptography.

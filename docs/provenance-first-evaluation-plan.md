@@ -1,11 +1,33 @@
 # Provenance-first evaluation plan
 
 Status: StarCoderBase's bounded training-lineage dossier is accepted, the
-original artifact is provisioned, and one actual EACH wiring attempt has run.
-It produced **PATCH_REJECTED**, not a successful repair. **The Xodus task trial
-has not run.** OctoCoder and StarCoder2 remain separate lineage assessments.
+original artifact is provisioned, and two actual EACH wiring attempts have run.
+The diff attempt produced **PATCH_REJECTED**; the documented FIM attempt applied
+a candidate but produced **REPAIR_NOT_VERIFIED**. Neither was an Xodus trial.
+OctoCoder's bounded dataset-stage lineage is independently accepted; its first
+actual local wiring response produced **REPAIR_VERIFIED** on the fixture.
+Independent review found failure-evidence defects; corrections passed bounded
+re-review at `2440d2ff887e0ac8dc27212b4b4cfbb5140aaa2a`. This is not a
+full-Run or cross-family release approval.
+StarCoder2 remains **BLOCKED** on supplementary and
+synthetic-generator ancestry. **The qualified-model Xodus task trial has not run.**
 User-directed reset: 2026-10-03. Access prerequisites come before model loading,
 adapter work, repair trials or production qualification.
+
+**Launch convergence:** the [finite registry](model-qualifications/registry.json)
+now authorizes the retained exact StarCoderBase and OctoCoder artifacts.
+**StarCoderBase is the initial Builder.** Its original files, conversion and
+signed runtime evidence verified; failed repairs do not revoke provenance.
+StarCoder2 is BLOCKED and Comma is DEFERRED. The
+[dual-lane addendum](EACH_DUAL_LANE_ADDENDUM.md) ends model research for this
+cycle; no additional candidate or stronger model is a launch dependency.
+
+The [launch packet](reference-builder-launch.md) selects the smallest existing
+documentation-grounded Xodus issue instead of waiting for the larger save
+subsystem draft. It excludes raw issue implementation advice, has fresh
+isolated baseline build/pass and acceptance/fail evidence, and needs a genuine
+new hash-bound approval. The approval request could not obtain a user decision;
+that is **pending approval**, not consent or rejection.
 
 ## Focused outcome: findings to independent implementation
 
@@ -29,8 +51,9 @@ training-provenance judgments on every task. Missing evidence blocks use.
 **Harness:** enforce the separation between investigator and Builder, exact
 allowed materials, model eligibility, isolated execution, truthful validation,
 terminal audit and complete receipts. Reuse existing components; change them
-only for a concrete failure in this workflow. The catalog currently blocks
-unqualified models; this is not yet a working qualified-model pipeline.
+only for a concrete failure in this workflow. The catalog blocks unqualified
+models; qualified StarCoderBase has exercised the pipeline, without a verified
+repair or an actual qualified-model Xodus result.
 
 **Tasks:** independently implement one representative behavior from the user's
 Xodus work, then expand to its remaining bounded behaviors. Unrelated humanize
@@ -71,9 +94,11 @@ references are retained in the private coordination packet, not published here.
 
 The private work includes a 20-row gameplay-validation artifact with separate
 fields for gameplay, save/reload, cloud, multiplayer, runtime/version, measured
-performance and recording references. Only its schema and file identity were
-inspected for this task map. Its contents remain investigator evidence, not an
-approved Builder specification; private notes can contain implementation hints.
+performance and recording references. Its schema and file identity were
+inspected, followed by only two selected save/reload claim fields. Private
+implementation notes were excluded. Those claims remain unverified investigator
+assertions, not observations or an approved Builder specification.
+One retained claim expressly leaves exact save-slot attribution unresolved.
 A row marked successful is not proof that every feature is implemented or that
 the observation itself has acceptable origins.
 
@@ -82,7 +107,12 @@ input/output observation and an independently justified expected result.
 Prefer a reversible, offline behavior that can be validated in a disposable
 environment. Whole-game launch or broad store integration is not the first
 task. Do not access personal saves, cloud data or launch games merely to create
-this packet.
+this packet. The changed legacy save implementation is in the private handoff
+snapshot, not the companion repository's unchanged root file. A private draft
+records that source-selection correction and the proposed save-related outcomes.
+It is not ready for approval: the first slice must be narrowed to one bounded
+API, with a genuine provider/identity setup and credible isolated observations
+rather than a synthetic successful provider or an entire save subsystem.
 
 Retain the actual before/after range and observation-artifact hashes privately.
 Prepare a new origin-reviewed behavioral packet from permitted evidence.
@@ -94,7 +124,9 @@ metadata and schema check.
 
 ### Immediate work, in dependency order
 
-1. **Model access and lineage:** resolve the existing access checkpoint. No
+1. **Model access and lineage:** the original access checkpoint is resolved;
+   Base and OctoCoder have independently accepted bounded dossiers. Keep
+   StarCoder2 blocked while its required ancestry remains unresolved. No
    extra credits/token ceiling was added, but consent and unknown data lineage
    cannot be bypassed.
 2. **Investigator packet, independently ready:** use the identified private
@@ -127,16 +159,19 @@ compatibility. No extra infrastructure or qualification framework is needed.
 
 | Priority | Exact candidate | Data that must be assessed | Current prerequisite |
 |---|---|---|---|
-| 1 | `bigcode/starcoderbase` | Actual StarCoder training mix: The Stack v1.2-derived code, notebooks, issues and commits; exact checkpoint-stage mapping. | User-approved access verified; all component representations inspected. Exact base checkpoint dossier independently accepted with attribution limits. Original-weight provisioning/conversion and runtime verification remain. |
-| 2 | `bigcode/octocoder` | StarCoder ancestry plus CommitPackFT and OASST OctoPack fine-tuning data and processing. | Weights are ungated; base ancestry and every post-training stage still need qualification. Existing incomplete-download/adapter diagnostics are not provenance approval. |
-| 3 | `bigcode/starcoder2-3b` base | Exact The Stack v2 training subset and all additional sources, including the documented natural-language data. | Model and training-ID shard access now verified after user approval. File-content access and complete additional-source lineage still require assessment; bulk Software Heritage access is separate. |
+| 1 | `bigcode/starcoderbase` | Actual StarCoder training mix: The Stack v1.2-derived code, notebooks, issues and commits; exact checkpoint-stage mapping. | Exact dossier independently accepted; original weights converted and verified. Two actual wiring responses retained, neither a verified repair. |
+| 2 | `bigcode/octocoder` | StarCoderBase, StarCoder's 35B-token Python continuation, then CommitPackFT and OASST OctoPack fine-tuning. | Bounded dataset-stage dossier independently accepted; complete selected OASST message ancestry joined. Provisioned; one actual fixture response repaired the fixture. Failure-evidence corrections passed bounded independent review. |
+| 3 | `bigcode/starcoder2-3b` base | Size-specific Stack v2 and supplementary mixture, plus 200B-token same-corpus continuation. The 3B recipe excludes arXiv, Wikipedia and OpenWebMath. | Access granted, but BLOCKED on required supplementary/synthetic ancestry, particularly GSM8K-SciRel's LLaMA/LLaMA2 generators. No weights loaded or inference. |
 | Alternative | `allenai/OLMo-1B-hf` original base | Dolma v1_5, original training recipe, component source lineage and publisher HF-format conversion. Not OLMo2 or an instruct checkpoint. | Manifest/recipe are accessible; sample shards returned HTTP 403 for every component on the Mac. It remains BLOCKED. |
 
 Granite remains a candidate only if its required source-level training lineage
 can be established. Qwen is excluded from provenance-first qualification.
-Only the exact StarCoderBase artifact described in
-[its dossier](model-qualifications/starcoderbase.md) has passed the current
-bounded lineage assessment. Access alone does not qualify either other model.
+The exact artifacts described in the
+[StarCoderBase dossier](model-qualifications/starcoderbase.md) and
+[OctoCoder dossier](model-qualifications/octocoder-progress.md) have passed
+bounded lineage assessment, not legal clearance or utility qualification.
+The [StarCoder2 dossier](model-qualifications/starcoder2-3b-progress.md) records
+its independent BLOCKED decision. Access alone qualifies no model.
 
 Access links:
 - [StarCoderBase model](https://huggingface.co/bigcode/starcoderbase)
@@ -195,12 +230,15 @@ a model or complete a repair trial.
 
 Artifact provisioning, recorded conversion and local
 loading completed; the [StarCoderBase dossier](model-qualifications/starcoderbase.md)
-now records its first actual EACH wiring response and verified retained
-inputs. The next task step is a declared base-model completion/FIM contract
-and the origin-reviewed Xodus behavioral packet, not another unrelated
-instruction-prompt benchmark.
-Continue separate dataset-stage assessment for OctoCoder and StarCoder2;
-do not substitute an unqualified model.
+now records both actual EACH wiring responses and verified retained inputs.
+The FIM contract is implemented and exercised: baseline and candidate both
+failed, so the applied candidate is not a verified repair. OctoCoder's one
+instruction-formatted response passed the same fixture's protected candidate
+tests. The failure-evidence corrections passed bounded independent review.
+The next deliverable is the origin-reviewed Xodus packet, not additional
+fixture retries. StarCoder2's unresolved required ancestry does not
+prevent work with the separately qualified models; do not substitute an
+unqualified model.
 See [model provenance](model-provenance.md) for primary sources and
 [the production ledger](production-readiness-ledger.md) for later release gates.
 
@@ -208,6 +246,32 @@ See [model provenance](model-provenance.md) for primary sources and
 
 User direction, 2026-10-03: retain all evaluation data so performance results
 can be published. This is not permission to publish private target artifacts.
+
+### Actual qualified-model wiring observations
+
+These are **individual wiring checks, not a matched capability benchmark**.
+Prompt formats differ, and none is a qualified-model Xodus trial.
+
+| Model / format | Actual responses | Baseline / candidate exit | Outcome | Completion-call seconds | Total seconds |
+|---|---:|---|---|---:|---:|
+| StarCoderBase / instruction-shaped diff | 1 | 1 / not run | PATCH_REJECTED | Unavailable | 31.863 |
+| StarCoderBase / documented FIM | 1 | 1 / 1 | REPAIR_NOT_VERIFIED | 13.009 | 33.012 |
+| OctoCoder / documented Question/Answer diff | 1 | 1 / 0 | REPAIR_VERIFIED | 4.436 | 28.302 |
+
+Exact checkpoint, conversion, receipt identities and scope are in the respective
+model dossiers. OctoCoder's encoded input was 195 tokens; output-token counts,
+decoder throughput and peak memory were not measured. Completion-call elapsed
+time is not tokens/second. Preserve unsuccessful calls alongside the success;
+do not pool these with historical Qwen or FixtureModel results.
+
+All three receipt signatures and their two declared input files were rechecked
+after the wiring corrections without changing the original receipts. The first
+Base run's inputs live in its separately retained recovery directory; verifying
+that old receipt requires the explicit `--artifact-root`, not the absent default
+`materials/` directory. The later Base FIM and OctoCoder receipts verify with
+their standard retained-material directories. This location distinction must
+not be hidden behind a claim that all historical runs originally retained their
+inputs in the same way.
 
 Keep original specifications, permitted input files, model/dataset eligibility
 evidence, exact model manifests, backend/environment identity, rendered prompts,

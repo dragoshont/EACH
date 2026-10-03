@@ -202,6 +202,19 @@ distinguish preflight rejection from backend generation failure. Synthetic
 regressions cover these paths without new model inference. The original
 successful wiring receipt and all earlier negative evidence remain unchanged.
 
+The final closure also handles ordinary OS failures such as `PermissionError`,
+not only executor-specific exceptions. At source
+`2440d2ff887e0ac8dc27212b4b4cfbb5140aaa2a`, focused tests passed 36/36;
+configured gates passed 639 tests with 11 optional skips; models/audit extras
+passed 650 tests with zero skips; CI-scoped Ruff passed. A separate Adversarial
+Judge inspected the fixes and complete sanitized gate output and closed the
+bounded F1/F2/B1 findings with PASS. No new model inference was needed.
+
+This bounded admission does not supply unobserved reviewer-family telemetry or
+close an R3/R4 cross-family gate. The original execution Run's broad-lint failure
+and subsequent formal review-resource boundary remain recorded; neither is
+silently relabeled as whole-Run completion.
+
 Primary sources:
 - [OctoCoder model card](https://huggingface.co/bigcode/octocoder/blob/0f863c63e38ba80fc2c4010f34a7f46d537a9eee/README.md)
 - [OctoPack paper](https://arxiv.org/html/2308.07124v2)

@@ -19,8 +19,10 @@ not correctness, originality or legal clean-room status.
 
 | Area | Current position |
 |---|---|
+| Current provenance-first work | Exact retained StarCoderBase and OctoCoder artifacts are **AUTHORIZED**. **StarCoderBase is the initial Builder**; its failed wiring repairs do not invalidate provenance. Model qualification no longer blocks launch. |
+| Third approved candidate | StarCoder2 access is granted, but required supplementary/synthetic-generator ancestry remains unresolved. **Blocked before model loading.** |
 | Research program | M0-M8 complete; full research release gate verified. |
-| Production | **Not qualified yet.** Autonomous qualification is underway under the [production ledger](docs/production-readiness-ledger.md). |
+| Production | **Not qualified.** Blockers remain in the [production ledger](docs/production-readiness-ledger.md); current work prioritizes the provenance-first Xodus pilot. |
 | First production-development exploration | Three new Python development tasks, nine local-model calls, **zero verified repairs**; this utility lane is stopped at its authorized cap. |
 | Historical benchmark | 25 Python/C/C++/Rust tasks, 75 selected recorded calls, **0 verified repairs**. |
 | Controlled compatibility experiment | M7: **8 passing tests, 1 failure**; complete negative evidence, not a working cache. |
@@ -32,6 +34,18 @@ not correctness, originality or legal clean-room status.
 See [development evidence](docs/development-status.md) for exact source
 revisions, gate results and limitations. Independent AI review supports
 engineering qualification; it does not confer production readiness.
+
+The active priority is [models, harness, then one real Xodus behavior](docs/provenance-first-evaluation-plan.md),
+not more unrelated benchmarks. Earlier Qwen outcomes remain historical capability
+data and are excluded from provenance-first qualification. Dataset-stage
+eligibility does not certify lawful training or originality.
+
+The [finite registry](docs/model-qualifications/registry.json) and
+[dual-lane addendum](docs/EACH_DUAL_LANE_ADDENDUM.md) close this model-research
+cycle: StarCoder2 is blocked; Comma is deferred, not a launch dependency.
+The [first qualified Xodus run](docs/reference-builder-launch.md) has verified
+isolated baseline evidence and awaits genuine approval of its exact new Spec.
+No qualified-model Xodus generation has occurred yet.
 
 ## What you get
 

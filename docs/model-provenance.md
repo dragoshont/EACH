@@ -6,11 +6,18 @@ The user clarified that EACH works **only with models having clear training-data
 provenance**. This is an eligibility requirement before new target generation,
 not a preference traded away for repair performance.
 
-The exact original StarCoderBase checkpoint has now passed a bounded
-[independent training-lineage assessment](model-qualifications/starcoderbase.md).
-Its catalog key is `starcoderbase-mlx`; artifact provisioning and recorded
-conversion must also verify before loading. All other entries fail closed
-before loading weights or invoking an adapter. Historical
+The [finite qualification registry](model-qualifications/registry.json) records
+the current exact-artifact decisions. StarCoderBase is **AUTHORIZED** and the
+initial/reference Builder after retained original weights, conversion, runtime
+identity and signed evidence verified. OctoCoder is separately **AUTHORIZED**
+under its independently reviewed dataset-stage scope. StarCoder2 is **BLOCKED**
+on synthetic ancestry; Comma is **DEFERRED** after one bounded document pass.
+Model research is closed for this launch cycle under the
+[dual-lane addendum](EACH_DUAL_LANE_ADDENDUM.md).
+
+The catalog keys `starcoderbase-mlx` and `octocoder-mlx` require the exact
+qualified artifacts; other entries fail closed before loading weights or
+invoking an adapter. Historical
 builders and receipts are retained for reproducibility and tests; their presence
 does not authorize new generation. FixtureModel is a deterministic harness test.
 Enforcement is at `catalog.load_model` and its official CLI callers. Low-level
@@ -25,9 +32,9 @@ inputs. Distillation and synthetic-data ancestry cannot be assumed transparent.
 Conversion and tokenizer/runtime identity remain necessary but are different
 evidence. Missing stages or unavailable lineage cannot become PASS.
 
-StarCoderBase, OctoCoder and IBM Granite Code are **candidates to investigate**,
-not an automatically approved family list. In particular, OctoCoder's additional
-instruction data requires separate assessment. A model card's claim or a
+There is no authorized model-family list. OctoCoder's StarCoder continuation
+and additional instruction data were assessed separately, not inherited from
+StarCoderBase's decision. A model card's claim or a
 permissive weight license alone does not establish clear training provenance.
 This policy does not claim that documented datasets prove lawful individual
 training items, originality of output, or legal clean-room status.
@@ -37,7 +44,12 @@ Its nine-call trial and other Qwen experiments remain signed historical records;
 they are not evidence that provenance-qualified models failed. Do not rewrite
 their identities or use them as a production provenance gate.
 
-M2's initial supported Builder is Granite Code 3B Instruct through local MLX-LM.
+## Historical model experiments, not current authorization
+
+The following M2/M6 notes predate the governing provenance-only correction.
+They do not authorize a historical model or reopen a model search.
+
+M2's initial supported Builder was Granite Code 3B Instruct through local MLX-LM.
 Granite Base was also evaluated and did not produce a verified fixture repair.
 This small comparison is not a broad leaderboard or evidence of originality.
 
@@ -79,10 +91,12 @@ adapter diagnostics or any inference.
 Model licenses do not automatically license generated target patches.
 EACH records technical evidence and published claims, not legal conclusions.
 
-## Primary-source candidate check (2026-10-03)
+## Historical primary-source candidate check (2026-10-03)
 
-These observations start qualification; none constitutes an eligibility PASS.
+These early observations started qualification; none constituted an eligibility PASS.
 They replace assumptions based on model families or generic search summaries.
+Current decisions are in the registry and exact-model dossiers, including the
+StarCoder2 correction that its 3B mixture excludes arXiv/Wikipedia/OpenWebMath.
 
 | Candidate | Verified publisher evidence | Remaining qualification boundary |
 |---|---|---|
