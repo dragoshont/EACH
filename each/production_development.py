@@ -7,6 +7,8 @@ Only sanitized hashes/counts/status cross this command's output boundary.
 
 from __future__ import annotations
 
+import argparse
+import dataclasses
 import json
 import platform
 import shutil
@@ -60,6 +62,51 @@ TASK = BenchmarkTask(
     proposal_format="full_source",
 )
 
+ONE_BYTE_TASK = dataclasses.replace(
+    TASK, task_id="production-dev-humanize-one-byte-float",
+    pre_fix_sha="8059ebe1732c89177709476165f6e87cc76fe1b7",
+    fix_sha="a79fb3a6c8bbe52afe71cd278bbea3bda5241a41",
+    problem_statement=(
+        "Public naturalsize must format a value of one byte as '1 Byte', "
+        "including floating-point and numeric-string inputs representing one. "
+        "Preserve SI, IEC, GNU, negative-size and custom decimal-format behavior."
+    ),
+    observation_cases=(
+        PythonCase("float-one", "naturalsize", (1.0,), "1 Byte"),
+        PythonCase("string-one", "naturalsize", ("1.0",), "1 Byte"),
+        PythonCase("integer-one", "naturalsize", (1,), "1 Byte"),
+        PythonCase("zero", "naturalsize", (0,), "0 Bytes"),
+        PythonCase("si", "naturalsize", (3000,), "3.0 kB"),
+        PythonCase("iec", "naturalsize", (3000, True), "2.9 KiB"),
+        PythonCase("gnu", "naturalsize", (3000, False, True), "2.9K"),
+        PythonCase("negative", "naturalsize", (-3000,), "-3.0 kB"),
+        PythonCase("format", "naturalsize", (3000, False, False, "%.2f"), "3.00 kB"),
+        PythonCase("bad-input", "naturalsize", ("not-a-number",), error="ValueError"),
+    ), expected_tests=10,
+)
+
+ROLLOVER_TASK = dataclasses.replace(
+    TASK, task_id="production-dev-humanize-yotta-rollover",
+    pre_fix_sha="f8a74b4c1342a3987d3aaa409111bcd9f3a740f7",
+    fix_sha="33119c0a88a2cd1b204e660c1d2b09c5a5b8791e",
+    problem_statement=(
+        "Public naturalsize must roll over from zettabytes to yottabytes at "
+        "the SI boundary: 10**24 bytes represents '1.0 YB'. Preserve lower "
+        "units, negative sizes, zero, singular bytes, binary and GNU formatting."
+    ),
+    observation_cases=(
+        PythonCase("yotta", "naturalsize", (10**24,), "1.0 YB"),
+        PythonCase("zetta", "naturalsize", (10**21,), "1.0 ZB"),
+        PythonCase("negative-yotta", "naturalsize", (-10**24,), "-1.0 YB"),
+        PythonCase("si", "naturalsize", (3000,), "3.0 kB"),
+        PythonCase("iec", "naturalsize", (3000, True), "2.9 KiB"),
+        PythonCase("gnu", "naturalsize", (3000, False, True), "2.9K"),
+        PythonCase("zero", "naturalsize", (0,), "0 Bytes"),
+        PythonCase("one", "naturalsize", (1,), "1 Byte"),
+        PythonCase("bad-input", "naturalsize", ("not-a-number",), error="ValueError"),
+    ), expected_tests=9,
+)
+
 
 class BudgetExceeded(RuntimeError):
     pass
@@ -70,6 +117,11 @@ def _timeout(_signum, _frame):
 
 
 def main() -> int:
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--task", choices=["negative-size", "one-byte-float", "yotta-rollover"],
+                        default="negative-size")
+    args = parser.parse_args()
+    task = {"negative-size": TASK, "one-byte-float": ONE_BYTE_TASK, "yotta-rollover": ROLLOVER_TASK}[args.task]
     # This deliberately does not claim support for additional machines.
     if platform.machine() != "arm64" or platform.mac_ver()[0] != "27.0.1":
         raise RuntimeError("unmeasured host: development support contract does not apply")
@@ -100,7 +152,7 @@ def main() -> int:
     model.complete = complete
     signal.signal(signal.SIGALRM, _timeout)
     started = time.monotonic()
-    result = run_benchmark_task(TASK, model, max_attempts=3)
+    result = run_benchmark_task(task, model, max_attempts=3)
     elapsed = time.monotonic() - started
     # Read locally only; never emit source, prompts, completions or target patch.
     from pathlib import Path
@@ -110,7 +162,7 @@ def main() -> int:
     signature = verify_receipt(receipt, public_key_path().read_bytes())
     retained = verify_materials_root(receipt, path.parent / "materials")
     summary = {
-        "taskId": TASK.task_id,
+        "taskId": task.task_id,
         "outcome": result["outcome"],
         "receiptSha256": sha256_file(path),
         "receiptPath": str(path),

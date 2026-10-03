@@ -142,6 +142,15 @@ def extract_full_source(completion: str) -> str:
         raise RawProposalRejected("END_SOURCE marker appears before BEGIN_SOURCE marker")
     body = completion.split(SOURCE_BEGIN, 1)[1].split(SOURCE_END, 1)[0]
     body = body.strip("\n")
+    # Observed local-model interoperability defect: a single CLOSED code
+    # fence inside the source markers was being applied as literal Python.
+    # Remove only an unambiguous enclosing presentation wrapper; never
+    # repair source, guess a missing fence, or accept prose/multiple fences.
+    if body.startswith("```"):
+        fence = re.fullmatch(r"```(?:[A-Za-z0-9_+-]+)?[ \t]*\n(.*)\n```[ \t]*", body, re.DOTALL)
+        if fence is None or body.count("```") != 2:
+            raise RawProposalRejected("source body has an unclosed or ambiguous code fence")
+        body = fence.group(1)
     if not body.strip():
         raise RawProposalRejected("empty source body")
     return body + "\n"
