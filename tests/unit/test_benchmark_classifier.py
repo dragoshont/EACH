@@ -26,6 +26,18 @@ def test_a_clean_single_failing_test_is_classified_as_failed():
     assert _interpret_pytest_run(result, expected_tests=1) == "failed"
 
 
+def test_partial_progress_is_a_real_failure_not_an_inconclusive_run():
+    result = _result(1, "1 failed, 8 passed in 0.02s\n")
+    assert _interpret_pytest_run(result, expected_tests=9) == "failed"
+
+
+@pytest.mark.parametrize("exit_code", [2, 3, 4, 5, 137])
+def test_non_test_failure_exit_cannot_be_classified_as_a_failing_test(exit_code):
+    result = _result(exit_code, "1 failed, 8 passed in 0.02s\n")
+    with pytest.raises(BenchmarkExecutionError, match="ambiguous"):
+        _interpret_pytest_run(result, expected_tests=9)
+
+
 def test_a_docker_launch_failure_exit_code_is_never_test_evidence():
     result = _result(125, "", "docker: Error response from daemon")
     with pytest.raises(BenchmarkExecutionError, match="container launch failed"):

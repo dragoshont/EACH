@@ -490,7 +490,9 @@ def run_clean_room_build(
             # pipeline (it already lives in the private repaired_result
             # dict above, this only reuses it to build the next prompt).
             feedback = (
-                extract_bounded_test_feedback(repaired.stdout, repaired.stderr)
+                extract_bounded_test_feedback(
+                    repaired.stdout, repaired.stderr, approved_spec_items=tuple(range(1, 10))
+                )
                 if repaired.exit_code not in _DOCKER_LAUNCH_FAILURE_EXIT_CODES
                 else ""
             )
@@ -546,7 +548,9 @@ def run_clean_room_build(
             if materials_drift
             else "patch applied but did not make the failing tests pass"
         )
-        feedback = "" if materials_drift else extract_bounded_test_feedback(repaired.stdout, repaired.stderr)
+        feedback = "" if materials_drift else extract_bounded_test_feedback(
+            repaired.stdout, repaired.stderr, approved_spec_items=tuple(range(1, 10))
+        )
         attempt_record["test_feedback_hash"] = sha256_text(feedback) if feedback else None
         attempt_record["test_feedback_truncated"] = feedback.endswith(TRUNCATION_MARKER)
         prompt = base_prompt + _retry_suffix_for_mode(

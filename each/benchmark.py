@@ -319,7 +319,7 @@ def _interpret_pytest_run(result: ExecutionResult, *, expected_tests: int) -> st
         )
     if result.exit_code == 0 and failed == 0 and passed == expected_tests:
         return "passed"
-    if result.exit_code != 0 and failed == expected_tests and passed == 0:
+    if result.exit_code == 1 and failed > 0:
         return "failed"
     raise BenchmarkExecutionError(f"ambiguous pytest result, not a clean pass/fail: {combined!r}")
 
