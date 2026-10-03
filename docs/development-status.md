@@ -127,7 +127,7 @@ table rows below for the full-source-mode results.
 | M3 | Intake/spec workflow implemented; genuine user approval received on 2026-10-02 for the pinned BSD-3-Clause review packet. |
 | M4 | Terminal auditor (copy/renaming/boilerplate heuristics plus a real Tree-sitter comparison) runs only after a validated candidate; audit rejection is terminal and never reaches another Builder attempt in the same run. |
 | M5 | Receipt signature binds the entire canonical payload (model/spec/assurance/certification/attempt fields) plus diagnostic stage hashes, using a local signing key outside the repository; real tamper rejection (patch/spec/validation mutation, missing material) verified. |
-| M6 | **PASS** (independent GPT-family and Claude-family adversarial review, each registered as a semantic gate). Real 5-task smoke, then 22 real historical permissive repairs benchmarked against the real no-network container, across two local models. 3B pilot (`granite-3b-code-instruct-mlx`, see `docs/benchmarks/m6-granite-3b-code-instruct-mlx-20261002.md`): only 4/22 tasks reached real generation calls under its declared 2048-token context (18/22 honestly rejected pre-generation with exact token counts; 0/4 eligible tasks produced an applicable patch). Primary 128K-context run (`granite-8b-code-instruct-128k-mlx`, original ibm-granite publisher weights, no conversion; see `docs/benchmarks/m6-granite-8b-code-instruct-128k-20261002.md`): all 22/22 tasks reached real generation (66 genuine `model.complete()` calls total), confirming the context-budget fix; 0/22 verified repairs -- 65/66 attempts' completions omitted the required BEGIN_PATCH/END_PATCH markers and the remaining attempt returned a placeholder-template diff with no real file changes, a genuine instruction-following/localization limitation of varying severity across tasks, not a harness defect (patch extraction is intentionally strict). An independent dual-family adversarial review (GPT-family and Claude-family) found and the coordinator fixed a real evidence-integrity defect before acceptance: the benchmark source cache was keyed only by task id, letting a stale cache entry from an earlier sha silently masquerade as the pre-fix source (confirmed for one task); fixed by keying the cache on task id + exact pre-fix sha, purging the contaminated cache, adding a regression test, and regenerating both benchmark reports from a clean re-run with every task's baseline independently confirmed to genuinely fail beforehand. A final confirmation round from both families on the fully-corrected state caught two further small doc overclaims (an inaccurate "on-target completion" example and a misdescribed rejection reason), both independently verified and corrected before acceptance. Accepted as valid M6 evidence per the project's own criterion (genuine input construction and real attempts, not a required success rate). |
+| M6 | **PASS** (independent GPT-family and Claude-family adversarial review, each registered as a semantic gate). Real 5-task smoke, then 22 real historical permissive repairs benchmarked against the real no-network container, across two local models. 3B pilot (`granite-3b-code-instruct-mlx`, see `docs/benchmarks/m6-granite-3b-code-instruct-mlx-20261002.md`): only 4/22 tasks reached real generation calls under its declared 2048-token context (18/22 honestly rejected pre-generation with exact token counts; 0/4 eligible tasks produced an applicable patch). Primary 128K-context run (`granite-8b-code-instruct-128k-mlx`, original ibm-granite publisher weights, no conversion; see `docs/benchmarks/m6-granite-8b-code-instruct-128k-20261002.md`): all 22/22 tasks reached real generation (66 genuine `model.complete()` calls total), confirming the context-budget fix; 0/22 verified repairs -- 65/66 attempts' completions omitted the required BEGIN_PATCH/END_PATCH markers and the remaining attempt returned a placeholder-template diff with no real file changes, a genuine instruction-following/localization limitation of varying severity across tasks, not a harness defect (patch extraction is intentionally strict). An independent dual-family adversarial review (GPT-family and Claude-family) found and the coordinator fixed a real evidence-integrity defect before acceptance: the benchmark source cache was keyed only by task id, letting a stale cache entry from an earlier sha silently masquerade as the pre-fix source (confirmed for one task); fixed by keying the cache on task id + exact pre-fix sha, purging the contaminated cache, adding a regression test, and regenerating both benchmark reports from a clean re-run with every task's baseline independently confirmed to genuinely fail beforehand. A final confirmation round from both families on the fully-corrected state caught two further small doc overclaims (an inaccurate "on-target completion" example and a misdescribed rejection reason), both independently verified and corrected before acceptance. Accepted as valid M6 evidence per the project's own criterion (genuine input construction and real attempts, not a required success rate). **Known scope limitation**: all 22 benchmark `bug_path` fixtures are Python-only (`each/benchmark_tasks.py`); mandate section 128 describes a "mix of C/C++/Rust/Python" as the intended eventual composition. This is an honest, documented gap, not a silent omission -- adding new non-Python benchmark fixtures (and the corresponding harness fixture/sandbox support to build and execute them) is out of scope for this release under YAGNI (no genuine current need was identified beyond the mandate's aspirational mix framing, and the existing M8 slice already exercises a real C target, `xsystem.c`, for the harness's non-Python capability). M6's own 22-task corpus remains Python-only until a concrete future need justifies the added fixture/build infrastructure. |
 | M7 | Spec genuinely approved; Builder run executed against the real no-network container executor. **Original real receipt outcome: `REPAIR_NOT_VERIFIED` across all 3 declared attempts** (`~/.each/runs/m7-clean-room-lru-cache-real/receipt.json`) -- `repairedExitCode: null` (no attempt reached a validated, applied patch), `audit: UNAVAILABLE` (terminal audit never runs without a validated candidate), signature verification `PASS` (declaration-only; this predates the full-artifact-integrity verifier added later), `assuranceLevel: EACH-P2`, `legalCertification`/`cleanroomCertification: false`. This is a genuine, signed, real-attempt failure record, not a verified repair. The user gave a NEW genuine approval ("i approve m7", 2026-10-02) for the bounded clean-room-style `functools.lru_cache` demonstration spec, independently matching its draft content hash (`b8427bd9...`) and approved hash (`8499cf22...`). A real operational defect was found and fixed while resolving the earlier external checkpoint: `wait_external()`'s one-time resolution challenge was lost (its only copy, an ephemeral shell-output temp file, did not survive a host/session transition) before `resolve_external()` ran, leaving a genuinely-approved checkpoint stuck with no way to close it under the original design. Rather than fabricate a challenge or hand-edit Run state (both explicitly forbidden), a new, narrow `RunStore.reissue_challenge()` recovery method (plus `external-reissue-challenge` CLI subcommand) was added: it requires a trusted coordinator/human actor and an already-registered, unconsumed `external-proof` artifact that genuinely matches the checkpoint's id/principal/provider, so it can never manufacture approval, only re-open the door for evidence that already exists. **Root-cause harness fix (2026-10-03) and new immutable evidence:** source-free diagnosis of the original receipt's rejected patches (structural line-prefix/hunk-header counts only, never raw content) found two real, generic harness defects, not target-specific: (1) the declared local model (`ibm-granite/granite-8b-code-instruct-128k`) frequently emits a truly empty line for a blank unified-diff context line instead of a single leading space, desyncing `unidiff`'s hunk-line bookkeeping -- fixed by a narrow `_restore_blank_context_lines()` transform in `each/patch.py` that only restores an already-empty line strictly inside an already-opened hunk; (2) all 3 retry attempts previously used fixed greedy (`temperature=0.0`, no seed) decoding, so despite a materially larger retry-feedback prompt the completions were byte-identical across all 3 attempts -- fixed by adding `RepairModel.configure_sampling()` (no-op default; real implementation in `MLXRepairModel`) and wiring attempt 1 to stay deterministic while attempts 2-3 use a small fixed, fully-recorded `temperature=0.2`/`seed=attempt_num`. A fresh, real, local-model-only M7 run under a brand-new immutable run id (`m7-clean-room-lru-cache-fresh-20261003`, receipt never overwrites/re-signs the original; generated 2026-10-03, this is a point-in-time snapshot of that run's own evidence, not a claim about any other/later run) confirms both fixes work as intended (zero blank-line-prefix defects remain; attempt completions are now genuinely distinct -- 1036/1024/485 chars rather than 3x identical) but **still outcome `PATCH_REJECTED` across all 3 attempts, with no attempt reaching a validated/applied patch (no acceptance exit)**: the coordinator independently re-verified this fresh run's own full materials-integrity and signature checks both `PASS` against the retained artifact files (not declaration-only). Each rejected attempt's hunk header declares an old/new line count that does not match the hunk's own body line count. **The cause of that mismatch (model capability, prompt/template framing, decoding configuration, or another harness interaction) is currently undetermined** -- this document does not assert a specific diagnosed cause, and no private model output was inspected to reach one. No new model was downloaded; this is the same declared, already-cached checkpoint. This is useful negative evidence, not a working repair. **Full-source-mode attempt (2026-10-03, commit `4a44a33`):** a new `each.raw_proposal` module and a `proposal_format="full_source"` option on `run_clean_room_build()` let the harness itself derive the unified diff (via stdlib `difflib.unified_diff` against the known pre-image) instead of asking the model to compute an exact hunk-header line count -- removing that specific failure mode entirely while running the exact same `each.patch.parse_patch`/`apply_patch` scope/path/pre-image validation on the resulting diff text. A fresh run under a new immutable run id (`m7-clean-room-lru-cache-fullsource-20261003`) against the SAME already-approved spec got past `PATCH_REJECTED` into real build/run territory on all 3 attempts, but was classified **`REPAIRED_RUN_INCONCLUSIVE`**: attempt 1 produced an ambiguous (partially-passing, partially-failing) pytest result, not a clean pass or clean fail; attempts 2-3 (higher-temperature retries) produced syntactically invalid full-source bodies (a Python `IndentationError` at collection time). The coordinator independently re-verified this fresh run's signature and materials both `PASS` via `each verify --full` against the retained artifact files. This is genuinely different, more informative negative evidence than the diff-mode hunk-header mismatch (the harness-side diff-derivation issue is now eliminated), but **M7 still has no verified repair** at this commit; the acceptance criterion remains honestly `FAIL`. **Second, more generous full-source retry (2026-10-03, same approved spec, same model, 5 attempts instead of 3, run id `m7-clean-room-lru-cache-fullsource-retry-20261003`):** also classified `REPAIRED_RUN_INCONCLUSIVE` on all 5 attempts. Source-free classification-level inspection only (never the raw pytest output, which may embed private target test content): every attempt's repaired-candidate build/run executor call returned a non-zero exit code (either `1`, consistent with the baseline's own pre-existing failing-test exit code, meaning the candidate still did not make the target test suite pass; or `2` on two attempts, consistent with a pytest collection-time error rather than a clean pass or a clean, unambiguous fail). No attempt in either full-source run (3-attempt or 5-attempt) reached a validated, passing repair. **The cause of this M7-specific gap relative to M8's immediate full-source success is currently undetermined** (task complexity/scope difference is a plausible but undiagnosed hypothesis; no specific cause is asserted here). **Feedback-wired full-source retry (2026-10-03, commit `636de86`):** a new `each/test_feedback.py` module (bounded, structurally-identified extraction of a real pytest run's own `E `-prefixed exception/assertion lines and `FAILED`/`ERROR` node-id lines, capped at 1500 chars, never unprefixed hidden-test source) was wired into both of `each/clean_room.py`'s post-run retry paths, so each retry after the first carries genuine, attempt-specific diagnostic detail instead of a generic "did not pass" message. A fresh 5-attempt run under a new immutable run id (`m7-clean-room-lru-cache-fullsource-feedback-20261003`) against the SAME already-approved spec recorded a real, non-empty `test_feedback_hash` on every attempt after the first, confirming the plumbing itself works, but still classified **`REPAIRED_RUN_INCONCLUSIVE`** on all 5 attempts -- and attempts 2-5 produced an *identical* collection-time failure (matching `test_feedback_hash` across all four), meaning the Builder did not act on the distinct corrective feedback it was actually given. The coordinator independently re-verified this run's signature and materials both `PASS` via `each verify --full`. This narrows the undiagnosed gap: the harness-side feedback mechanism is now confirmed functional; the remaining limitation is the declared local model's own correction behavior on this task, not missing diagnostic information or a harness defect. Having now exhausted three independently-configured full-source attempts (plain retry, more-attempts retry, feedback-wired retry) against the same approved spec without a verified repair, a concrete new hypothesis (model capacity) was tested next. **Larger-model attempt (2026-10-03, commit `3bc28e9`):** `ibm-granite/granite-20b-code-instruct` (pinned revision `03d2f3664ed0059eac4d35797b43fb52d551bb5b`, Apache-2.0, not gated, same declared mandate candidate family) was provisioned outside any sealed run via the existing `huggingface_hub` snapshot helper and added as a `granite-20b-code-instruct-mlx` catalog entry; provisioning it also surfaced and fixed a real generic harness defect (`each/model_manifest.py` only read `max_position_embeddings`, silently skipping the context-budget check for this checkpoint's `config.json`, which declares its window under the GPT-BigCode-family field name `n_positions` instead -- fixed with a tested fallback, resolving correctly to `8192`). A fresh 5-attempt full-source run (run id `m7-clean-room-lru-cache-fullsource-20b-20261003`, `max_tokens=2048` against the smaller 8192 context) also classified **`REPAIRED_RUN_INCONCLUSIVE`** on all 5 attempts (repaired-run exit codes `2,1,1,2,1`). This is genuinely different, more-informative negative evidence than the 8B feedback-wired run: all 5 of the 20B model's attempts produced a genuinely distinct `test_feedback_hash` (versus the 8B run's 4 identical attempts), confirming this larger model does respond with new content to genuine corrective feedback, but it still did not converge to a validated repair within the bounded attempt budget. The coordinator independently re-verified this run's signature and materials both `PASS` via `each verify --full`. **The cause of this M7-specific gap remains undiagnosed across both tested model sizes (8B and 20B) of the same declared family.** No further M7 generation retries are planned at this time without a genuinely new diagnosis; the already-authorized `granite-34b-code-instruct` fallback (pinned revision `4bdfb589ebd261be0942a00dd239175d9d65bc47`) remains the next concrete, already-justified step if pursued. **Newer/smaller-model and pragmatic-fallback attempts, superseding the "34B remains the next step" framing above (2026-10-03):** per updated guidance to prefer a newer, non-deprecated checkpoint over a pure-capacity escalation, `ibm-granite/granite-3.3-8b-instruct` (pinned revision `51dd4bc2ade4059a6bd87649d68aa11e4fb2529b`, Apache-2.0, not gated, `model_type: granite`, 131072 context -- a modern generation distinct from the gpt_bigcode-family 8B/20B/34B code-instruct checkpoints already tried) was provisioned and added as `granite-3.3-8b-instruct-mlx`. A fresh 5-attempt feedback-wired full-source run (run id `m7-clean-room-lru-cache-granite33-8b-20261003`) classified `REPAIRED_RUN_INCONCLUSIVE` on all 5 attempts, with every attempt failing identically at Python collection time (a consistent, source-free-verified exception-class match across all 5 attempts, not a sampling fluke) -- this newer checkpoint did not fare better than the earlier granite-code-instruct sizes on this task. Per the already-authorized pragmatic-fallback ordering, `Qwen/Qwen2.5-Coder-14B-Instruct` (pinned revision `aedcc2d42b622764e023cf882b6652e646b95671`, Apache-2.0, not gated, `model_type: qwen2`, 32768 context, original publisher weights with its own LICENSE file in the snapshot) was provisioned next and added as `qwen2.5-coder-14b-instruct-mlx`. A fresh 5-attempt feedback-wired full-source run (run id `m7-clean-room-lru-cache-qwen25coder14b-20261003`) also classified `REPAIRED_RUN_INCONCLUSIVE` on all 5 attempts, this time with every attempt's exception class source-free-verified as a consistent `AssertionError` (a repaired candidate that applies and runs, but whose behavior does not satisfy the approved test) rather than a collection-time failure -- a qualitatively different, more advanced failure mode than the smaller/code-instruct checkpoints, but still not a verified repair. With both the newer-generation and pragmatic-fallback candidates exhausted, the already-downloaded `granite-34b-code-instruct` (pinned revision `4bdfb589ebd261be0942a00dd239175d9d65bc47`) was run next (run id `m7-clean-room-lru-cache-granite34b-20261003`), also classifying `REPAIRED_RUN_INCONCLUSIVE` on all 5 attempts with the same consistent `AssertionError` pattern as the 14B model. **Five distinct models across the full declared candidate family (8B, 20B, 3.3-8B, 14B, 34B) have now been tried against this exact approved spec with feedback-wired retries, and none has produced a verified repair; the two largest/most capable models converge on a consistent, source-free-verified `AssertionError` failure class (plausible-looking but functionally-incorrect generated code) rather than a syntax or formatting defect.** This is a genuine, well-evidenced negative capability result for this task on the currently available declared local models, not an unexplored gap; the cause (task difficulty/scope, prompt/excerpt framing, or a genuine capability ceiling of the tested models on this specific compatibility-shim task) remains undiagnosed, and no private candidate output was inspected by the outer conductor to reach this classification -- only structurally-extracted exception-class tokens, never raw tracebacks/source. The acceptance criterion remains honestly `FAIL`. |
 | M8 | Spec genuinely approved ("I approve the exact private M8 spec.", 2026-10-02T19:59:44+03:00; draft hash `f6f5b61f...`, approved hash `2c5eca88...`); bounded private shadow experiment executed against `xodus-gaming/xgameruntime#22` (target `7917105...`, `xsystem.c` only). **Original real receipt outcome: `REPAIR_NOT_VERIFIED` across all 3 declared attempts** (`~/.each/runs/m8-xsystem-sandboxid-opt-20261002/receipt.json`) -- `repairedExitCode: null`, `audit: UNAVAILABLE`, signature verification `PASS` (declaration-only), `assuranceLevel: EACH-P2`, `legalCertification`/`cleanroomCertification: false`, AI source upstream promotion `false`, no upstream PR opened, no shadow/strict candidate source published. This is a genuine, honestly-recorded research-experiment failure, not a repair/spec-sufficiency/validation/audit success. **Root-cause harness fix (2026-10-03) and new immutable evidence:** same two generic harness fixes as M7 (blank-context-line restoration; per-attempt sampling diversity), re-verified with a fresh real local-model-only run under a brand-new immutable run id (`m8-xsystem-sandboxid-opt-fresh-20261003`, same already-approved spec, zero spec changes, same already-cached model, original receipts untouched/unresigned; this is a point-in-time snapshot of that run's own evidence, not a claim about any other/later run). Source-free diagnosis confirms the blank-line defect class is now fully eliminated (zero malformed-prefix body lines across all 3 attempts, versus the original run's attempt 1 failing exactly that way), and sampling diversity produced genuinely distinct completions (1391/723/681 chars). The coordinator independently re-verified this fresh run's own full materials-integrity and signature checks both `PASS` against the retained artifact files. **Still outcome `PATCH_REJECTED` across all 3 attempts, with no attempt reaching a validated/applied patch (no acceptance exit)**: every attempt's hunk header declares an old/new line count that does not match the attempt's own hunk body. **The cause of that mismatch is currently undetermined** -- this document does not assert a specific diagnosed cause (model capability, prompting, or otherwise), and no private model output was inspected to reach one. This is useful negative evidence, not a working repair. **Full-source-mode attempt (2026-10-03, commit `4a44a33`) -- VERIFIED REPAIR:** using the same new `proposal_format="full_source"` option (harness-derived diff via `difflib.unified_diff` against the known pre-image, removing the model's hunk-header arithmetic requirement) on `run_xodus_shadow_build()`, a fresh run under a new immutable run id (`m8-xsystem-sandboxid-opt-fullsource-20261003`) against the SAME already-approved spec (same `specHash: 2c5eca88...`) produced outcome **`REPAIR_VERIFIED` on attempt 1** -- the first genuinely verified target repair recorded in this project. The coordinator independently re-ran `each verify --full` against the retained receipt: signature verification `PASS`, materials verification `PASS` (both declarations and the actual retained artifact files, not declaration-only), `networkIsolationVerified: true`. `assuranceLevel` remains `EACH-P2` per the harness's own isolation-evidence computation; audit sub-checks (`ast-similarity`, `corpus-membership`, `exact-substring`, `license-scan`, `ngram-similarity`) remain honestly `UNAVAILABLE` (no corpus/license-scanner configured in this v0.1 harness -- this is NOT a fake PASS, and this document does not claim legal clean-room certification). This evidence is registered in the `each-release-completion` durable Run as a `reality`-type gate (`gate-m8-target-repair-20261003`, producer `target-repair`, a new honest evidence kind added to `harness/architrave_runtime.py` specifically so this real result could be recorded without ever copying the private receipt's raw prompts/completions/patch/source into the public-repo-adjacent Run evidence store); the `m8-target-repair-verified` acceptance criterion is now genuinely `PASS`. Full project acceptance of M8 remains pending further review (cross-family semantic review and R4 security/policy review are still `BLOCKED_EXTERNAL`); no upstream PR opened, no shadow/strict candidate source published or reviewed in the cloud. |
 
@@ -322,13 +322,200 @@ fixed, approved spec text for item 6 and the model's own prior candidate.
 `m7-target-repair-verified` remains honestly `FAIL`. Across this project's
 full authorized model roster and all three proposal-format modes
 (`diff`, `full_source`, `source_edit`), the available local models
-(granite-3.3-8b-instruct, Qwen2.5-Coder-14B-Instruct; the original
-granite-20b-code-instruct deprecated checkpoint) have not produced a
-genuinely verified M7 repair within bounded attempts. The partially
--provisioned granite-34b-code-instruct snapshot (config/tokenizer only, no
-safetensors weight bytes ever actually downloaded) is not a viable
-candidate without a fresh, separately-authorized multi-hour/68GB
-provisioning decision, and the user's own guidance explicitly rejects a
-"bigger model as a blanket substitute for gates" rationale. This is recorded
-as a genuine local-model capability ceiling for this specific clean-room
-spec, not a harness defect, and not force-passed.
+(granite-3.3-8b-instruct, Qwen2.5-Coder-14B-Instruct, granite-34b-code-instruct;
+the original granite-20b-code-instruct deprecated checkpoint) have not
+produced a genuinely verified M7 repair within bounded attempts. **Correction
+(2026-10-03, this entry): an earlier draft of this paragraph incorrectly
+stated granite-34b-code-instruct's safetensors weight bytes were "never
+actually downloaded" -- they genuinely were (a real ~6m19s full-weight
+snapshot download, used for the one real `m7-clean-room-lru-cache-granite34b-
+20261003` attempt recorded above), and were deliberately deleted afterward
+purely to reclaim ~68GB of local disk space (config/tokenizer metadata was
+kept; this is the config/tokenizer-only state a fresh disk inspection finds
+today). Re-provisioning the full weights would require a fresh multi-hour
+download, not a new model-capability decision -- this is a disk-housekeeping
+fact, not a retraction of the real run or its recorded outcome.** This is
+recorded as a genuine local-model capability ceiling for this specific
+clean-room spec, not a harness defect, and not force-passed.
+
+## M7 mandate section 129 realignment: a distinct, narrower, satisfiable criterion
+
+Per renewed user authorization (2026-10-03) grounded in a direct re-read of
+`docs/EACH_BOOTSTRAP_MANDATE.md` section "129. M7 -- Clean-room-style
+controlled demonstration": that section's own literal Acceptance text is
+"complete receipt; information firewall demonstrably enforced; candidate
+remains shadow-only unless user explicitly publishes AI lineage" -- it never
+requires the candidate's own validation to have passed. The user reported
+that two independent reviewers (GPT-6 Astra `a781cc85-2b9f-488f-a8b2-
+29037f27ad81`; Claude-sonnet-5.5 `77a323a6-ef7b-42c2-a78a-4ee17fb3add3`)
+read the same section text and agreed with this reading, explicitly
+correcting an earlier, stricter interpretation. **This agent independently
+verified the mandate text itself supports this reading** before acting on it;
+the two reviewer interpretations are recorded here as user-reported facts,
+not independently re-verified by this agent (this agent has no channel to
+query those reviewers directly).
+
+**This does NOT change `m7-target-repair-verified`**, which keeps meaning
+exactly what it always meant (a genuinely verified repair) and remains
+honestly `FAIL` -- tracked as an open, visible "extra, not required" goal,
+never silently dropped, never flipped, never conflated with the new
+criterion below.
+
+A new, narrower, section-129-aligned criterion --
+`m7-clean-room-experiment-complete` -- was added to a new durable Run
+(`each-release-mandate-aligned`, baseline commit `b2d25574b2af263844352730c8e
+46704336b09eb`), registered via a new `RunStore._record_m7_experiment_receipt()`
+method that independently re-verifies the real private receipt's signature
+and retained materials (`each verify --full`), requires explicit
+`legalCertification: false` / `cleanroomCertification: false`, requires
+`networkIsolationVerified: true`, and requires the receipt's own
+`audit.checks` to exactly match the real terminal auditor's fixed check set
+(`exact-substring`, `ngram-similarity`, `ast-similarity`, `license-scan`,
+`corpus-membership`) -- so only a receipt where the Auditor genuinely ran
+(even if every finding is honestly `UNAVAILABLE`) can satisfy it, never a
+stub or a forged/partial mapping.
+
+**A harness gap needed fixing first**: `each/clean_room.py`'s
+`run_clean_room_build()` previously only ever invoked the real terminal
+auditor on the `REPAIR_VERIFIED` path -- every failed-validation receipt's
+`audit` field stayed permanently `UNAVAILABLE` with the reason "no validated
+candidate exists; terminal audit has not run", which does not satisfy
+section 129's requirement that the Auditor's findings always be visible.
+Fixed (commit `bc7a39a`): after the attempt loop genuinely ends (generation
+has already stopped; there is structurally no way for this to feed into
+another Builder call), if the selected attempt applied a real patch and its
+retained materials integrity is `PASS`, the harness reapplies that attempt's
+own retained `patch_text` to a fresh worktree of the pristine fixture root,
+reads the real post-patch SOURCE (never a diff), and runs the same
+`run_audit()` used on the verified path -- purely observational, never
+changing the `REPAIR_NOT_VERIFIED` outcome classification.
+
+**Fresh evidence run** (post-`bc7a39a`, run id `m7-clean-room-lru-cache-
+qwen14b-terminal-audit-20261003`, `max_attempts=1`, seeded with the same
+real prior Qwen2.5-Coder-14B-Instruct candidate used for the `source_edit`
+experiment above): **this is a genuinely DIFFERENT, smaller experiment than
+the 5-attempt `source_edit`/`requirement-fix` runs described above -- its
+own single attempt's edit did not change the function body at all (only
+touched the signature), so its own repaired-candidate run failed all 9
+approved test cases (`repairedExitCode: 1`, all 9 `FAILED`), not "8/9
+passing, case 6 failing" (that 8/9 fact belongs only to the separate,
+earlier `qwen14b-requirement-fix` run that this run's single attempt was
+seeded from -- it is not re-asserted or assumed to repeat here).** What this
+run's receipt DOES newly, genuinely provide is a populated top-level
+`audit.checks` (all five checks honestly `UNAVAILABLE`, with real tool
+versions `each-audit v0.1-mvp` / `tree-sitter 0.26.0`, `corpus_revision:
+"none"`) -- confirming the terminal-audit-on-failure fix works, and giving
+the new `m7-clean-room-experiment-complete` criterion a receipt it can
+genuinely verify. `each verify --full` against this receipt: signature
+PASS, materials PASS. `legalCertification`/`cleanroomCertification: false`,
+`networkIsolationVerified: true`.
+
+**Source-free seven-item section 129 view for this receipt**:
+1. What was publicly known: Python's own `functools.lru_cache` interface/
+   semantics (publicly documented stdlib behavior).
+2. What was observed: the approved, hash-pinned clean-room spec text
+   (`specHash 8499cf22...`) describing 9 required behaviors for a from-
+   scratch `lru_cache_clean_room` reimplementation; no reference source was
+   ever shown.
+3. What Builder received: the approved spec text, the model's own prior
+   candidate source (as a `source_edit` seed), and permitted failed-case
+   IDs/an approved requirement-6 observation -- never hidden test source or
+   a cloud-authored fix.
+4. What the model produced: one JSON `{"old","new"}` edit touching only the
+   function signature, applied by the harness via `str.replace` against its
+   own prior candidate.
+5. What tests proved: all 9 approved acceptance tests `FAILED` against the
+   resulting candidate (`repairedExitCode: 1`).
+6. What the Auditor found: all 5 checks honestly `UNAVAILABLE` (no
+   corpus/adapter configured in this v0.1 harness) -- not a PASS, not a
+   silent skip.
+7. What remains uncertain: why the model's single edit did not touch the
+   function body; whether more attempts/a different seed would have
+   produced a different (though still unverified) result. **Legal clean-room
+   certification: NO. Upstream acceptability: destination-project decision.**
+   Shadow-only: this candidate is never published, never sent to cloud
+   review, and stays private under `~/.each/runs/`.
+
+The `m7-clean-room-experiment-complete` criterion is registered `PASS` in
+`each-release-mandate-aligned` against this receipt
+(`gate-m7-clean-room-experiment-complete`), via a reality gate bound to the
+`runtime` surface. `m7-target-repair-verified` is intentionally NOT carried
+into this Run's blocking matrix as a registered criterion; it is tracked
+here, in this document, as an honestly-open extra goal.
+
+## M8: current-code re-audit replay of the original genuine passing candidate
+
+M8's original receipt (`m8-xsystem-sandboxid-opt-fullsource-20261003`,
+`outcome: REPAIR_VERIFIED`, `specHash 2c5eca88...`, local model
+`ibm-granite/granite-8b-code-instruct-128k`) is unchanged and immutable. Its
+original audit predates the current source-based `run_audit()` (it audited
+diff text). A new, retained, source-free sidecar file
+(`~/.each/runs/m8-xsystem-sandboxid-opt-fullsource-20261003/current-auditor-
+replay.json`, alongside the untouched original `receipt.json`/`receipt.md`)
+independently verifies, using ONLY the real retained original artifacts
+(never a fresh model call, never a cloud edit):
+1. the retained pre-patch `xsystem.c` reproduces the receipt's own declared
+   materials hash;
+2. recomputing `sha256(patch_text)` reproduces the receipt's own
+   `patchHash` (`0e0721b8...`);
+3. recomputing `sha256(prompt + NUL + raw_completion)` reproduces the
+   receipt's own `trajectoryHash` (`ce4301b4...`);
+4. applying `patch_text` to the retained pre-patch source reproduces the
+   exact same post-patch candidate the original audit reasoned about.
+
+Only after all four fidelity checks `PASS` does it run the CURRENT
+`each.audit.run.run_audit()` directly against that reconstructed post-patch
+SOURCE (not a diff): all 5 checks honestly `UNAVAILABLE` (no corpus/adapter
+configured), `current_auditor_rejected: false`. This is a genuine replay/
+re-audit of the SAME authoring-linked candidate under current code, not a
+regeneration, not a FixtureModel substitution, and not a re-signing of the
+original record. Re-executed 2026-10-03 at commit `b2d2557` to confirm it
+still reproduces identically.
+
+## Harness hardening from independent adversarial review (commit `b2d2557` -> next)
+
+An independent GPT-family semantic review of the pinned `b2d2557` checkout
+found two concrete, real gaps in the new mandate-aligned registration
+machinery (not rubber-stamped):
+1. `record_gate()`'s reality-gate surface check treated `target-repair-
+   receipt` and `clean-room-experiment-receipt` evidence as interchangeable
+   (both resolve to the `runtime` surface), so nothing stopped the WEAKER
+   experiment evidence from being bound to a `*-target-repair-verified`
+   criterion. Fixed: any criterion id ending in `-target-repair-verified`
+   now requires its bound evidence to be the genuinely verified
+   `target-repair-receipt` kind; `clean-room-experiment-receipt` evidence is
+   rejected for those criteria specifically (it remains valid for any other
+   criterion, e.g. the new `m7-clean-room-experiment-complete`).
+2. `_record_m7_experiment_receipt()` did not hard-require
+   `networkIsolationVerified: true`, and accepted any non-empty `audit.checks`
+   mapping as proof the real Auditor ran (a forged/partial mapping could
+   pass). Fixed: both are now hard requirements, with the exact-check-set
+   comparison described above.
+
+Both fixes are narrowly scoped to the new registration method/gate logic
+added this session; they do not touch `each/` (the target-facing harness) or
+any existing M0-M6/M8 evidence. Full suite re-verified green after the fix
+(see gate evidence below).
+
+## Gate-evidence correction: audit-models-gate must use explicit `--extra` flags
+
+The first `audit-models-gate` registration at `b2d2557`
+(`b2d25574b2af-b95ef9afa631-audit-models-gate.json`) incorrectly ran plain
+`uv run pytest -q` in a fresh subprocess; `uv run` without `--extra` flags
+auto-syncs the project venv DOWN to only required (non-extra) dependencies
+before running, silently uninstalling `tree-sitter` even though it had been
+manually `uv sync --all-extras`'d moments earlier in a different shell
+invocation -- reproducing `409 passed, 3 skipped` rather than the required
+zero-skip, extras-installed run. **That artifact and its gate
+(`gate-audit-models-gate`) are preserved immutably, unedited, and are never
+cited as zero-skip evidence.** A corrected run using the explicit command
+`uv run --extra audit --extra models pytest -q` was independently executed
+and verified `412 passed`, zero skipped, at the same commit; a new artifact
+(`artifact-audit-models-gate-extras-fix-98c2b0dcc3e4`) and gate
+(`gate-audit-models-gate-extras-fix`) were registered, and the
+`audit-models-gate` criterion was re-set to `PASS` referencing the corrected
+gate. A coordinator-independent execution in a dedicated fresh worktree with
+a brand-new `EACH_HOME` (no model cache reuse) reproduced the same `412
+passed`/zero-skip/clean-ruff/clean-doctor/successful-`uv build` result,
+corroborating this is a reproducible fact about the commit, not an
+environment fluke.

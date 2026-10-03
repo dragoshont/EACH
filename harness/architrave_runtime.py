@@ -1479,13 +1479,41 @@ class RunStore:
                 "M7_EXPERIMENT_RECEIPT",
                 "private receipt must explicitly declare legal/clean-room certification false (section 129 never certifies)",
             )
-        audit = receipt.get("audit") or {}
-        audit_checks = audit.get("checks") or {}
-        if not audit_checks:
+        # (adversarial review finding) Section 129 requires the information
+        # firewall to be DEMONSTRABLY ENFORCED, not merely mentioned -- a
+        # receipt that never actually verified network isolation cannot
+        # satisfy that bar just because some other field happens to be
+        # truthy. This must be a hard requirement, not an optionally-true
+        # recorded fact.
+        if receipt.get("networkIsolationVerified") is not True:
             raise RuntimeFailure(
                 "M7_EXPERIMENT_RECEIPT",
-                "private receipt's terminal audit never ran (section 129 requires the Auditor step to have executed, "
-                "even when its own findings are honestly UNAVAILABLE)",
+                "private receipt does not show the information firewall (network isolation) was verified",
+            )
+        audit = receipt.get("audit") or {}
+        audit_checks = audit.get("checks") or {}
+        # (adversarial review finding) A merely non-empty `checks` mapping
+        # does not prove the REAL terminal auditor (each.audit.run.run_audit)
+        # executed -- a receipt could fabricate an unrelated non-empty dict.
+        # The real auditor always evaluates exactly this fixed check set
+        # (each/audit/run.py); require an exact match so only a genuine
+        # terminal-audit invocation (not a stub, and not a partial/forged
+        # mapping) can satisfy this criterion. This module intentionally has
+        # no import dependency on the `each` package, so the check names are
+        # duplicated here as a stable, independently-verifiable constant.
+        real_auditor_check_names = {
+            "exact-substring",
+            "ngram-similarity",
+            "ast-similarity",
+            "license-scan",
+            "corpus-membership",
+        }
+        if set(audit_checks.keys()) != real_auditor_check_names:
+            raise RuntimeFailure(
+                "M7_EXPERIMENT_RECEIPT",
+                "private receipt's audit.checks do not match the real terminal auditor's exact check set "
+                "(section 129 requires the Auditor to have actually run, not a stub or a forged mapping)",
+                details={"declared": sorted(audit_checks.keys()), "expected": sorted(real_auditor_check_names)},
             )
         model_id = str((receipt.get("modelIdentity") or {}).get("modelId", ""))
         if not model_id or "fixture" in model_id.lower():
@@ -2087,6 +2115,34 @@ class RunStore:
                         verdict = self._read_json_receipt(artifact["path"], "semantic")
                         if verdict.get("family") != family or not set(bound_criteria).issubset(set(verdict.get("criteria") or [])):
                             raise RuntimeFailure("SEMANTIC_RECEIPT", "semantic gate does not match verdict family/criteria")
+                if "target-repair" in producers:
+                    # (adversarial review finding) `target-repair-receipt` (genuinely
+                    # REPAIR_VERIFIED) and `clean-room-experiment-receipt` (section
+                    # 129's deliberately weaker "complete receipt, no working-repair
+                    # requirement" bar) share one producer bucket and both resolve to
+                    # the same "runtime" surface, so nothing above stopped a caller
+                    # from binding the WEAKER experiment evidence to a "*-target-
+                    # repair-verified" criterion and laundering an honestly-failed
+                    # repair into that stricter criterion's PASS. Every project
+                    # criterion that ends in this exact, already-established suffix
+                    # (both "m7-target-repair-verified" and
+                    # "m8-target-repair-verified" use it) means "a genuinely verified
+                    # repair" and must only ever be satisfied by the stronger evidence
+                    # kind; a criterion using any other id (e.g.
+                    # "m7-clean-room-experiment-complete") is free to accept either.
+                    strict_repair_criteria = {cid for cid in bound_criteria if cid.endswith("-target-repair-verified")}
+                    if strict_repair_criteria:
+                        for artifact in state["artifacts"]:
+                            if artifact["id"] not in artifact_ids or artifact["producer"] != "target-repair":
+                                continue
+                            if artifact["kind"] != "target-repair-receipt":
+                                raise RuntimeFailure(
+                                    "EVIDENCE_KIND_MISMATCH",
+                                    "a *-target-repair-verified criterion requires target-repair-receipt "
+                                    "evidence (a genuinely REPAIR_VERIFIED outcome); weaker "
+                                    "clean-room-experiment-receipt evidence can never satisfy it",
+                                    details={"criteria": sorted(strict_repair_criteria), "artifact": artifact["id"]},
+                                )
                 if gate_type in {"reality", "e2e"}:
                     # A reality/e2e PASS gate proves exactly one verification surface (web,
                     # electron, ios, deployment, runtime). Evidence spanning zero or more than
