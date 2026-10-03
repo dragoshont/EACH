@@ -89,6 +89,13 @@ def verify_snapshot_matches(snapshot_dir: Path, manifest: ModelManifest) -> list
     """
     snapshot_dir = snapshot_dir.resolve()
     drift: list[str] = []
+    current_files = {
+        path.relative_to(snapshot_dir).as_posix()
+        for path in snapshot_dir.rglob("*")
+        if path.is_file()
+    }
+    for relative_path in sorted(current_files - set(manifest.files_sha256)):
+        drift.append(f"{relative_path}: unrecorded file")
     for relative_path, expected_hash in sorted(manifest.files_sha256.items()):
         candidate = snapshot_dir / relative_path
         if not candidate.is_file():

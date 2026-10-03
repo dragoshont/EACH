@@ -83,6 +83,19 @@ def _model(tmp_path: Path, *, max_position_embeddings: int | None, max_tokens: i
     return model
 
 
+def test_lazy_load_refuses_a_shard_added_after_manifest_creation(tmp_path, monkeypatch):
+    root = _snapshot(tmp_path, max_position_embeddings=8192)
+    manifest = build_manifest_from_snapshot(
+        root, repo_id="fixture/model", license="Apache-2.0",
+        runtime_name="fixture", runtime_version="1", conversion_chain="fixture",
+    )
+    model = MLXRepairModel(root, manifest)
+    (root / "extra.safetensors").write_bytes(b"unrecorded fixture weights")
+    monkeypatch.setattr("mlx_lm.load", lambda *args: pytest.fail("backend load must not run"), raising=False)
+    with pytest.raises(RuntimeError, match="unrecorded file"):
+        model._ensure_loaded()
+
+
 def test_context_budget_passes_when_prompt_and_output_fit(monkeypatch, tmp_path) -> None:
     model = _model(tmp_path, max_position_embeddings=20, max_tokens=5, monkeypatch=monkeypatch)
     rendered, count = model.check_context_budget("one two three")

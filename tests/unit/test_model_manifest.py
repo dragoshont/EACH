@@ -118,3 +118,10 @@ def test_verify_snapshot_matches_detects_missing_file(tmp_path: Path) -> None:
     root.joinpath("tokenizer.json").unlink()
     drift = verify_snapshot_matches(root, manifest)
     assert any("tokenizer.json" in entry and "missing" in entry for entry in drift)
+
+
+def test_snapshot_rejects_an_extra_weight_shard_after_admission(tmp_path: Path) -> None:
+    root = _snapshot(tmp_path)
+    manifest = _manifest(root)
+    (root / "extra.safetensors").write_bytes(b"unrecorded fixture weights")
+    assert verify_snapshot_matches(root, manifest) == ["extra.safetensors: unrecorded file"]
