@@ -130,6 +130,9 @@ post-training dataset lineage. Public weights, exact hashes or a model
 license are not sufficient. No current catalog entry is qualified; historical
 Qwen capability trials do not qualify this product. See
 [model eligibility](docs/model-provenance.md).
+The [provenance-first evaluation plan](docs/provenance-first-evaluation-plan.md)
+puts model/data access and lineage qualification ahead of runtime and repair
+tests, and names the candidate models and current blockers.
 
 The model catalog requires exact snapshots already present on disk. Installing
 the `models` extra does **not** download model weights.

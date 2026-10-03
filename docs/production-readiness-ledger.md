@@ -19,6 +19,10 @@ The earlier Qwen support row is historical, not an eligible production choice.
 The mechanical gate covers the official catalog/CLI. Low-level Python adapters
 remain callable for development, but instructions prohibit bypassing eligibility
 through those routes; no universal API enforcement is claimed.
+The active prerequisite order and candidate access decisions are in the
+[provenance-first evaluation plan](provenance-first-evaluation-plan.md).
+That plan precedes calibration, utility reopening and the later production
+qualification tasks below.
 
 ## 1. Target outcome
 

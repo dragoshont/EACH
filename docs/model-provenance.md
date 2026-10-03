@@ -105,3 +105,50 @@ Primary sources:
 - [CommitPackFT](https://huggingface.co/datasets/bigcode/commitpackft)
 - [OASST OctoPack](https://huggingface.co/datasets/bigcode/oasst-octopack)
 - [Original Granite Code base card](https://huggingface.co/ibm-granite/granite-3b-code-base-2k)
+
+### Original OLMo-1B base: additional ungated candidate, not yet eligible
+
+The original `allenai/OLMo-1B-hf` is a documented publisher conversion of
+`allenai/OLMo-1B`, not an OLMo2 or instruction checkpoint. Its public revision
+is `aee7752d9c08ee4775e9b0091426d8410e8f6a89`. The publisher's dataset card
+maps OLMo-1B to **Dolma v1_5**, not the different v1_7 mixture.
+
+The original frozen training recipe was located at OLMo source commit
+`15af6688f1a56609fef2f56eb66052b0baa0ec47`,
+`configs/official/OLMo-1B.yaml`. It describes from-scratch initialization,
+a 3.1T-token pretraining run and the v1_5 tokenized-data paths. The original
+paper describes instruction/RLHF adaptation as future work; that supports
+the original base checkpoint's scope, not a claim about later instruct
+variants. The HF card explicitly documents the format conversion.
+
+The pinned Dolma repository is
+`7f48140530a023e9ea4c5cfb141160922727d4d3`. Its `urls/v1_5.txt` manifest
+hash is `0b660ad1cd93a840d759a4efa82f800a0580fd693de6da64dba484aa55d21efc`.
+It names the original books, C4, Common Crawl, PeS2o, Reddit, Stack and
+Wiki components. Dataset licensing remains mixed; its collection license
+does not replace source licenses or prove lawful training.
+
+**Status: BLOCKED, not ELIGIBLE.** A bounded direct inspection on the actual
+Mac reached the manifest but received HTTP **403 for every component's
+sample shard**. No component-record inspection can therefore be marked
+successful in that execution. A separate research report saw some public
+records from another execution context; that does not replace missing local
+inspection or resolve every lineage stage. Required unknowns remain blockers,
+even when a model is described as fully open.
+
+The local existing-access check found no Hugging Face credential. StarCoderBase
+configuration access returned 401; the StarCoder dataset README metadata was
+reachable, but that does not prove access to its training records. No access
+terms were accepted, no weights were acquired and no inference ran.
+
+Next qualification work is to obtain permitted inspectable corpus access,
+verify component-level source lineage and exact checkpoint/stage mapping,
+then independently assess the dossier before enabling a model. The catalog
+continues to reject all current entries rather than treating missing evidence
+as a capability fallback.
+
+Sources:
+- [Pinned OLMo-1B HF conversion card](https://huggingface.co/allenai/OLMo-1B-hf/blob/aee7752d9c08ee4775e9b0091426d8410e8f6a89/README.md)
+- [Original frozen training recipe](https://github.com/allenai/OLMo/blob/15af6688f1a56609fef2f56eb66052b0baa0ec47/configs/official/OLMo-1B.yaml)
+- [Pinned Dolma v1_5 manifest](https://huggingface.co/datasets/allenai/dolma/blob/7f48140530a023e9ea4c5cfb141160922727d4d3/urls/v1_5.txt)
+- [Original OLMo paper](https://arxiv.org/html/2402.00838v3)
