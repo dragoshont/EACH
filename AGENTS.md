@@ -14,6 +14,15 @@ The harness may be developed with Copilot/Architrave; target generation must
 use the declared FixtureModel or local model, never the outer cloud agent.
 Keep the Auditor terminal and target artifacts private by default.
 
+**User clarification, 2026-10-03:** EACH must use only target models with
+clear training-data provenance. Model-weight hashes, public weights and
+permissive model licenses are not substitutes for documented, inspectable
+base-training and post-training dataset lineage. Unknown lineage blocks
+eligibility before model loading/generation. No capability fallback may
+relax this requirement. FixtureModel remains a harness test, not a qualified
+neural model. Historical Qwen runs are preserved but excluded from
+provenance-first qualification.
+
 Use the Architrave knowledge profile, durable Run state, small vertical slices,
 deterministic gates, and independent adversarial review. Do not build a UI,
 daemon, database, RAG system, hosted backend, or custom cryptography.

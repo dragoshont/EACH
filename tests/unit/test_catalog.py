@@ -7,6 +7,7 @@ import json
 
 import pytest
 
+from each.models import catalog
 from each.models.catalog import UnavailableModelError, load_model
 
 
@@ -27,7 +28,7 @@ def test_load_model_unknown_key_raises_with_known_keys_listed() -> None:
 def test_octocoder_reports_absent_weights_honestly(monkeypatch, tmp_path) -> None:
     monkeypatch.setattr("each.models.catalog.models_dir", lambda: tmp_path)
     with pytest.raises(UnavailableModelError, match="weights not downloaded"):
-        load_model("octocoder-transformers-mps")
+        catalog._octocoder_transformers_mps()
 
 
 def test_octocoder_reports_incomplete_download_with_a_concrete_shard_count(monkeypatch, tmp_path) -> None:
@@ -39,7 +40,7 @@ def test_octocoder_reports_incomplete_download_with_a_concrete_shard_count(monke
     # Only one of the two declared shards actually present on disk.
     (weights_dir / "shard-00001.safetensors").write_bytes(b"")
     with pytest.raises(UnavailableModelError, match=r"download incomplete: 1/2 safetensors shard\(s\) missing"):
-        load_model("octocoder-transformers-mps")
+        catalog._octocoder_transformers_mps()
 
 
 def test_octocoder_reports_no_adapter_once_every_declared_shard_is_present(monkeypatch, tmp_path) -> None:
@@ -51,16 +52,26 @@ def test_octocoder_reports_no_adapter_once_every_declared_shard_is_present(monke
     (weights_dir / "shard-00001.safetensors").write_bytes(b"")
     (weights_dir / "shard-00002.safetensors").write_bytes(b"")
     with pytest.raises(UnavailableModelError, match="no Transformers/MPS RepairModel adapter is implemented"):
-        load_model("octocoder-transformers-mps")
+        catalog._octocoder_transformers_mps()
 
 
 def test_gguf_reports_no_verified_conversion_provenance() -> None:
     with pytest.raises(UnavailableModelError, match="no llama.cpp/GGUF conversion with recorded provenance"):
-        load_model("granite-gguf-llamacpp")
+        catalog._granite_gguf_llamacpp()
 
 
 def test_load_model_rejects_unsupported_kwarg_for_entries_without_tunable_params() -> None:
     # A keyword a builder does not accept must raise a normal TypeError, not
     # be silently swallowed as a no-op override.
     with pytest.raises(TypeError):
-        load_model("granite-gguf-llamacpp", max_tokens=1024)
+        catalog._granite_gguf_llamacpp(max_tokens=1024)
+
+
+@pytest.mark.parametrize("key", list(catalog._CATALOG))
+def test_catalog_blocks_unqualified_training_provenance_before_loading(key, monkeypatch) -> None:
+    def must_not_load(**kwargs):
+        pytest.fail("unqualified model builder was invoked")
+
+    monkeypatch.setitem(catalog._CATALOG, key, must_not_load)
+    with pytest.raises(UnavailableModelError, match="training-data provenance is not qualified"):
+        load_model(key)

@@ -1,5 +1,39 @@
 # Model evidence, not licensing conclusions
 
+## Governing eligibility correction (2026-10-03)
+
+The user clarified that EACH works **only with models having clear training-data
+provenance**. This is an eligibility requirement before new target generation,
+not a preference traded away for repair performance.
+
+No current catalog model has completed that qualification. The public loader
+therefore fails closed before loading weights or invoking an adapter. Historical
+builders and receipts are retained for reproducibility and tests; their presence
+does not authorize new generation. FixtureModel is a deterministic harness test.
+Enforcement is at `catalog.load_model` and its official CLI callers. Low-level
+Python adapters remain callable for development; using them to bypass
+eligibility is prohibited, not claimed mechanically impossible.
+
+Qualification must separately establish the exact base-model identity;
+documented dataset identities/revisions and collection, filtering and license
+processes; inspectable or queryable source lineage with coverage limits; and all
+instruction-tuning, synthetic, preference/alignment and subsequent training
+inputs. Distillation and synthetic-data ancestry cannot be assumed transparent.
+Conversion and tokenizer/runtime identity remain necessary but are different
+evidence. Missing stages or unavailable lineage cannot become PASS.
+
+StarCoderBase, OctoCoder and IBM Granite Code are **candidates to investigate**,
+not an automatically approved family list. In particular, OctoCoder's additional
+instruction data requires separate assessment. A model card's claim or a
+permissive weight license alone does not establish clear training provenance.
+This policy does not claim that documented datasets prove lawful individual
+training items, originality of output, or legal clean-room status.
+
+Qwen was a capability fallback outside this corrected qualification scope.
+Its nine-call trial and other Qwen experiments remain signed historical records;
+they are not evidence that provenance-qualified models failed. Do not rewrite
+their identities or use them as a production provenance gate.
+
 M2's initial supported Builder is Granite Code 3B Instruct through local MLX-LM.
 Granite Base was also evaluated and did not produce a verified fixture repair.
 This small comparison is not a broad leaderboard or evidence of originality.
@@ -34,9 +68,40 @@ unknown; an output artifact's exact hash does not resolve that limitation.
 `0f863c63e38ba80fc2c4010f34a7f46d537a9eee` declares `bigcode-openrail-m`
 in its canonical Hugging Face metadata, not Apache-2.0 as mistakenly stated
 in the original M2 commit summary. It is not gated at that revision.
-Its current catalog unavailability separately reports incomplete downloads
-or an unimplemented adapter; it is not a claim that MPS cannot support it.
+Historical adapter diagnostics separately reported incomplete downloads
+or an unimplemented adapter; these were not claims that MPS cannot support it.
+The current catalog rejects unqualified training provenance before those
+adapter diagnostics or any inference.
 
 Model licenses do not automatically license generated target patches.
 EACH records technical evidence and published claims, not legal conclusions.
 
+## Primary-source candidate check (2026-10-03)
+
+These observations start qualification; none constitutes an eligibility PASS.
+They replace assumptions based on model families or generic search summaries.
+
+| Candidate | Verified publisher evidence | Remaining qualification boundary |
+|---|---|---|
+| `bigcode/starcoderbase` | API reports revision `88ec5781ad071a9d9e925cd28f327dea22eb5188`, OpenRAIL-M, The Stack dedup, and gated access. Anonymous card retrieval returned HTTP 401. | Authorized access and exact full training-mixture lineage review; no terms accepted on the user's behalf. |
+| `bigcode/starcoder2-3b` base | API reports revision `733247c55e3f73af49ce8e9c7949bf14af205928` and **ungated model weights**. Card identifies The Stack v2, additional Arxiv/Wikipedia data, a pretraining search index and no instruction-model claim. | Review every additional data source and the exact training subset. The Stack v2 metadata/data are separately gated; weight availability does not imply corpus access or full qualification. |
+| `bigcode/octocoder` | Actual card identifies StarCoder fine-tuning on CommitPackFT and OASST; API reports revision `0f863c63e38ba80fc2c4010f34a7f46d537a9eee`, ungated weights and OpenRAIL-M. CommitPackFT exposes repository/commit/path/license fields. | Verify base lineage plus both exact post-training datasets. Its metadata includes unknown and copyleft repository-license categories; dataset metadata is not a blanket permissive-license guarantee. |
+| Granite Code base | The original publisher card exists, identifies two training phases and multiple code/natural-language sources, Apache-2.0, and a deprecation notice. | Dataset names and filtering claims do not establish inspectable complete sample lineage; review the additional repositories and second-phase mixture. Do not infer qualification from Apache-2.0. |
+
+The Stack v2 public API exposes blob/content IDs, repository, revision, path
+and detected-license fields. Its terms require genuine user acknowledgment;
+bulk access additionally requires an agreement with Software Heritage/INRIA.
+No gated dataset was downloaded, no weights acquired and no new target
+generation performed during this check. Missing access and lineage coverage
+remain explicit blockers.
+
+Primary sources:
+- [StarCoderBase metadata](https://huggingface.co/api/models/bigcode/starcoderbase)
+- [StarCoder2-3B card](https://huggingface.co/bigcode/starcoder2-3b/blob/733247c55e3f73af49ce8e9c7949bf14af205928/README.md)
+- [StarCoder2 source project](https://github.com/bigcode-project/starcoder2)
+- [The Stack v2 metadata and terms](https://huggingface.co/api/datasets/bigcode/the-stack-v2)
+- [Training-subset metadata](https://huggingface.co/api/datasets/bigcode/the-stack-v2-train-full-ids)
+- [OctoCoder card](https://huggingface.co/bigcode/octocoder/blob/0f863c63e38ba80fc2c4010f34a7f46d537a9eee/README.md)
+- [CommitPackFT](https://huggingface.co/datasets/bigcode/commitpackft)
+- [OASST OctoPack](https://huggingface.co/datasets/bigcode/oasst-octopack)
+- [Original Granite Code base card](https://huggingface.co/ibm-granite/granite-3b-code-base-2k)

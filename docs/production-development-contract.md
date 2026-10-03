@@ -13,6 +13,13 @@ model loading or generation.
 
 ## Observed row (2026-10-03)
 
+**Historical capability comparison only.** The user subsequently reaffirmed
+clear training-data provenance as a mandatory model eligibility rule.
+Qwen's artifact identity does not establish that lineage; this row is not a
+qualified production Builder. No current catalog entry is approved, and new
+catalog loading fails closed. Preserve these measurements and negative receipts,
+but do not count them as evaluation of provenance-qualified models.
+
 | Surface | Observation |
 |---|---|
 | Host | Apple Silicon arm64, macOS 27.0.1, 128 GiB unified RAM |

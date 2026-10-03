@@ -284,15 +284,16 @@ _CATALOG: dict[str, Callable[..., RepairModel]] = {
 
 
 def load_model(key: str, **kwargs) -> RepairModel:
-    """Instantiate a catalog entry, raising UnavailableModelError with the
-    exact reason if it cannot actually be used right now.
+    """Fail closed until a model's training-data lineage is qualified.
 
-    ``kwargs`` (e.g. ``max_tokens``) are forwarded to the catalog entry's
-    builder; entries that do not accept a given keyword raise a normal
-    ``TypeError``, not a silently-ignored override.
+    Historical builders remain for adapter tests and receipt interpretation;
+    their availability is not permission to use them for new target generation.
     """
-    try:
-        builder = _CATALOG[key]
-    except KeyError as exc:
-        raise UnavailableModelError(f"unknown model key: {key!r}; known keys: {sorted(_CATALOG)}") from exc
-    return builder(**kwargs)
+    if key not in _CATALOG:
+        raise UnavailableModelError(f"unknown model key: {key!r}; known keys: {sorted(_CATALOG)}")
+    raise UnavailableModelError(
+        f"training-data provenance is not qualified for {key!r}; "
+        "public weights, artifact hashes and a model license are insufficient. "
+        "EACH requires reviewed base-training and post-training dataset lineage "
+        "before target generation. No current catalog entry has that qualification."
+    )

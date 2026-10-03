@@ -8,6 +8,18 @@ adversarial review, fixes and autonomous implementation on 2026-10-03.
 That grant does not authorize target publication, changed sensitive specs,
 gated-model terms or certification claims.
 
+**User-directed correction, 2026-10-03:** clear training-data provenance is
+a hard prerequisite for model eligibility. No current catalog entry is
+qualified; new model loading/generation is blocked. Qwen trials are historical
+capability comparisons, excluded from this program's provenance qualification.
+P1 must assess base and every post-training dataset stage using
+[the model eligibility contract](model-provenance.md), before calibration or
+repair evaluation. No utility target or model size can override that gate.
+The earlier Qwen support row is historical, not an eligible production choice.
+The mechanical gate covers the official catalog/CLI. Low-level Python adapters
+remain callable for development, but instructions prohibit bypassing eligibility
+through those routes; no universal API enforcement is claimed.
+
 ## 1. Target outcome
 
 The first production release should be a **local, human-reviewed

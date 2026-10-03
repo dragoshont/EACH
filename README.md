@@ -124,9 +124,18 @@ unavailable; a skip is not a successful isolation test.
 
 ## Using real local models
 
+**Generation is currently blocked pending training-data provenance
+qualification.** EACH uses only eligible models with clear base and
+post-training dataset lineage. Public weights, exact hashes or a model
+license are not sufficient. No current catalog entry is qualified; historical
+Qwen capability trials do not qualify this product. See
+[model eligibility](docs/model-provenance.md).
+
 The model catalog requires exact snapshots already present on disk. Installing
 the `models` extra does **not** download model weights.
 
+The following is a historical artifact-provisioning reference, **not approval
+to generate targets or a recommendation to download weights now**.
 For the exercised original Granite 8B Code Instruct 128K snapshot, after
 reviewing its license, storage and memory requirements, explicitly opt in:
 
@@ -147,8 +156,10 @@ automatically or treat model licensing as licensing of generated patches.
 See [model provenance](docs/model-provenance.md) for identities, conversion
 limitations and actual evaluation results.
 
-The model bake-off and historical benchmarks additionally need provisioned
-runtime images. See the setup limitations below before invoking:
+The following bake-off/benchmark commands are **historical workflow references**.
+Today they return an eligibility error (exit 2) before model loading or inference.
+After a model is genuinely qualified, these workflows also require provisioned
+runtime images; see the setup limitations below.
 
 ```bash
 uv run --extra audit --extra models each model bakeoff \
@@ -157,8 +168,9 @@ uv run --extra audit --extra models each benchmark run \
   granite-8b-code-instruct-128k-mlx --smoke --max-attempts 3
 ```
 
-These are real inference/validation operations, not quick health checks.
-An unsuccessful repair returns nonzero and still needs honest evidence.
+When eligibility is enabled for a reviewed model, these are real
+inference/validation operations, not health checks. Currently no entry is
+eligible. Historical unsuccessful repairs remain nonzero outcomes with evidence.
 
 ### Benchmark image setup limitation
 
