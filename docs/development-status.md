@@ -732,3 +732,40 @@ audit-subject hash; only the current replay's reconstructed subject hash is
 asserted as current proof. No TEE, no legal/clean-room certification, no
 upstream Xodus PR, no P3 coverage claim, no hardware attestation, and no
 human-approval claim is made anywhere in this evidence chain.
+
+#### Independent completion check and historical-material recovery
+
+The coordinator independently called the supported `RunStore.verify()` at
+the frozen implementation revision after final registration. It returned
+`accepted=True`, `status=COMPLETED`, revision **102**. The actual Run also
+passed JSON Schema validation, had no missing per-criterion risk gates, and
+contained one completed signing task and one resolved signing checkpoint.
+The coordinator independently verified the registered runtime proof's
+Ed25519 signature and its payload hash with the public key.
+
+The earlier missing-materials limitation above is **closed by genuine
+hash-matching recovery**, not by rewriting historical receipts. All 22
+original Python benchmark receipts passed `each verify --full` against
+new private recovery roots; their original signed bytes remain unchanged.
+The selected mixed-language evidence comprises those 22 historical tasks
+and three separately recorded clean-source native tasks: **25 tasks,
+75 recorded generation calls, zero verified repairs**. Input-integrity
+reverification does not change their original generation revisions.
+
+The independently executed final configured base gate ran `uv sync --locked`,
+then the configured tests and doctor: **493 passed, three optional-extra
+tests skipped**. The separate explicit audit/models-extra suite had
+**496 passed, zero skipped**; Ruff, doctor and wheel/sdist builds passed.
+These counts must not be merged into a claim that the base command itself
+had zero skips.
+
+The accepted M7 artifact references the fresh unseeded receipt
+`75069a3d2e4c75870f1c62cacad52784365b29cb8b787ad742177100cd0d025f`,
+not the older `source_edit` receipt with unavailable seed lineage. Its
+three genuine local-model responses still produce **eight passing tests
+and one failure**. Completion means the mandated controlled experiment
+and evidence chain are complete, not that the cache implementation works.
+
+The reviewed implementation is `e3c0cf45b7091cb361f146b7338009bfa0fc7f53`.
+Subsequent documentation-only commits publish these results; they are not
+new implementation revisions covered by the recorded code verdicts.
