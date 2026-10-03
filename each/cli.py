@@ -175,9 +175,9 @@ def _cmd_benchmark_run(args: argparse.Namespace) -> int:
         return 2
 
     from each.benchmark_report import render_sanitized_markdown, run_suite
-    from each.benchmark_tasks import SMOKE_TASKS, TASKS
+    from each.benchmark_tasks import ALL_TASKS, SMOKE_TASKS, TASKS
 
-    tasks = SMOKE_TASKS if args.smoke else TASKS
+    tasks = SMOKE_TASKS if args.smoke else (TASKS if args.python_only else ALL_TASKS)
     outcome = run_suite(tasks, model, max_attempts=args.max_attempts)
     report = outcome["report"]
     print(f"report: {outcome['report_path']}")
@@ -186,6 +186,38 @@ def _cmd_benchmark_run(args: argparse.Namespace) -> int:
         Path(args.markdown_out).write_text(render_sanitized_markdown(report), encoding="utf-8")
         print(f"sanitized markdown written to: {args.markdown_out}")
     return 0 if report["verifiedCount"] > 0 else 1
+
+
+def _cmd_benchmark_retain_materials(args: argparse.Namespace) -> int:
+    from each.benchmark import retain_task_materials
+    from each.benchmark_tasks import ALL_TASKS
+
+    tasks_by_id = {task.task_id: task for task in ALL_TASKS}
+    task = tasks_by_id.get(args.task_id)
+    if task is None:
+        print(f"unknown task id {args.task_id!r}; not in each.benchmark_tasks.ALL_TASKS")
+        return 2
+
+    out_dir = Path(args.out)
+    out_dir.mkdir(parents=True, exist_ok=True)
+    written = retain_task_materials(task, out_dir)
+    print(f"retained {len(written)} material(s) for {args.task_id!r} under {out_dir}")
+
+    if args.receipt:
+        import json
+
+        from each.attestation import verify_materials_root
+
+        receipt = json.loads(Path(args.receipt).read_text(encoding="utf-8"))
+        declared = receipt.get("materials", {})
+        mismatched = {k: (declared.get(k), written.get(k)) for k in declared if declared.get(k) != written.get(k)}
+        if mismatched:
+            print(f"MISMATCH vs declared receipt materials: {mismatched}")
+        else:
+            print("retained material hashes match every hash declared in the given receipt")
+        result = verify_materials_root(receipt, out_dir)
+        print(f"verify_materials_root: {result['status']} -- {result['reason']}")
+    return 0
 
 
 def _cmd_doctor(_args: argparse.Namespace) -> int:
@@ -281,9 +313,29 @@ def build_parser() -> argparse.ArgumentParser:
     benchmark_run = benchmark_sub.add_parser("run", help="run the smoke or full historical benchmark suite")
     benchmark_run.add_argument("model", help="model catalog key, e.g. granite-3b-code-instruct-mlx")
     benchmark_run.add_argument("--smoke", action="store_true", help="run only the 5-task smoke suite")
+    benchmark_run.add_argument(
+        "--python-only",
+        action="store_true",
+        help="run only the 22 historical Python tasks, excluding the C/C++/Rust tasks",
+    )
     benchmark_run.add_argument("--max-attempts", type=int, default=3)
     benchmark_run.add_argument("--markdown-out", default=None, help="also write a sanitized Markdown summary here")
     benchmark_run.set_defaults(func=_cmd_benchmark_run)
+
+    benchmark_retain = benchmark_sub.add_parser(
+        "retain-materials",
+        help=(
+            "re-fetch a benchmark task's exact immutable pre_fix_sha/fix_sha bytes and write them to a "
+            "materials/ directory for `each verify --full`, recovering retained-artifact evidence for a "
+            "receipt written before materials retention existed (never invents or mutates original bytes)"
+        ),
+    )
+    benchmark_retain.add_argument("task_id", help="a task_id from each.benchmark_tasks.ALL_TASKS")
+    benchmark_retain.add_argument("--out", required=True, help="destination materials/ directory to write into")
+    benchmark_retain.add_argument(
+        "--receipt", default=None, help="optional receipt.json path to compare retained hashes against"
+    )
+    benchmark_retain.set_defaults(func=_cmd_benchmark_retain_materials)
 
     return parser
 

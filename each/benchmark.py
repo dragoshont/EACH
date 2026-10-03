@@ -54,6 +54,19 @@ BENCHMARK_IMAGE_DIGEST = (
     "each-benchmark-runtime@sha256:6150f4259b1dc7590817dd7d31021c2f56de367463a970d8ab04e1e9d371e4dc"
 )
 
+# Section 128's task set is explicitly "a mix of C/C++/Rust/Python"
+# (section 121 makes this authoritative). gcc/g++/rustc/cargo are added,
+# pinned, and built here before any sealed run exactly like the Python
+# pytest image above -- see docker/benchmark-native-runtime/Dockerfile.
+BENCHMARK_NATIVE_IMAGE_DIGEST = (
+    "each-benchmark-native-runtime@sha256:b6f4ee91dcd802886b2773784a99295f8273c8aa5e85e77b0366b09a1d72c4a7"
+)
+
+
+def _benchmark_image_for(task: BenchmarkTask) -> str:
+    return BENCHMARK_IMAGE_DIGEST if task.language == "python" else BENCHMARK_NATIVE_IMAGE_DIGEST
+
+
 _PYTEST_PASSED_RE = re.compile(r"(\d+) passed")
 _PYTEST_FAILED_RE = re.compile(r"(\d+) failed")
 _PYTEST_SKIPPED_RE = re.compile(r"(\d+) skipped")
@@ -91,6 +104,24 @@ class BenchmarkTask:
     # noted in curation). Installed at materialization time (host network),
     # never inside the sealed no-network container.
     extra_pip_packages: tuple[str, ...] = ()
+    # Non-Python (C/C++/Rust) tasks: the exact additional repo-relative
+    # file paths (besides ``bug_path``) fetched at ``pre_fix_sha`` -- e.g.
+    # a header or license file the editable bug file needs to actually
+    # compile. Unlike Python's whole-package tarball extraction, native
+    # tasks name their small, exact file set explicitly (section 128: no
+    # general-purpose native orchestration framework; simple pinned
+    # full-file context suffices).
+    source_paths: tuple[str, ...] = ()
+    # Non-Python tasks only: ``(relative_path, literal_content)`` pairs for
+    # files that are NOT part of the target repository at all -- our own
+    # authored validation harness (e.g. a small C/C++/Rust program that
+    # calls into the task's own public API and exits 0/1). Written
+    # verbatim into the worktree at materialization time, same for every
+    # attempt. Encodes only a PUBLICLY documented behavioral contract
+    # (language standard, upstream commit title, or public issue/PR
+    # description) -- never the private historical fix diff or its own
+    # regression-test file contents.
+    validator_files: tuple[tuple[str, str], ...] = ()
 
 
 def _raw_url(repo: str, sha: str, path: str) -> str:
@@ -183,6 +214,35 @@ def _list_files_relative(root: Path, subdir: str) -> list[str]:
     return []
 
 
+def _materialize_native_task_sources(task: BenchmarkTask) -> tuple[Path, list[str]]:
+    """Materialize a non-Python (C/C++/Rust) task: an exact, small,
+    explicitly-named file set fetched at ``task.pre_fix_sha`` plus our own
+    authored ``task.validator_files`` written verbatim -- never a whole-repo
+    tarball extraction and never anything fetched at ``task.fix_sha`` (the
+    validator is privately authored harness code, not the historical fix).
+    Cached exactly like the Python path, keyed by ``task_id``/``pre_fix_sha``.
+    """
+    root = cache_dir() / "benchmark" / task.task_id / task.pre_fix_sha / "source"
+    assert_no_symlink_escape(root, label="benchmark source cache root")
+    already_cached = root.exists() and any(root.iterdir())
+    if not already_cached:
+        root.mkdir(parents=True, exist_ok=True)
+        for rel in (task.bug_path, *task.source_paths):
+            dest = root / rel
+            assert_no_symlink_escape(dest.parent, label="benchmark native source destination")
+            dest.parent.mkdir(parents=True, exist_ok=True)
+            dest.write_text(fetch_file(task.repo, task.pre_fix_sha, rel), encoding="utf-8")
+        for rel, content in task.validator_files:
+            dest = root / rel
+            assert_no_symlink_escape(dest.parent, label="benchmark native validator destination")
+            dest.parent.mkdir(parents=True, exist_ok=True)
+            dest.write_text(content, encoding="utf-8")
+        for path in root.rglob("*"):
+            path.chmod(path.stat().st_mode | 0o444 | (0o111 if path.is_dir() else 0))
+    include_paths = sorted({task.bug_path, *task.source_paths, *(rel for rel, _ in task.validator_files)})
+    return root, include_paths
+
+
 def materialize_task_sources(task: BenchmarkTask) -> tuple[Path, list[str]]:
     """Materialize a real, importable snapshot of this task's package.
 
@@ -207,7 +267,14 @@ def materialize_task_sources(task: BenchmarkTask) -> tuple[Path, list[str]]:
     have content", not "does this content actually match this exact sha".
     Binding the path to the sha means any content ever associated with a
     different sha lives under a different, unused directory.
+
+    Non-Python tasks (``task.language != "python"``) dispatch to
+    :func:`_materialize_native_task_sources` instead: a whole-package
+    tarball extraction/pip-install pipeline has no meaning for a C/C++/Rust
+    compile-and-validate task.
     """
+    if task.language != "python":
+        return _materialize_native_task_sources(task)
     root = cache_dir() / "benchmark" / task.task_id / task.pre_fix_sha / "source"
     assert_no_symlink_escape(root, label="benchmark source cache root")
     _extract_repo_tree(task.repo, task.pre_fix_sha, root)
@@ -279,7 +346,18 @@ def _wrapped_test_command(task: BenchmarkTask) -> list[str]:
     """Wrap ``task.test_command`` with the PYTHONPATH it needs to actually
     import the real historical package and its installed deps, without any
     change to ContainerExecutor's scrubbed-environment isolation guarantee
-    (the env var is set by the invoked shell, not injected into docker)."""
+    (the env var is set by the invoked shell, not injected into docker).
+
+    Non-Python tasks declare ``test_command`` as a SINGLE already-complete
+    shell pipeline string (e.g. ``"cc ... && ./validate"``), not an argv
+    list -- compiling then running is inherently a multi-command shell
+    expression, which ``shlex.join``-ing a split argv list cannot represent
+    without mis-quoting the ``&&`` operator as a literal argument. That one
+    string is passed to ``sh -c`` completely unquoted/unmodified."""
+    if task.language != "python":
+        if len(task.test_command) == 1:
+            return ["sh", "-c", task.test_command[0]]
+        return ["sh", "-c", shlex.join(task.test_command)]
     inner = shlex.join(task.test_command)
     return ["sh", "-c", f"PYTHONPATH={pythonpath_for(task)} {inner}"]
 
@@ -376,6 +454,41 @@ def _classify_pytest_execution(result: ExecutionResult, *, expected_tests: int) 
             "expectedTests": expected_tests,
         },
     )
+
+
+def _classify_native_execution(result: ExecutionResult) -> tuple[str | None, dict[str, Any]]:
+    """Classify one compiled-language (C/C++/Rust) acceptance-command run.
+
+    There is no pytest-style summary line to parse: ``task.test_command``
+    is a compile-then-run shell pipeline for our own authored validator
+    program (see ``BenchmarkTask.validator_files``), which deterministically
+    exits 0 (the declared behavior holds) or 1 (it does not) by convention
+    -- exactly the binary contract exercised during private M6 task
+    qualification. Any other exit code (compiler crash, non-validator
+    failure, timeout-mapped launch failure) is honestly inconclusive/error,
+    never silently folded into pass/fail.
+    """
+    if result.exit_code in _DOCKER_LAUNCH_FAILURE_EXIT_CODES:
+        return None, {"classification": "error", "reason": "container_launch_failed", "exit_code": result.exit_code}
+    if result.exit_code == 0:
+        return "passed", {"classification": "pass", "reason": "validator_exit_zero", "exit_code": 0}
+    if result.exit_code == 1:
+        return "failed", {"classification": "fail", "reason": "validator_exit_one", "exit_code": 1}
+    return None, {
+        "classification": "inconclusive",
+        "reason": "unexpected_exit_code",
+        "exit_code": result.exit_code,
+    }
+
+
+def _classify_execution(
+    task: BenchmarkTask, result: ExecutionResult, *, expected_tests: int
+) -> tuple[str | None, dict[str, Any]]:
+    """Dispatch to the pytest-summary classifier (Python) or the binary
+    compile-and-run classifier (C/C++/Rust), by ``task.language``."""
+    if task.language != "python":
+        return _classify_native_execution(result)
+    return _classify_pytest_execution(result, expected_tests=expected_tests)
 
 
 def _read_candidate_bytes_for_audit(worktree: Path, touched: list[str]) -> bytes:
@@ -628,6 +741,41 @@ END_PATCH
 _RETRY_SUFFIX = "\n\nYour previous attempt was rejected: {reason}\nTry again, following the format exactly."
 
 
+def retain_task_materials(task: BenchmarkTask, materials_root: Path) -> dict[str, str]:
+    """Genuinely RE-MATERIALIZE ``task`` (the same public, immutable,
+    pre_fix_sha-pinned repo bytes :func:`run_benchmark_task` itself reads)
+    and copy that exact content into ``materials_root`` so a signed
+    receipt's declared ``materials`` hashes can later be verified against
+    real retained files via :func:`each.attestation.verify_materials_root`.
+
+    This is RECOVERY, never invention: every byte written here comes from
+    re-fetching the same immutable git revision the original run used
+    (``task.pre_fix_sha``/``task.fix_sha`` never change), so a receipt
+    written before any materials directory existed can still be verified
+    in full as long as its declared hashes actually match what is
+    re-fetched here -- if they don't, that is reported as a real
+    verification FAIL, never silently papered over.
+
+    Returns the full ``{relative_path: sha256}`` mapping actually written
+    (worktree content plus the virtual prompt-excerpt pseudo-path), for
+    direct comparison against a receipt's own ``materials`` declaration.
+    """
+    source_root, include_paths = materialize_task_sources(task)
+    _worktree, manifest = build_worktree(source_root, include_paths, dest=materials_root)
+
+    bug_source = (materials_root / task.bug_path).read_text(encoding="utf-8")
+    pre_fix_test_sources = [fetch_file(task.repo, task.pre_fix_sha, test_path) for test_path in task.test_paths]
+    excerpt_source, excerpt_start_line, excerpt_end_line = select_prompt_excerpt(bug_source, pre_fix_test_sources)
+    excerpt_sha256 = sha256_bytes(excerpt_source.encode("utf-8"))
+    excerpt_material_key = f"{task.bug_path}#prompt-excerpt:{excerpt_start_line}-{excerpt_end_line}"
+    excerpt_path = materials_root / excerpt_material_key
+    assert_no_symlink_escape(excerpt_path, label="retained materials excerpt path")
+    excerpt_path.parent.mkdir(parents=True, exist_ok=True)
+    excerpt_path.write_text(excerpt_source, encoding="utf-8")
+
+    return {**manifest, excerpt_material_key: excerpt_sha256}
+
+
 def run_benchmark_task(
     task: BenchmarkTask,
     model: RepairModel,
@@ -675,7 +823,7 @@ def run_benchmark_task(
     approved = ApprovedSpec.approve(spec_packet)
     approved.verify()
 
-    executor = ContainerExecutor(image=BENCHMARK_IMAGE_DIGEST)
+    executor = ContainerExecutor(image=_benchmark_image_for(task))
     probe_worktree, _probe_manifest = build_worktree(source_root, include_paths)
     isolation_result = executor.verify_isolation(probe_worktree)
     assurance_level = derive_assurance_level(executor, isolation_result)
@@ -797,8 +945,8 @@ def run_benchmark_task(
             break
         attempt_materials = {**manifest, excerpt_material_key: excerpt_sha256}
         attempt_baseline = _result_to_dict(baseline)
-        baseline_verdict, baseline_classification = _classify_pytest_execution(
-            baseline, expected_tests=expected_tests
+        baseline_verdict, baseline_classification = _classify_execution(
+            task, baseline, expected_tests=expected_tests
         )
         if baseline_verdict is None:
             attempts.append(
@@ -891,8 +1039,8 @@ def run_benchmark_task(
             attempts.append(attempt_record)
             break
         attempt_record["repaired_result"] = _result_to_dict(repaired)
-        repaired_verdict, repaired_classification = _classify_pytest_execution(
-            repaired, expected_tests=expected_tests
+        repaired_verdict, repaired_classification = _classify_execution(
+            task, repaired, expected_tests=expected_tests
         )
         attempt_record["repaired_classification"] = repaired_classification
         if repaired_verdict is None:

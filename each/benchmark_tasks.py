@@ -379,3 +379,163 @@ TASKS: list[BenchmarkTask] = [
 # The first 5 tasks (5 distinct repos) run as the mandate's required
 # smoke suite before the full >=20-task benchmark.
 SMOKE_TASKS: list[BenchmarkTask] = TASKS[:5]
+
+# Section 128's historical-repair task set is explicitly "a mix of
+# C/C++/Rust/Python" (section 121 makes this authoritative); 22 Python
+# tasks alone meet the >=20 COUNT but not the required language mix. Each
+# of these three was independently, privately qualified before inclusion
+# (not merely metadata-matched): the exact pre-fix/known-fix SHAs were
+# confirmed via the real GitHub commits API, the pinned permissive license
+# was independently fetched and confirmed, and -- critically -- an actual
+# baseline-fails/fixed-passes run was exercised through the real
+# no-network each-benchmark-native-runtime container (never on the host)
+# using a validator written against each task's own PUBLICLY documented
+# behavioral contract (the language standard or the upstream commit/PR's
+# own public title/description) -- never the private historical fix diff
+# or its own regression-test file contents, which stay unread by this
+# harness. No success-rate threshold or equal-per-language count is
+# required; the smallest unambiguous closure is exactly one genuine task
+# per missing language family.
+NATIVE_TASKS: list[BenchmarkTask] = [
+    BenchmarkTask(
+        task_id="jsmn-reject-unmatched-closing-bracket",
+        repo="zserge/jsmn",
+        license="MIT",
+        pre_fix_sha="f3b41ae30c7627f540ee539aed51bcca06d23a82",
+        fix_sha="af04595fe243554ee762f515c088f99ce26e2b27",
+        bug_path="jsmn.c",
+        test_paths=(),
+        source_paths=("jsmn.h", "LICENSE"),
+        test_command=("cc -std=c99 -Wall -Wextra jsmn.c validation.c -o validate && ./validate",),
+        problem_statement=(
+            "A minimal JSON parser accepts malformed input containing unmatched closing "
+            "brackets (extra '}' or ']' with no matching opening bracket) instead of "
+            "rejecting it as invalid JSON."
+        ),
+        language="C",
+        validator_files=(
+            (
+                "validation.c",
+                (
+                    '#include "jsmn.h"\n'
+                    "#include <stddef.h>\n"
+                    "int main(void) {\n"
+                    '    const char *invalid[] = {"}", "]", "{\\"k\\":1}}", "[1]]"};\n'
+                    '    const char *valid[] = {"{}", "[]", "{\\"k\\":1}", "[1]"};\n'
+                    "    jsmn_parser parser;\n"
+                    "    jsmntok_t tokens[64];\n"
+                    "    size_t i;\n"
+                    "    for (i = 0; i < sizeof(invalid) / sizeof(invalid[0]); ++i) {\n"
+                    "        jsmn_init(&parser);\n"
+                    "        if (jsmn_parse(&parser, invalid[i], tokens, 64) >= 0) return 1;\n"
+                    "    }\n"
+                    "    for (i = 0; i < sizeof(valid) / sizeof(valid[0]); ++i) {\n"
+                    "        jsmn_init(&parser);\n"
+                    "        if (jsmn_parse(&parser, valid[i], tokens, 64) < 0) return 2;\n"
+                    "    }\n"
+                    "    return 0;\n"
+                    "}\n"
+                ),
+            ),
+        ),
+    ),
+    BenchmarkTask(
+        task_id="fmt-printf-zero-precision-zero-value",
+        repo="fmtlib/fmt",
+        license="MIT",
+        pre_fix_sha="fd0a9b6620c8f44fac2122adb1cc29664aa96325",
+        fix_sha="cfb57bfa3aa90573abfc39a160bb0248e14fd64f",
+        bug_path="include/fmt/printf.h",
+        test_paths=(),
+        source_paths=(
+            "include/fmt/base.h",
+            "include/fmt/core.h",
+            "include/fmt/format.h",
+            "include/fmt/format-inl.h",
+            "include/fmt/os.h",
+            "LICENSE",
+        ),
+        test_command=("c++ -std=c++20 -I include validation.cc -o validate && ./validate",),
+        problem_statement=(
+            "A printf-style formatting library's conversion of a zero value with an "
+            "explicitly specified zero precision produces incorrect output, instead of "
+            "following the standard printf precision-zero contract."
+        ),
+        language="C++",
+        validator_files=(
+            (
+                "validation.cc",
+                (
+                    "#define FMT_HEADER_ONLY\n"
+                    '#include "fmt/printf.h"\n'
+                    "#include <cstdio>\n"
+                    "#include <string>\n\n"
+                    "int main() {\n"
+                    '    std::string got = fmt::sprintf("%.0d", 0);\n'
+                    '    std::string expected = "";\n'
+                    "    if (got != expected) {\n"
+                    '        std::fprintf(stderr, "got=[%s] expected=[%s]\\n", got.c_str(), expected.c_str());\n'
+                    "        return 1;\n"
+                    "    }\n"
+                    "    return 0;\n"
+                    "}\n"
+                ),
+            ),
+        ),
+    ),
+    BenchmarkTask(
+        task_id="semver-reject-patch-digit-after-minor-wildcard",
+        repo="dtolnay/semver",
+        license="MIT OR Apache-2.0",
+        pre_fix_sha="d47dd038017a48adc9b25f690f1f4f27160aeb3b",
+        fix_sha="a5850bbd0d1bf6e5ae1ed1310cbe8919fa77d618",
+        bug_path="src/parse.rs",
+        test_paths=(),
+        source_paths=(
+            "src/backport.rs",
+            "src/display.rs",
+            "src/error.rs",
+            "src/eval.rs",
+            "src/identifier.rs",
+            "src/impls.rs",
+            "src/lib.rs",
+            "LICENSE-APACHE",
+        ),
+        test_command=(
+            (
+                "rustc --edition 2018 --crate-type lib --crate-name semver src/lib.rs -o libsemver.rlib "
+                "&& rustc --edition 2018 --extern semver=libsemver.rlib validate.rs -o validate "
+                "&& ./validate"
+            ),
+        ),
+        problem_statement=(
+            "A Cargo-style version-requirement parser accepts a malformed requirement string "
+            "containing an explicit patch-version digit immediately after a minor-version "
+            "wildcard component (e.g. '>=1.*.3') instead of rejecting it as malformed."
+        ),
+        language="Rust",
+        validator_files=(
+            (
+                "validate.rs",
+                (
+                    "extern crate semver;\n"
+                    "use semver::VersionReq;\n\n"
+                    "fn main() {\n"
+                    '    match VersionReq::parse(">=1.*.3") {\n'
+                    "        Ok(_) => std::process::exit(1),\n"
+                    "        Err(_) => std::process::exit(0),\n"
+                    "    }\n"
+                    "}\n"
+                ),
+            ),
+        ),
+    ),
+]
+
+# ALL_TASKS is the full mixed-language release matrix: the 22 historical
+# Python tasks plus the 3 native-language closure tasks (C/C++/Rust),
+# satisfying section 128's "mix of C/C++/Rust/Python" requirement without
+# inventing a 50-task count or a minimum success-rate threshold (neither is
+# required). TASKS and SMOKE_TASKS are left exactly as they were --
+# consumers that need the historical Python-only comparison still have it.
+ALL_TASKS: list[BenchmarkTask] = TASKS + NATIVE_TASKS
