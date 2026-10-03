@@ -2667,7 +2667,9 @@ class RunStore:
                 any_criterion_owns_target_evidence = any(
                     criteria_by_id[cid].get("targetEvidence") is not None for cid in bound_criteria
                 )
-                if "target-repair" in producers or any_criterion_owns_target_evidence:
+                if gate_type in {"reality", "e2e"} and (
+                    "target-repair" in producers or any_criterion_owns_target_evidence
+                ):
                     target_declarations = {
                         cid: criteria_by_id[cid].get("targetEvidence")
                         for cid in bound_criteria

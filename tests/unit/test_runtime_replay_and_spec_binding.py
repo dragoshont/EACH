@@ -298,6 +298,33 @@ def test_m8_target_repair_evidence_cannot_satisfy_an_m7_target_repair_criterion(
     assert excinfo.value.code == "EVIDENCE_KIND_MISMATCH" or excinfo.value.code == "EVIDENCE_SPEC_MISMATCH"
 
 
+@pytest.mark.parametrize("gate_type", ["deterministic", "semantic"])
+def test_target_owned_criteria_accept_their_independent_risk_gates(harness, gate_type):
+    store, repo, _each_home = harness
+    criterion = "m8-target-repair-verified"
+    commit = store.load("test-run")["baseline"]["commit"]
+    path = repo / ".architrave" / f"{gate_type}-risk-evidence.json"
+    if gate_type == "semantic":
+        payload = {"commit": commit, "verdict": "PASS", "family": "gpt", "criteria": [criterion]}
+        recorder = store._record_semantic_verdict
+    else:
+        payload = {"commit": commit, "status": "pass", "exitCode": 0, "command": ["pytest"]}
+        recorder = store._record_deterministic_result
+    path.write_text(json.dumps(payload), encoding="utf-8")
+    recorder(
+        "test-run", artifact_id="independent-risk-evidence",
+        path=path.relative_to(repo).as_posix(), evidence_refs=[],
+    )
+    state = store.record_gate(
+        "test-run", gate_id="independent-risk-gate", task_id=None,
+        gate_type=gate_type, status="PASS", criteria=[criterion],
+        family="gpt" if gate_type == "semantic" else None,
+        evidence_refs=["artifact:independent-risk-evidence"],
+    )
+    assert state["gateResults"][-1]["status"] == "PASS"
+    assert state["acceptanceCriteria"][1]["status"] == "UNTESTED"
+
+
 def test_target_evidence_owning_criterion_rejects_non_target_repair_producer_evidence(harness):
     """A *-target-repair-verified criterion must never be satisfiable by a
     DIFFERENT reality-gate producer (external-proof/mutation/legibility) just
