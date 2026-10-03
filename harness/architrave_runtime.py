@@ -110,7 +110,7 @@ PRODUCER_ARTIFACT_KINDS = {
     "security-review": {"security-verdict"},
     "policy-engine": {"policy-decision"},
     "external-proof": {"external-proof"},
-    "target-repair": {"target-repair-receipt"},
+    "target-repair": {"target-repair-receipt", "clean-room-experiment-receipt"},
 }
 # Acceptance criteria declare a `verificationType`; this reconciles it with which gate `type`s
 # may legitimately satisfy it (e2e and reality are treated as mutually satisfying, mirroring the
@@ -1397,9 +1397,141 @@ class RunStore:
             producer="target-repair",
         )
 
+    def _record_m7_experiment_receipt(
+        self,
+        run_id: str,
+        *,
+        artifact_id: str,
+        receipt_path: str,
+        evidence_refs: Sequence[str] = (),
+        actor: str = "coordinator",
+    ) -> dict[str, Any]:
+        """Register honest reality-gate evidence for mandate section 129's M7
+        clean-room-style demonstration acceptance, which is DELIBERATELY NOT
+        the same bar as ``_record_target_repair_receipt``'s: section 129's own
+        stated acceptance is "complete receipt; information firewall
+        demonstrably enforced; candidate remains shadow-only" -- it never
+        requires the candidate's validation to have actually passed. This
+        exists specifically so an honestly-failed repair (``REPAIR_NOT_VERIFIED``,
+        or any other non-``REPAIR_VERIFIED`` outcome reached via a real attempt)
+        can still satisfy its OWN, narrower, mandate-grounded criterion without
+        ever touching the separate, stricter ``m7-target-repair-verified``
+        criterion a prior Run registered -- that criterion keeps meaning
+        exactly what it always meant (a genuinely verified repair) and stays
+        FAIL here; this method can never flip it.
+
+        Like ``_record_target_repair_receipt``, every fact recorded is
+        independently re-derived from the real, signature+materials-verified
+        private receipt file itself -- never trusted from a caller-supplied
+        claim string -- and the private receipt content (prompts, completions,
+        patch, target source) is never copied into the public artifact.
+        """
+        receipt_file = Path(receipt_path).expanduser()
+        if not receipt_file.is_absolute():
+            raise RuntimeFailure(
+                "M7_EXPERIMENT_RECEIPT", "receipt path must be an absolute path to the private receipt store"
+            )
+        if receipt_file.is_symlink():
+            raise RuntimeFailure("M7_EXPERIMENT_RECEIPT", "receipt path must not itself be a symlink")
+        each_home = Path(os.environ.get("EACH_HOME", str(Path.home() / ".each"))).expanduser()
+        private_runs_root = (each_home / "runs").resolve()
+        resolved = receipt_file.resolve()
+        try:
+            resolved.relative_to(private_runs_root)
+        except ValueError as exc:
+            raise RuntimeFailure(
+                "M7_EXPERIMENT_RECEIPT",
+                "receipt path must live under the private EACH runs directory, not anywhere else",
+                details={"resolved": str(resolved), "privateRunsRoot": str(private_runs_root)},
+            ) from exc
+        if not resolved.is_file():
+            raise RuntimeFailure("M7_EXPERIMENT_RECEIPT", "private receipt file does not exist")
+
+        try:
+            receipt = json.loads(resolved.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError) as exc:
+            raise RuntimeFailure("M7_EXPERIMENT_RECEIPT", "private receipt is unreadable") from exc
+        if not isinstance(receipt, dict):
+            raise RuntimeFailure("M7_EXPERIMENT_RECEIPT", "private receipt must be a JSON object")
+
+        # Independently re-run the EXISTING `each verify --full` CLI against
+        # the real receipt file -- a complete receipt's signature and
+        # retained materials must genuinely verify regardless of outcome.
+        result = subprocess.run(
+            [sys.executable, "-m", "each.cli", "verify", "--full", str(resolved)],
+            cwd=str(self.repository),
+            capture_output=True,
+            text=True,
+            timeout=120,
+        )
+        if result.returncode != 0:
+            raise RuntimeFailure(
+                "M7_EXPERIMENT_RECEIPT",
+                "independent `each verify --full` re-check of the private receipt did not PASS",
+                details={"returncode": result.returncode, "stdoutTail": result.stdout[-500:]},
+            )
+
+        outcome = str(receipt.get("outcome", ""))
+        if not outcome:
+            raise RuntimeFailure("M7_EXPERIMENT_RECEIPT", "private receipt does not declare an outcome")
+        if receipt.get("legalCertification") is not False or receipt.get("cleanroomCertification") is not False:
+            raise RuntimeFailure(
+                "M7_EXPERIMENT_RECEIPT",
+                "private receipt must explicitly declare legal/clean-room certification false (section 129 never certifies)",
+            )
+        audit = receipt.get("audit") or {}
+        audit_checks = audit.get("checks") or {}
+        if not audit_checks:
+            raise RuntimeFailure(
+                "M7_EXPERIMENT_RECEIPT",
+                "private receipt's terminal audit never ran (section 129 requires the Auditor step to have executed, "
+                "even when its own findings are honestly UNAVAILABLE)",
+            )
+        model_id = str((receipt.get("modelIdentity") or {}).get("modelId", ""))
+        if not model_id or "fixture" in model_id.lower():
+            raise RuntimeFailure(
+                "M7_EXPERIMENT_RECEIPT",
+                "private receipt does not declare a real, non-Fixture model identity",
+                details={"modelId": model_id},
+            )
+        spec_hash = receipt.get("specHash")
+        target_run_id = receipt.get("runId")
+        if not spec_hash or not target_run_id:
+            raise RuntimeFailure("M7_EXPERIMENT_RECEIPT", "private receipt is missing specHash or runId")
+
+        sanitized_summary = {
+            "specHash": spec_hash,
+            "targetRunId": target_run_id,
+            "outcome": outcome,
+            "signatureVerification": "PASS",
+            "materialsVerification": "PASS",
+            "networkIsolationVerified": bool(receipt.get("networkIsolationVerified")),
+            "modelId": model_id,
+            "auditChecksRun": sorted(audit_checks.keys()),
+            "auditResultStatuses": sorted({str(v.get("status")) for v in audit_checks.values() if isinstance(v, dict)}),
+            "legalCertification": False,
+            "cleanroomCertification": False,
+            "shadowOnly": True,
+            "receiptSha256": hashlib.sha256(resolved.read_bytes()).hexdigest(),
+        }
+        current_commit = self.load(run_id)["baseline"]["commit"]
+        relative_path, _execution_id = self.write_evidence_receipt(
+            name=f"{artifact_id}.m7-experiment-summary", commit=current_commit, payload=sanitized_summary
+        )
+
+        return self._record_artifact(
+            run_id,
+            artifact_id=artifact_id,
+            kind="clean-room-experiment-receipt",
+            path=relative_path,
+            evidence_refs=evidence_refs,
+            actor=actor,
+            producer="target-repair",
+        )
+
     def _read_json_receipt(self, path_value: str, label: str) -> dict[str, Any]:
         path = (self.repository / safe_relative_path(str(path_value), f"{label} receipt path")).resolve()
-        try:
+        try: 
             payload = json.loads(path.read_text(encoding="utf-8"))
         except (OSError, json.JSONDecodeError) as exc:
             raise RuntimeFailure("EVIDENCE_RECEIPT", f"{label} receipt is unreadable") from exc
