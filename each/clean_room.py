@@ -36,8 +36,8 @@ from each.audit.run import reject_on_audit_flag, run_audit
 from each.benchmark import BENCHMARK_IMAGE_DIGEST, BenchmarkExecutionError, _interpret_pytest_run
 from each.demo import _DOCKER_LAUNCH_FAILURE_EXIT_CODES, _result_to_dict
 from each.executor.container import ContainerExecutor, ContainerExecutorError, derive_assurance_level
-from each.hashing import sha256_text
-from each.models.base import ContextBudgetExceeded, RepairModel
+from each.hashing import sha256_bytes, sha256_text
+from each.models.base import ContextBudgetExceeded, RepairModel, validate_recorded_real_model_identity
 from each.outcome import sanitize_outcome_class
 from each.patch import PatchRejected, apply_patch, extract_patch_text, parse_patch
 from each.paths import runs_dir, validate_private_root, validate_task_id
@@ -287,52 +287,140 @@ def _retry_suffix_for_mode(
     return suffix + previous_candidate_block + requirement_block
 
 
-def _verify_seed_source_provenance(*, seed_source: str, seed_receipt_path: str | Path) -> dict[str, Any]:
+def _read_candidate_bytes_for_audit(worktree: Path, touched: list[str]) -> bytes:
+    return b"\n".join((worktree / path).read_bytes() for path in touched)
+
+
+def _verify_seed_source_provenance(
+    *,
+    seed_source: str,
+    seed_receipt_path: str | Path,
+    expected_spec_hash: str,
+    current_model_identity: dict[str, Any],
+    max_depth: int = 4,
+) -> dict[str, Any]:
     from each.attestation import verify_materials_root, verify_receipt
     from each.signing import public_key_path
 
-    receipt_path = Path(seed_receipt_path).expanduser()
-    if not receipt_path.is_file():
-        raise ValueError(f"seed receipt does not exist: {receipt_path}")
-    try:
-        receipt = json.loads(receipt_path.read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError) as exc:
-        raise ValueError(f"seed receipt is unreadable: {receipt_path}") from exc
-    if not isinstance(receipt, dict):
-        raise TypeError("seed receipt must be a JSON object")
+    seed_receipt_resolved = Path(seed_receipt_path).expanduser().resolve()
+    if not seed_receipt_resolved.is_file():
+        raise ValueError(f"seed receipt does not exist: {seed_receipt_resolved}")
+    validate_recorded_real_model_identity(current_model_identity)
     try:
         public_key_pem = public_key_path().read_bytes()
     except OSError as exc:
         raise ValueError("seed receipt public key is unavailable") from exc
-    signature_result = verify_receipt(receipt, public_key_pem)
-    if signature_result["status"] != "PASS":
-        raise ValueError(f"seed receipt failed signature verification: {signature_result['reason']}")
-    materials_result = verify_materials_root(receipt, receipt_path.parent / "materials")
-    if materials_result["status"] != "PASS":
-        raise ValueError(f"seed receipt failed full materials verification: {materials_result['reason']}")
-
-    source_run_id = receipt.get("runId")
-    if not isinstance(source_run_id, str) or not source_run_id:
-        raise ValueError("seed receipt is missing runId")
     seed_sha256 = sha256_text(seed_source)
-    matching_attempts = [
-        attempt
-        for attempt in receipt.get("attempts") or []
-        if isinstance(attempt, dict) and attempt.get("correction_candidate_hash") == seed_sha256
-    ]
-    if not matching_attempts:
-        raise ValueError("seed_source does not match any candidate recorded in the verified seed receipt")
-    provenance = {
-        "seedSha256": seed_sha256,
-        "sourceRunId": source_run_id,
+    seed_bytes_sha256 = sha256_bytes(seed_source.encode("utf-8"))
+    expected_model_identity = {
+        "modelId": current_model_identity.get("modelId"),
+        "adapterClassPath": current_model_identity.get("adapterClassPath"),
+        "modelManifest": current_model_identity.get("modelManifest"),
     }
-    attempt_number = next(
-        (attempt.get("attempt") for attempt in matching_attempts if isinstance(attempt.get("attempt"), int)),
-        None,
+
+    def _verify_link(receipt_path: Path, *, expected_bytes_sha256: str, remaining_depth: int, seen: set[Path]) -> dict[str, Any]:
+        resolved = receipt_path.expanduser().resolve()
+        if resolved in seen:
+            raise ValueError("seed provenance contains a cycle")
+        if remaining_depth < 1:
+            raise ValueError("seed provenance exceeds the maximum supported depth")
+        seen.add(resolved)
+        if not resolved.is_file():
+            raise ValueError(f"seed receipt does not exist: {resolved}")
+        try:
+            receipt = json.loads(resolved.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError) as exc:
+            raise ValueError(f"seed receipt is unreadable: {resolved}") from exc
+        if not isinstance(receipt, dict):
+            raise TypeError("seed receipt must be a JSON object")
+
+        signature_result = verify_receipt(receipt, public_key_pem)
+        if signature_result["status"] != "PASS":
+            raise ValueError(f"seed receipt failed signature verification: {signature_result['reason']}")
+        materials_result = verify_materials_root(receipt, resolved.parent / "materials")
+        if materials_result["status"] != "PASS":
+            raise ValueError(f"seed receipt failed full materials verification: {materials_result['reason']}")
+        if not receipt.get("materials"):
+            raise ValueError("seed receipt declares no retained materials")
+        if receipt.get("specHash") != expected_spec_hash:
+            raise ValueError("seed receipt spec hash does not match the current approved spec")
+        validate_recorded_real_model_identity(receipt.get("modelIdentity") or {})
+        prior_model_identity = {
+            "modelId": receipt["modelIdentity"].get("modelId"),
+            "adapterClassPath": receipt["modelIdentity"].get("adapterClassPath"),
+            "modelManifest": receipt["modelIdentity"].get("modelManifest"),
+        }
+        if prior_model_identity != expected_model_identity:
+            raise ValueError("seed receipt model identity does not match the current declared local model")
+        if sanitize_outcome_class(str(receipt.get("outcome", ""))) != "REPAIR_VERIFIED":
+            raise ValueError("seed receipt outcome is not an eligible verified repair")
+
+        selected_attempt = receipt.get("selectedAttempt")
+        if not isinstance(selected_attempt, int):
+            raise TypeError("seed receipt is missing selectedAttempt")
+        attempts = [attempt for attempt in receipt.get("attempts") or [] if isinstance(attempt, dict)]
+        selected = next((attempt for attempt in attempts if attempt.get("attempt") == selected_attempt), None)
+        if selected is None:
+            raise ValueError("seed receipt selectedAttempt is not present in attempts")
+
+        touched_paths = receipt.get("touchedPaths") or []
+        patch_text = str(receipt.get("patchText") or "")
+        if not touched_paths or not patch_text:
+            raise ValueError("seed receipt lacks a selected patch or touched paths")
+        worktree, _manifest = build_worktree(resolved.parent / "materials", list((receipt.get("materials") or {}).keys()))
+        try:
+            patch = parse_patch(patch_text)
+            apply_patch(patch, worktree, set(touched_paths))
+        except PatchRejected as exc:
+            raise ValueError("seed receipt patch could not be reconstructed against its retained preimage") from exc
+        candidate_bytes = _read_candidate_bytes_for_audit(worktree, touched_paths)
+        candidate_bytes_sha256 = sha256_bytes(candidate_bytes)
+        if candidate_bytes_sha256 != expected_bytes_sha256:
+            raise ValueError("seed_source bytes do not match the reconstructed selected candidate")
+        try:
+            candidate_text = candidate_bytes.decode("utf-8")
+        except UnicodeDecodeError as exc:
+            raise ValueError("seed receipt selected candidate is not valid UTF-8") from exc
+        candidate_sha256 = sha256_text(candidate_text)
+        if selected.get("correction_candidate_hash") != candidate_sha256:
+            raise ValueError("seed receipt selectedAttempt hash does not match its reconstructed candidate")
+
+        provenance: dict[str, Any] = {
+            "type": "seed-source-provenance",
+            "seedSha256": seed_sha256,
+            "sourceRunId": receipt.get("runId"),
+            "sourceReceiptPath": str(resolved),
+            "sourceReceiptSha256": sha256_bytes(resolved.read_bytes()),
+            "sourceAttempt": selected_attempt,
+            "sourceSpecHash": receipt.get("specHash"),
+            "sourceModel": prior_model_identity,
+            "sourceOutcome": "REPAIR_VERIFIED",
+            "sourcePatchHash": receipt.get("patchHash"),
+            "sourceTrajectoryHash": receipt.get("trajectoryHash"),
+            "sourceAuditSubjectSha256": receipt.get("auditSubjectSha256"),
+        }
+        parent_seed = receipt.get("seedProvenance")
+        if isinstance(parent_seed, dict):
+            parent_path = parent_seed.get("sourceReceiptPath")
+            parent_sha = parent_seed.get("seedSha256")
+            if not isinstance(parent_path, str) or not parent_path:
+                raise ValueError("seed provenance ancestry is missing sourceReceiptPath")
+            if not isinstance(parent_sha, str) or not parent_sha:
+                raise ValueError("seed provenance ancestry is missing seedSha256")
+            provenance["ancestry"] = [
+                _verify_link(Path(parent_path), expected_bytes_sha256=parent_sha, remaining_depth=remaining_depth - 1, seen=seen)
+            ]
+        else:
+            provenance["ancestry"] = []
+        seen.remove(resolved)
+        return provenance
+
+    return _verify_link(
+        seed_receipt_resolved,
+        expected_bytes_sha256=seed_bytes_sha256,
+        remaining_depth=max_depth,
+        seen=set(),
     )
-    if attempt_number is not None:
-        provenance["sourceAttempt"] = attempt_number
-    return provenance
 
 
 def run_clean_room_build(
@@ -388,7 +476,12 @@ def run_clean_room_build(
     approved.verify()
     validate_private_root()
     seed_provenance = (
-        _verify_seed_source_provenance(seed_source=seed_source, seed_receipt_path=seed_receipt_path)
+        _verify_seed_source_provenance(
+            seed_source=seed_source,
+            seed_receipt_path=seed_receipt_path,
+            expected_spec_hash=approved.approved_hash,
+            current_model_identity=model.identity(),
+        )
         if proposal_format == "source_edit" and seed_source is not None and seed_receipt_path is not None
         else None
     )
@@ -653,6 +746,9 @@ def run_clean_room_build(
         attempt_record["touched_paths"] = touched
         previous_candidate = (worktree / allowed_path).read_text(encoding="utf-8")
         attempt_record["correction_candidate_hash"] = sha256_text(previous_candidate)
+        attempt_record["audit_subject_sha256"] = sha256_bytes(
+            _read_candidate_bytes_for_audit(worktree, touched)
+        )
         # An edit that actually applied advances the base THIS run's own
         # later attempts will edit next; a rejected edit (above) must never
         # advance it (retried against the same base instead).
@@ -741,8 +837,8 @@ def run_clean_room_build(
             # Terminal audit only after generation/validation ends; this is
             # the one point where real reference material may be read, and
             # only for comparison -- never surfaced back to the Builder.
-            final_candidate_source = "\n".join(
-                (worktree / path).read_text(encoding="utf-8", errors="replace") for path in touched
+            final_candidate_source = _read_candidate_bytes_for_audit(worktree, touched).decode(
+                "utf-8", errors="replace"
             )
             final_audit = run_audit(final_candidate_source, corpus=audit_corpus, corpus_revision=corpus_revision)
             if reject_on_audit_flag(final_audit):
@@ -851,6 +947,7 @@ def run_clean_room_build(
         repaired_result=final_repaired,
         outcome=final_outcome,
         attempts=attempts,
+        audit_subject_sha256=reported_attempt.get("audit_subject_sha256") if reported_attempt is not None else None,
         **common_fields,
     )
     # The pristine fixture root is never mutated by apply_patch() (patches

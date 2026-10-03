@@ -328,6 +328,60 @@ def _interpret_pytest_run(result: ExecutionResult, *, expected_tests: int) -> st
     raise BenchmarkExecutionError(f"ambiguous pytest result, not a clean pass/fail: {combined!r}")
 
 
+def _classify_pytest_execution(result: ExecutionResult, *, expected_tests: int) -> tuple[str | None, dict[str, Any]]:
+    combined = result.stdout + result.stderr
+    passed_match = _PYTEST_PASSED_RE.search(combined)
+    failed_match = _PYTEST_FAILED_RE.search(combined)
+    skipped_match = _PYTEST_SKIPPED_RE.search(combined)
+    error_match = _PYTEST_ERROR_RE.search(combined)
+    passed = int(passed_match.group(1)) if passed_match else 0
+    failed = int(failed_match.group(1)) if failed_match else 0
+    skipped = int(skipped_match.group(1)) if skipped_match else 0
+    errors = int(error_match.group(1)) if error_match else 0
+    try:
+        verdict = _interpret_pytest_run(result, expected_tests=expected_tests)
+    except BenchmarkExecutionError:
+        if result.exit_code in _DOCKER_LAUNCH_FAILURE_EXIT_CODES:
+            classification = {"classification": "error", "reason": "container_launch_failed", "exit_code": result.exit_code}
+        elif skipped > 0:
+            classification = {"classification": "inconclusive", "reason": "skipped_tests", "exit_code": result.exit_code}
+        elif errors > 0:
+            classification = {"classification": "inconclusive", "reason": "collection_errors", "exit_code": result.exit_code}
+        elif passed == 0 and failed == 0:
+            classification = {"classification": "inconclusive", "reason": "no_tests_collected", "exit_code": result.exit_code}
+        elif passed + failed != expected_tests:
+            classification = {
+                "classification": "inconclusive",
+                "reason": "unexpected_test_count",
+                "exit_code": result.exit_code,
+                "observedTests": passed + failed,
+                "expectedTests": expected_tests,
+            }
+        elif result.exit_code not in {0, 1}:
+            classification = {
+                "classification": "inconclusive",
+                "reason": "nonzero_unexpected_exit",
+                "exit_code": result.exit_code,
+            }
+        else:
+            classification = {"classification": "inconclusive", "reason": "contradictory_summary", "exit_code": result.exit_code}
+        return None, classification
+    return (
+        verdict,
+        {
+            "classification": "pass" if verdict == "passed" else "fail",
+            "reason": verdict,
+            "exit_code": result.exit_code,
+            "observedTests": passed + failed,
+            "expectedTests": expected_tests,
+        },
+    )
+
+
+def _read_candidate_bytes_for_audit(worktree: Path, touched: list[str]) -> bytes:
+    return b"\n".join((worktree / path).read_bytes() for path in touched)
+
+
 def _node_start_line(node: ast.AST) -> int:
     """A function/class's real first line, including its decorators (ast's
     own ``.lineno`` points at the ``def``/``class`` keyword, not any
@@ -724,7 +778,6 @@ def run_benchmark_task(
         worktree, manifest = build_worktree(source_root, include_paths)
         try:
             baseline = executor.run(_wrapped_test_command(task), worktree)
-            baseline_verdict = _interpret_pytest_run(baseline, expected_tests=expected_tests)
         except ContainerExecutorError as exc:
             attempts.append(
                 {
@@ -742,25 +795,30 @@ def run_benchmark_task(
                 }
             )
             break
-        except BenchmarkExecutionError as exc:
+        attempt_materials = {**manifest, excerpt_material_key: excerpt_sha256}
+        attempt_baseline = _result_to_dict(baseline)
+        baseline_verdict, baseline_classification = _classify_pytest_execution(
+            baseline, expected_tests=expected_tests
+        )
+        if baseline_verdict is None:
             attempts.append(
                 {
                     "attempt": attempt_num,
                     "prompt": prompt,
                     "raw_completion": "",
-                    "materials": {**manifest, excerpt_material_key: excerpt_sha256},
-                    "baseline_result": {},
+                    "materials": attempt_materials,
+                    "baseline_result": attempt_baseline,
+                    "baseline_classification": baseline_classification,
                     "patch_text": "",
                     "touched_paths": [],
                     "repaired_result": {},
+                    "repaired_classification": {"classification": "unavailable", "reason": "not_run"},
                     "audit": _no_audit_yet,
-                    "outcome": f"BASELINE_INCONCLUSIVE: {exc}",
+                    "outcome": f"BASELINE_INCONCLUSIVE: {baseline_classification['reason']}",
                     "generation_attempted": False,
                 }
             )
             break
-        attempt_materials = {**manifest, excerpt_material_key: excerpt_sha256}
-        attempt_baseline = _result_to_dict(baseline)
         try:
             raw_completion = model.complete(prompt)
         except ContextBudgetExceeded as exc:
@@ -780,9 +838,11 @@ def run_benchmark_task(
                     "raw_completion": "",
                     "materials": attempt_materials,
                     "baseline_result": attempt_baseline,
+                    "baseline_classification": baseline_classification,
                     "patch_text": "",
                     "touched_paths": [],
                     "repaired_result": {},
+                    "repaired_classification": {"classification": "unavailable", "reason": "not_run"},
                     "audit": _no_audit_yet,
                     "outcome": f"BUILDER_CONTEXT_BUDGET_EXCEEDED: {exc}",
                     "generation_attempted": False,
@@ -797,9 +857,11 @@ def run_benchmark_task(
             "raw_completion": raw_completion,
             "materials": attempt_materials,
             "baseline_result": attempt_baseline,
+            "baseline_classification": baseline_classification,
             "patch_text": "",
             "touched_paths": [],
             "repaired_result": {},
+            "repaired_classification": {"classification": "unavailable", "reason": "not_run"},
             "model_identity": model.identity(),
             "audit": _no_audit_yet,
         }
@@ -819,33 +881,35 @@ def run_benchmark_task(
         # alongside a different, later attempt's outcome/prompt.
         attempt_record["patch_text"] = patch_text
         attempt_record["touched_paths"] = touched
+        candidate_source_bytes = _read_candidate_bytes_for_audit(worktree, touched)
+        attempt_record["audit_subject_sha256"] = sha256_bytes(candidate_source_bytes)
 
         try:
             repaired = executor.run(_wrapped_test_command(task), worktree)
-            repaired_verdict = _interpret_pytest_run(repaired, expected_tests=expected_tests)
         except ContainerExecutorError as exc:
             attempt_record["outcome"] = f"EXECUTION_ERROR: {exc}"
             attempts.append(attempt_record)
             break
-        except BenchmarkExecutionError as exc:
-            attempt_record["outcome"] = f"REPAIRED_RUN_INCONCLUSIVE: {exc}"
+        attempt_record["repaired_result"] = _result_to_dict(repaired)
+        repaired_verdict, repaired_classification = _classify_pytest_execution(
+            repaired, expected_tests=expected_tests
+        )
+        attempt_record["repaired_classification"] = repaired_classification
+        if repaired_verdict is None:
+            attempt_record["outcome"] = f"REPAIRED_RUN_INCONCLUSIVE: {repaired_classification['reason']}"
             attempts.append(attempt_record)
             prompt = base_prompt + _RETRY_SUFFIX.format(reason="the repaired test run could not be classified; try again")
             continue
-
         outcome = (
             "REPAIR_VERIFIED" if (baseline_verdict == "failed" and repaired_verdict == "passed") else "REPAIR_NOT_VERIFIED"
         )
-        attempt_record["repaired_result"] = _result_to_dict(repaired)
         if outcome == "REPAIR_VERIFIED":
             # Audit the source only after generation/validation ends on a
             # genuinely validated candidate -- matches each.bakeoff's
             # terminal-boundary discipline (mandate section 126: the
             # Auditor is a terminal gate, never pre-generation feedback
             # that could steer or restart a later Builder attempt).
-            repaired_source = "\n".join(
-                (worktree / path).read_text(encoding="utf-8", errors="replace") for path in touched
-            )
+            repaired_source = candidate_source_bytes.decode("utf-8", errors="replace")
             attempt_record["audit"] = run_audit(repaired_source, corpus=audit_corpus)
             if reject_on_audit_flag(attempt_record["audit"]):
                 outcome = "REPAIR_REJECTED_AUDIT"
@@ -877,6 +941,7 @@ def run_benchmark_task(
         outcome=final_outcome,
         attempts=attempts,
         selected_attempt=selected["attempt"],
+        audit_subject_sha256=selected.get("audit_subject_sha256"),
         **common_fields,
     )
     json_path, md_path = receipt.write(runs_dir() / run_id)

@@ -32,10 +32,12 @@ from each.demo import (
     FIXTURE_ALLOWED_PATHS,
     FIXTURE_ROOT,
     FIXTURE_TEST_PATHS,
+    FixtureExecutionError,
     _interpret_test_run,
     _result_to_dict,
 )
 from each.executor.container import ContainerExecutor, ContainerExecutorError, derive_assurance_level
+from each.hashing import sha256_bytes
 from each.models.base import RepairModel
 from each.patch import PatchRejected, apply_patch, extract_patch_text, parse_patch
 from each.paths import runs_dir
@@ -70,6 +72,31 @@ END_PATCH
 """
 
 _RETRY_SUFFIX = "\n\nYour previous attempt was rejected: {reason}\nTry again, following the format exactly."
+
+
+def _read_candidate_bytes_for_audit(worktree, touched: list[str]) -> bytes:
+    return b"\n".join((worktree / path).read_bytes() for path in touched)
+
+
+def _classify_fixture_run(result, *, expected_tests: int) -> tuple[str | None, dict[str, str]]:
+    try:
+        verdict = _interpret_test_run(result, expected_tests=expected_tests)
+    except FixtureExecutionError as exc:
+        reason = "ambiguous_output"
+        message = str(exc)
+        if result.exit_code in {125, 126, 127} or "container launch failed" in message:
+            reason = "container_launch_failed"
+        elif "expected exactly" in message:
+            reason = "unexpected_test_count"
+        elif "clean 'OK'" in message:
+            reason = "contradictory_summary"
+        elif "recognizable FAILED summary" in message:
+            reason = "nonzero_unexpected_exit"
+        return None, {"classification": "inconclusive", "reason": reason}
+    return (
+        verdict,
+        {"classification": "pass" if verdict == "passed" else "fail", "reason": verdict},
+    )
 
 
 def run_model_bakeoff(
@@ -183,8 +210,28 @@ def run_model_bakeoff(
                 }
             )
             break
-        baseline_verdict = _interpret_test_run(baseline, expected_tests=EXPECTED_TEST_COUNT)
         attempt_baseline = _result_to_dict(baseline)
+        baseline_verdict, baseline_classification = _classify_fixture_run(
+            baseline, expected_tests=EXPECTED_TEST_COUNT
+        )
+        if baseline_verdict is None:
+            attempts.append(
+                {
+                    "attempt": attempt_num,
+                    "prompt": prompt,
+                    "raw_completion": "",
+                    "materials": manifest,
+                    "baseline_result": attempt_baseline,
+                    "baseline_classification": baseline_classification,
+                    "patch_text": "",
+                    "touched_paths": [],
+                    "repaired_result": {},
+                    "repaired_classification": {"classification": "unavailable", "reason": "not_run"},
+                    "outcome": f"BASELINE_INCONCLUSIVE: {baseline_classification['reason']}",
+                    "audit": common_fields["audit"],
+                }
+            )
+            break
         raw_completion = model.complete(prompt)
         rendered_prompt = getattr(model, "last_prompt", None)
         attempt_record: dict[str, Any] = {
@@ -193,9 +240,11 @@ def run_model_bakeoff(
             "raw_completion": raw_completion,
             "materials": manifest,
             "baseline_result": attempt_baseline,
+            "baseline_classification": baseline_classification,
             "patch_text": "",
             "touched_paths": [],
             "repaired_result": {},
+            "repaired_classification": {"classification": "unavailable", "reason": "not_run"},
             "model_identity": model.identity(),
             "audit": common_fields["audit"],
         }
@@ -215,6 +264,8 @@ def run_model_bakeoff(
         # alongside a different, later attempt's outcome/prompt.
         attempt_record["patch_text"] = patch_text
         attempt_record["touched_paths"] = touched
+        candidate_source_bytes = _read_candidate_bytes_for_audit(worktree, touched)
+        attempt_record["audit_subject_sha256"] = sha256_bytes(candidate_source_bytes)
 
         try:
             repaired = executor.run(ACCEPTANCE_COMMAND, worktree)
@@ -222,23 +273,24 @@ def run_model_bakeoff(
             attempt_record["outcome"] = f"EXECUTION_ERROR: {exc}"
             attempts.append(attempt_record)
             break
-        # Matches each.demo.run_hello_repair's fail-loud precedent: a
-        # FixtureExecutionError means the test run could not be classified
-        # as a genuine pass/fail (container launch failure, skipped tests,
-        # unrecognized output) -- that is not evidence the repair failed,
-        # so it must not be folded into the same REPAIR_NOT_VERIFIED bucket
-        # a real failing test would produce. Let it propagate uncaught.
-        repaired_verdict = _interpret_test_run(repaired, expected_tests=EXPECTED_TEST_COUNT)
+        outcome = (
+            "REPAIR_VERIFIED" if baseline_verdict == "failed" else "REPAIR_NOT_VERIFIED"
+        )
+        attempt_record["repaired_result"] = _result_to_dict(repaired)
+        repaired_verdict, repaired_classification = _classify_fixture_run(
+            repaired, expected_tests=EXPECTED_TEST_COUNT
+        )
+        attempt_record["repaired_classification"] = repaired_classification
+        if repaired_verdict is None:
+            attempt_record["outcome"] = f"REPAIRED_RUN_INCONCLUSIVE: {repaired_classification['reason']}"
+            attempts.append(attempt_record)
+            prompt = base_prompt + _RETRY_SUFFIX.format(reason="the repaired test run could not be classified; try again")
+            continue
         outcome = (
             "REPAIR_VERIFIED" if (baseline_verdict == "failed" and repaired_verdict == "passed") else "REPAIR_NOT_VERIFIED"
         )
-
-        attempt_record["repaired_result"] = _result_to_dict(repaired)
         if outcome == "REPAIR_VERIFIED":
-            # Audit the source only after generation/validation ends.
-            repaired_source = "\n".join(
-                (worktree / path).read_text(encoding="utf-8", errors="replace") for path in touched
-            )
+            repaired_source = candidate_source_bytes.decode("utf-8", errors="replace")
             attempt_record["audit"] = run_audit(repaired_source, corpus=audit_corpus)
             if reject_on_audit_flag(attempt_record["audit"]):
                 outcome = "REPAIR_REJECTED_AUDIT"
@@ -270,6 +322,7 @@ def run_model_bakeoff(
         outcome=final_outcome,
         attempts=attempts,
         selected_attempt=selected["attempt"],
+        audit_subject_sha256=selected.get("audit_subject_sha256"),
         **common_fields,
     )
     json_path, md_path = receipt.write(runs_dir() / run_id)

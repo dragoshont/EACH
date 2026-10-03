@@ -66,6 +66,11 @@ def store_with_run(tmp_path, monkeypatch):
                 "blocking": True,
                 "risk": "R3",
                 "surface": "runtime",
+                "targetEvidence": {
+                    "kind": "target-repair-receipt",
+                    "purpose": "target-repair-verified",
+                    "targetSpecHash": "schema-test-spec-hash",
+                },
             },
         ],
         autonomy_scope="approved-program",
@@ -108,7 +113,16 @@ def test_a_run_exercising_retryNotBefore_target_repair_and_checkpoint_reissue_fi
     evidence_dir = repo / ".architrave" / "evidence"
     evidence_dir.mkdir(parents=True, exist_ok=True)
     summary_path = evidence_dir / "m7-target-repair.target-repair-summary.json"
-    summary_path.write_text(json.dumps({"outcome": "REPAIR_NOT_VERIFIED", "attempts": 3}), encoding="utf-8")
+    summary_path.write_text(
+        json.dumps(
+            {
+                "purpose": "target-repair-verified",
+                "specHash": "schema-test-spec-hash",
+                "outcome": "REPAIR_VERIFIED",
+            }
+        ),
+        encoding="utf-8",
+    )
     store._record_artifact(
         "test-run",
         artifact_id="m7-target-repair",

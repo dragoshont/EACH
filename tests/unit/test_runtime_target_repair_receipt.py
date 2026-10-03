@@ -50,15 +50,32 @@ def _write_real_receipt(
     os.environ["EACH_HOME"] = str(each_home)
     from each.receipt import Receipt
 
+    model_identity = {
+        "modelId": model_id or "ibm-granite/granite-8b-code-instruct-128k@deadbeef#sha256:cafe",
+        "adapterType": adapter_type,
+        "adapterClassPath": f"each.models.mlx_model.{adapter_type}",
+        "modelManifest": {
+            "schemaVersion": "0.1",
+            "repoId": "ibm-granite/granite-8b-code-instruct-128k",
+            "revision": "deadbeefcafebabe",
+            "license": "apache-2.0",
+            "runtime": {"name": "mlx-lm", "version": "0.0-test"},
+            "quantization": {"groupSize": 128},
+            "weightsSha256": {"model.safetensors": "cafe"},
+            "tokenizerSha256": "face",
+            "configSha256": "bead",
+            "filesSha256": {"config.json": "bead", "model.safetensors": "cafe", "tokenizer.json": "face"},
+            "conversionChain": "none",
+            "maxPositionEmbeddings": 8192,
+        },
+        "generationParameters": {"maxTokens": 256, "temperature": 0.0, "sampling": "greedy", "seed": None},
+    }
+
     receipt = Receipt(
         run_id=run_id,
         spec={"taskId": "each-m8-xsystem-sandboxid-opt"},
         spec_hash=spec_hash,
-        model_identity={
-            "modelId": model_id or "ibm-granite/granite-8b-code-instruct-128k@deadbeef#sha256:cafe",
-            "adapterType": adapter_type,
-            "modelManifest": {"modelId": "ibm-granite/granite-8b-code-instruct-128k@deadbeef#sha256:cafe"},
-        },
+        model_identity=model_identity,
         prompt="repair this function",
         raw_completion="def f(): ...",
         patch_text="--- a\n+++ b\n",
@@ -72,6 +89,9 @@ def _write_real_receipt(
         assurance_level="EACH-P1",
         outcome=outcome,
         network_isolation_verified=network_isolation,
+        attempts=[{"attempt": 1, "proposal_format": "full_source", "outcome": outcome}],
+        selected_attempt=1,
+        audit_subject_sha256="subject-sha",
     )
     run_dir = each_home / "runs" / run_id
     json_path, _ = receipt.write(run_dir)
@@ -97,7 +117,20 @@ def harness(tmp_path, monkeypatch):
     run_store.create(
         goal="test goal",
         outcome="test outcome",
-        criteria=[{"id": "m8-repair", "description": "m8 repair", "verificationType": "reality", "surface": "runtime", "blocking": True}],
+        criteria=[
+            {
+                "id": "m8-repair",
+                "description": "m8 repair",
+                "verificationType": "reality",
+                "surface": "runtime",
+                "blocking": True,
+                "targetEvidence": {
+                    "kind": "target-repair-receipt",
+                    "purpose": "target-repair-verified",
+                    "targetSpecHash": "2c5eca88fdccb0c1a0c94541e0b612d990b7d1dfd5ccfb0389ea61fb9e669c78",
+                },
+            }
+        ],
         autonomy_scope="approved-program",
         run_id="test-run",
     )
@@ -201,14 +234,14 @@ def test_rejects_a_real_receipt_without_network_isolation_verified(harness):
         )
 
 
-def test_rejects_a_fixturemodel_identity(harness):
-    """No FixtureModel self-test substitution may ever satisfy a real target-repair criterion."""
+def test_does_not_reject_a_real_adapter_solely_because_model_id_mentions_fixture(harness):
+    """Caller-controlled model_id text is not identity; adapter class path and manifest are."""
     run_store, _repo, each_home = harness
     receipt_path = _write_real_receipt(each_home, "m8-fixture-run", model_id="FixtureModel/self-test")
-    with pytest.raises(art.RuntimeFailure):
-        run_store._record_target_repair_receipt(
-            "test-run", artifact_id="m8-evidence", receipt_path=str(receipt_path), evidence_refs=[]
-        )
+    state = run_store._record_target_repair_receipt(
+        "test-run", artifact_id="m8-evidence", receipt_path=str(receipt_path), evidence_refs=[]
+    )
+    assert any(item["id"] == "m8-evidence" for item in state["artifacts"])
 
 
 def test_rejects_a_receipt_that_records_fixturemodel_as_the_adapter_type(harness):
@@ -218,6 +251,20 @@ def test_rejects_a_receipt_that_records_fixturemodel_as_the_adapter_type(harness
         "m8-fixture-adapter-run",
         model_id="totally-real-model-not-fixture-i-promise",
         adapter_type="FixtureModel",
+    )
+    with pytest.raises(art.RuntimeFailure):
+        run_store._record_target_repair_receipt(
+            "test-run", artifact_id="m8-evidence", receipt_path=str(receipt_path), evidence_refs=[]
+        )
+
+
+def test_rejects_a_fixturemodel_subclass_with_a_misleading_non_fixture_name_and_manifest(harness):
+    run_store, _repo, each_home = harness
+    receipt_path = _write_real_receipt(
+        each_home,
+        "m8-fixture-subclass-run",
+        model_id="totally-real-local-model",
+        adapter_type="DefinitelyRealLocalModel",
     )
     with pytest.raises(art.RuntimeFailure):
         run_store._record_target_repair_receipt(

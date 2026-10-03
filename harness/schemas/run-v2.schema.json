@@ -221,6 +221,28 @@
             { "type": "string", "enum": ["web", "electron", "ios", "deployment", "runtime"] }
           ]
         },
+        "targetEvidence": {
+          "description": "Explicit criterion-owned target-evidence binding. Required when a criterion is satisfied by target-repair producer evidence; absent/null for unrelated criteria and historical runs predating this field.",
+          "oneOf": [
+            { "type": "null" },
+            {
+              "type": "object",
+              "required": ["kind", "purpose", "targetSpecHash"],
+              "additionalProperties": false,
+              "properties": {
+                "kind": {
+                  "type": "string",
+                  "enum": ["target-repair-receipt", "clean-room-experiment-receipt", "target-replay-receipt"]
+                },
+                "purpose": {
+                  "type": "string",
+                  "enum": ["target-repair-verified", "clean-room-experiment-complete", "replay-validation"]
+                },
+                "targetSpecHash": { "type": "string", "minLength": 1 }
+              }
+            }
+          ]
+        },
         "status": {
           "type": "string",
           "enum": ["UNTESTED", "PASS", "FAIL", "BLOCKED_EXTERNAL", "NOT_APPLICABLE"]

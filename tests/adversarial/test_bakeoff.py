@@ -217,11 +217,8 @@ def test_bakeoff_rejects_max_attempts_below_one() -> None:
 
 @requires_colima_each
 def test_bakeoff_does_not_mask_execution_classification_failures(monkeypatch) -> None:
-    """Regression: a FixtureExecutionError (container launch failure, skipped
-    tests, unrecognized output -- i.e. "not test evidence") must propagate
-    uncaught rather than being folded into the same REPAIR_NOT_VERIFIED
-    bucket a genuinely-tested failing repair would also produce, matching
-    each.demo.run_hello_repair's fail-loud precedent."""
+    """Classification failures must preserve the raw baseline execution
+    rather than losing the run or misreporting a tested repair failure."""
     from each.demo import FixtureExecutionError
 
     def _raise(*_a, **_k):
@@ -230,12 +227,14 @@ def test_bakeoff_does_not_mask_execution_classification_failures(monkeypatch) ->
     monkeypatch.setattr(bakeoff_module, "_interpret_test_run", _raise)
 
     model = _StubRepairModel([_CORRECT_PATCH])
-    try:
-        bakeoff_module.run_model_bakeoff(model, max_attempts=1)
-    except FixtureExecutionError as exc:
-        assert "container launch failed" in str(exc)
-    else:
-        raise AssertionError("expected FixtureExecutionError to propagate uncaught")
+    result = bakeoff_module.run_model_bakeoff(model, max_attempts=1)
+    receipt = json.loads(Path(result["receipt_json"]).read_text())
+    assert result["outcome"].startswith("BASELINE_INCONCLUSIVE:")
+    assert receipt["attempts"][0]["baseline_result"]["exit_code"] != 0
+    assert receipt["attempts"][0]["baseline_classification"] == {
+        "classification": "inconclusive",
+        "reason": "container_launch_failed",
+    }
     assert model.calls == 0
 
 

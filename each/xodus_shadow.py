@@ -34,6 +34,7 @@ from each.audit.run import reject_on_audit_flag, run_audit
 from each.benchmark import BenchmarkExecutionError, fetch_file
 from each.demo import _DOCKER_LAUNCH_FAILURE_EXIT_CODES, _result_to_dict
 from each.executor.container import ContainerExecutor, ContainerExecutorError, derive_assurance_level
+from each.hashing import sha256_bytes
 from each.models.base import ContextBudgetExceeded, RepairModel
 from each.outcome import sanitize_outcome_class, sanitize_proposal_format
 from each.patch import PatchRejected, apply_patch, extract_patch_text, parse_patch
@@ -464,6 +465,7 @@ def run_xodus_shadow_build(
         attempt_record["patch_text"] = patch_text
         attempt_record["touched_paths"] = touched
         candidate_source_bytes = _read_candidate_bytes_for_audit(worktree, touched)
+        attempt_record["audit_subject_sha256"] = sha256_bytes(candidate_source_bytes)
 
         # The harness's own scaffold files (everything in include_paths
         # except the one path the candidate is actually allowed to edit)
@@ -647,6 +649,7 @@ def run_xodus_shadow_build(
         repaired_result=final_repaired,
         outcome=final_outcome,
         attempts=attempts,
+        audit_subject_sha256=reported_attempt.get("audit_subject_sha256") if reported_attempt is not None else None,
         **common_fields,
     )
     # materialize_root is the pristine host-side source tree: never

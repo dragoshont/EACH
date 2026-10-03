@@ -15,6 +15,8 @@ from typing import Any
 
 from each.hashing import sha256_file
 
+REAL_MODEL_ADAPTER_CLASS_PATHS = frozenset({"each.models.mlx_model.MLXRepairModel"})
+
 
 class ContextBudgetExceeded(RuntimeError):
     """Raised by a RepairModel.complete() implementation when a rendered
@@ -66,6 +68,54 @@ class RepairModel(ABC):
         return {
             "modelId": self.model_id,
             "adapterType": type(self).__name__,
+            "adapterClassPath": f"{type(self).__module__}.{type(self).__name__}",
             "implementationModule": type(self).__module__,
             "implementationSha256": sha256_file(module_path),
         }
+
+
+def validate_recorded_real_model_identity(model_identity: dict[str, Any]) -> tuple[str, str]:
+    """Validate a recorded receipt model identity as a genuine local model.
+
+    A free-form ``modelId`` label is never sufficient: the receipt must bind
+    to one of the repository's actual non-fixture adapter classes, plus a
+    structurally-real manifest and recorded generation parameters.
+    """
+    model_id = str(model_identity.get("modelId", "")).strip()
+    adapter_class_path = str(model_identity.get("adapterClassPath", "")).strip()
+    adapter_type = str(model_identity.get("adapterType", "")).strip()
+    if not model_id or not adapter_class_path or adapter_class_path not in REAL_MODEL_ADAPTER_CLASS_PATHS:
+        raise ValueError("receipt does not declare an allowlisted real-model adapter")
+    if adapter_type != adapter_class_path.rsplit(".", 1)[-1]:
+        raise ValueError("receipt adapter type does not match its declared class path")
+
+    manifest = model_identity.get("modelManifest")
+    if not isinstance(manifest, dict):
+        raise TypeError("receipt does not declare a structured model manifest")
+    revision = str(manifest.get("revision", "")).strip()
+    weights = manifest.get("weightsSha256")
+    runtime = manifest.get("runtime")
+    files = manifest.get("filesSha256")
+    if (
+        not revision
+        or not isinstance(weights, dict)
+        or not weights
+        or not all(isinstance(path, str) and isinstance(digest, str) and digest for path, digest in weights.items())
+        or not isinstance(runtime, dict)
+        or not str(runtime.get("name", "")).strip()
+        or not str(runtime.get("version", "")).strip()
+        or not isinstance(files, dict)
+        or not files
+    ):
+        raise ValueError("receipt manifest is missing required structural provenance fields")
+
+    generation = model_identity.get("generationParameters")
+    if (
+        not isinstance(generation, dict)
+        or not isinstance(generation.get("maxTokens"), int)
+        or generation["maxTokens"] < 1
+        or "temperature" not in generation
+        or not str(generation.get("sampling", "")).strip()
+    ):
+        raise ValueError("receipt model identity is missing recorded generation parameters")
+    return model_id, adapter_class_path

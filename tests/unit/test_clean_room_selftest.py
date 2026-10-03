@@ -13,6 +13,7 @@ skipped, not silently passed, when that daemon is unreachable.
 
 from __future__ import annotations
 
+import difflib
 import json
 import uuid
 from pathlib import Path
@@ -20,7 +21,8 @@ from pathlib import Path
 import each.clean_room as clean_room_module
 from each.benchmark import BenchmarkExecutionError
 from each.clean_room import run_clean_room_build
-from each.hashing import sha256_text
+from each.hashing import sha256_bytes, sha256_text
+from each.models.base import RepairModel
 from each.models.fixture import FixtureModel
 from each.receipt import Receipt
 from each.spec import ApprovedSpec, make_spec_packet
@@ -55,23 +57,53 @@ def _approve_selftest_spec(task_id: str) -> ApprovedSpec:
     return ApprovedSpec.approve(packet)
 
 
-def _write_verified_seed_receipt(tmp_path: Path, *, run_id: str, source: str) -> Path:
+def _write_verified_seed_receipt(tmp_path: Path, *, run_id: str, source: str, spec_hash: str = "seed-spec-hash") -> Path:
+    source_root = tmp_path / f"{run_id}-source"
+    source_root.mkdir(parents=True, exist_ok=True)
+    (source_root / "shadow" / "m7").mkdir(parents=True, exist_ok=True)
+    original_source = (
+        "def lru_cache_clean_room(maxsize=128, typed=False):\n"
+        "    raise NotImplementedError('seed placeholder')\n"
+    )
+    (source_root / "shadow" / "m7" / "clean_room_lru_cache.py").write_text(original_source, encoding="utf-8")
     receipt = Receipt(
         run_id=run_id,
         spec={"taskId": "seed-source-selftest"},
-        spec_hash="seed-spec-hash",
+        spec_hash=spec_hash,
         model_identity={
             "modelId": "ibm-granite/granite-8b-code-instruct-128k@seed",
             "adapterType": "MLXRepairModel",
-            "modelManifest": {"modelId": "ibm-granite/granite-8b-code-instruct-128k@seed"},
+            "adapterClassPath": "each.models.mlx_model.MLXRepairModel",
+            "modelManifest": {
+                "schemaVersion": "0.1",
+                "repoId": "ibm-granite/granite-8b-code-instruct-128k",
+                "revision": "seed-revision",
+                "license": "apache-2.0",
+                "runtime": {"name": "mlx-lm", "version": "0.0-test"},
+                "quantization": {"groupSize": 128},
+                "weightsSha256": {"model.safetensors": "cafe"},
+                "tokenizerSha256": "face",
+                "configSha256": "bead",
+                "filesSha256": {"config.json": "bead", "model.safetensors": "cafe", "tokenizer.json": "face"},
+                "conversionChain": "none",
+                "maxPositionEmbeddings": 8192,
+            },
+            "generationParameters": {"maxTokens": 256, "temperature": 0.0, "sampling": "greedy", "seed": None},
         },
         prompt="seed prompt",
         raw_completion="seed completion",
-        patch_text="--- a/seed\n+++ b/seed\n",
+        patch_text="".join(
+            difflib.unified_diff(
+                original_source.splitlines(keepends=True),
+                source.splitlines(keepends=True),
+                fromfile="a/shadow/m7/clean_room_lru_cache.py",
+                tofile="b/shadow/m7/clean_room_lru_cache.py",
+            )
+        ),
         touched_paths=["shadow/m7/clean_room_lru_cache.py"],
-        materials={},
+        materials={"shadow/m7/clean_room_lru_cache.py": sha256_bytes(original_source.encode("utf-8"))},
         executor_identity={},
-        isolation_evidence={},
+        isolation_evidence={"command": ["docker", "run", "--network", "none"], "exit_code": 1, "stdout": ""},
         baseline_result={"exit_code": 1},
         repaired_result={"exit_code": 0},
         audit={"result": "UNAVAILABLE", "checks": {}},
@@ -86,10 +118,50 @@ def _write_verified_seed_receipt(tmp_path: Path, *, run_id: str, source: str) ->
             }
         ],
         selected_attempt=1,
+        audit_subject_sha256=sha256_bytes(source.encode("utf-8")),
     )
     run_dir = tmp_path / run_id
-    json_path, _ = receipt.write(run_dir)
+    json_path, _ = receipt.write(run_dir, materials_source=source_root)
     return json_path
+
+
+class _StaticRealModel(RepairModel):
+    def __init__(self, response: str, model_id: str = "ibm-granite/granite-8b-code-instruct-128k@seed") -> None:
+        self._response = response
+        self._model_id = model_id
+
+    @property
+    def model_id(self) -> str:
+        return self._model_id
+
+    def identity(self) -> dict[str, object]:
+        identity = super().identity()
+        identity.update(
+            {
+                "adapterType": "MLXRepairModel",
+                "adapterClassPath": "each.models.mlx_model.MLXRepairModel",
+                "modelManifest": {
+                    "schemaVersion": "0.1",
+                    "repoId": "ibm-granite/granite-8b-code-instruct-128k",
+                    "revision": "seed-revision",
+                    "license": "apache-2.0",
+                    "runtime": {"name": "mlx-lm", "version": "0.0-test"},
+                    "quantization": {"groupSize": 128},
+                    "weightsSha256": {"model.safetensors": "cafe"},
+                    "tokenizerSha256": "face",
+                    "configSha256": "bead",
+                    "filesSha256": {"config.json": "bead", "model.safetensors": "cafe", "tokenizer.json": "face"},
+                    "conversionChain": "none",
+                    "maxPositionEmbeddings": 8192,
+                },
+                "generationParameters": {"maxTokens": 256, "temperature": 0.0, "sampling": "greedy", "seed": None},
+            }
+        )
+        return identity
+
+    def complete(self, prompt: str) -> str:
+        self.last_prompt = prompt
+        return self._response
 
 
 @requires_colima_each
@@ -153,9 +225,9 @@ def test_source_edit_mode_applies_minimal_json_edit_to_seed_candidate(tmp_path) 
     assert seed_source != correct_source
 
     edit_json = json.dumps({"old": buggy_line, "new": fixed_line})
-    model = FixtureModel(edit_json, model_id="fixture/clean-room-selftest-source-edit-v1")
+    model = _StaticRealModel(edit_json)
     seed_receipt_path = _write_verified_seed_receipt(
-        tmp_path, run_id=f"seed-{uuid.uuid4().hex[:8]}", source=seed_source
+        tmp_path, run_id=f"seed-{uuid.uuid4().hex[:8]}", source=seed_source, spec_hash=approved.approved_hash
     )
 
     result = run_clean_room_build(
@@ -190,14 +262,20 @@ def test_source_edit_mode_rejects_an_edit_whose_old_text_is_absent(tmp_path) -> 
     advanced to a different base.
     """
     approved = _approve_selftest_spec("test-clean-room-source-edit-absent-old")
-    seed_source = (
-        "def lru_cache_clean_room(maxsize=128, typed=False):\n"
-        "    raise NotImplementedError('seed placeholder')\n"
+    from each.patch import apply_patch, parse_patch
+    from each.worktree import build_worktree
+
+    allowed_path = "shadow/m7/clean_room_lru_cache.py"
+    worktree, _manifest = build_worktree(
+        clean_room_module.FIXTURE_ROOT, [allowed_path, "shadow/m7/test_clean_room_lru_cache.py"]
     )
+    apply_patch(parse_patch(_CORRECT_PATCH), worktree, {allowed_path})
+    correct_source = (worktree / allowed_path).read_text()
+    seed_source = correct_source.replace("hits[0] = 0", "pass  # intentionally buggy for this harness self-test", 1)
     edit_json = json.dumps({"old": "this text is not present anywhere", "new": "replacement"})
-    model = FixtureModel(edit_json, model_id="fixture/clean-room-selftest-source-edit-v1")
+    model = _StaticRealModel(edit_json)
     seed_receipt_path = _write_verified_seed_receipt(
-        tmp_path, run_id=f"seed-{uuid.uuid4().hex[:8]}", source=seed_source
+        tmp_path, run_id=f"seed-{uuid.uuid4().hex[:8]}", source=seed_source, spec_hash=approved.approved_hash
     )
 
     result = run_clean_room_build(

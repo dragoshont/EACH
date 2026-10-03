@@ -113,9 +113,15 @@ PRODUCER_ARTIFACT_KINDS = {
     "external-proof": {"external-proof"},
     "target-repair": {"target-repair-receipt", "clean-room-experiment-receipt", "target-replay-receipt"},
 }
-MILESTONE_APPROVED_SPEC_HASHES = {
-    "m7": "8499cf22255d11c15f1f446c19d504bec21ac03dfbe524439b2af377c65e39b8",
-    "m8": "2c5eca88fdccb0c1a0c94541e0b612d990b7d1dfd5ccfb0389ea61fb9e669c78",
+TARGET_EVIDENCE_KINDS = {
+    "target-repair-receipt",
+    "clean-room-experiment-receipt",
+    "target-replay-receipt",
+}
+TARGET_EVIDENCE_PURPOSES = {
+    "target-repair-receipt": "target-repair-verified",
+    "clean-room-experiment-receipt": "clean-room-experiment-complete",
+    "target-replay-receipt": "replay-validation",
 }
 # Acceptance criteria declare a `verificationType`; this reconciles it with which gate `type`s
 # may legitimately satisfy it (e2e and reality are treated as mutually satisfying, mirroring the
@@ -138,15 +144,74 @@ def outcome_class(outcome: object) -> str:
     return str(outcome).split(":", 1)[0].strip()
 
 
-def approved_spec_hash_for_criterion(criterion_id: str) -> str | None:
-    if not criterion_id.endswith(("-target-repair-verified", "-clean-room-experiment-complete")):
-        return None
-    prefix = criterion_id.split("-", 1)[0].lower()
-    return MILESTONE_APPROVED_SPEC_HASHES.get(prefix)
-
-
 def verdict_status_allows_pass(status: object) -> bool:
     return str(status).upper() in {"PASS", "APPROVED"}
+
+
+def sanitize_seed_provenance_summary(value: object) -> dict[str, Any] | None:
+    if not isinstance(value, dict):
+        return None
+    ancestry = value.get("ancestry")
+    ancestry_depth = len(ancestry) if isinstance(ancestry, list) else 0
+    sanitized: dict[str, Any] = {
+        key: value.get(key)
+        for key in (
+            "type",
+            "seedSha256",
+            "sourceRunId",
+            "sourceAttempt",
+            "sourceReceiptSha256",
+            "sourceSpecHash",
+            "sourceOutcome",
+            "sourcePatchHash",
+            "sourceTrajectoryHash",
+            "sourceAuditSubjectSha256",
+        )
+        if value.get(key) not in (None, "")
+    }
+    if isinstance(value.get("sourceModel"), dict):
+        model = value["sourceModel"]
+        sanitized["sourceModel"] = {
+            "modelId": model.get("modelId"),
+            "adapterClassPath": model.get("adapterClassPath"),
+        }
+    sanitized["ancestryDepth"] = ancestry_depth
+    return sanitized
+
+
+def normalize_target_evidence(
+    value: object,
+    *,
+    criterion_id: str,
+    verification_type: str,
+    surface: str | None,
+) -> dict[str, str] | None:
+    if value in (None, ""):
+        return None
+    if not isinstance(value, dict):
+        raise RuntimeFailure("INVALID_CRITERION", f"criterion {criterion_id} targetEvidence must be an object")
+    kind = str(value.get("kind") or "").strip()
+    purpose = str(value.get("purpose") or "").strip()
+    target_spec_hash = str(value.get("targetSpecHash") or "").strip()
+    if kind not in TARGET_EVIDENCE_KINDS:
+        raise RuntimeFailure("INVALID_CRITERION", f"criterion {criterion_id} has invalid targetEvidence kind")
+    if verification_type not in SURFACE_VERIFICATION_TYPES or surface != "runtime":
+        raise RuntimeFailure(
+            "INVALID_CRITERION",
+            f"criterion {criterion_id} targetEvidence requires a runtime reality/e2e criterion",
+        )
+    if not purpose or not target_spec_hash:
+        raise RuntimeFailure(
+            "INVALID_CRITERION",
+            f"criterion {criterion_id} targetEvidence must declare both purpose and targetSpecHash",
+        )
+    expected_purpose = TARGET_EVIDENCE_PURPOSES[kind]
+    if purpose != expected_purpose:
+        raise RuntimeFailure(
+            "INVALID_CRITERION",
+            f"criterion {criterion_id} targetEvidence purpose must be {expected_purpose!r} for kind {kind!r}",
+        )
+    return {"kind": kind, "purpose": purpose, "targetSpecHash": target_spec_hash}
 
 
 class RuntimeFailure(Exception):
@@ -1309,7 +1374,6 @@ class RunStore:
             raise RuntimeFailure(
                 code,
                 "receipt path must live under the private EACH runs directory, not anywhere else",
-                details={"resolved": str(resolved), "privateRunsRoot": str(private_runs_root)},
             ) from exc
         if not resolved.is_file():
             raise RuntimeFailure(code, "private receipt file does not exist")
@@ -1323,25 +1387,25 @@ class RunStore:
         return "UNKNOWN"
 
     def _validated_real_model_identity(self, receipt: dict[str, Any], *, error_code: str) -> tuple[str, str]:
+        from each.models.base import validate_recorded_real_model_identity
+
         model_identity = receipt.get("modelIdentity") or {}
         if not isinstance(model_identity, dict):
             raise RuntimeFailure(error_code, "private receipt does not declare a structured model identity")
-        model_id = str(model_identity.get("modelId", ""))
-        adapter_type = str(model_identity.get("adapterType", ""))
-        manifest_reference = model_identity.get("modelManifest")
-        if (
-            not model_id
-            or "fixture" in model_id.lower()
-            or adapter_type == "FixtureModel"
-            or not isinstance(manifest_reference, dict)
-            or not manifest_reference
-        ):
+        try:
+            model_id, adapter_class_path = validate_recorded_real_model_identity(model_identity)
+        except ValueError as exc:
             raise RuntimeFailure(
                 error_code,
-                "private receipt does not declare a real, non-Fixture model identity with a recorded manifest",
-                details={"modelId": model_id, "adapterType": adapter_type},
-            )
-        return model_id, adapter_type
+                "private receipt does not declare an allowlisted real local-model identity with full provenance",
+            ) from exc
+        if not isinstance(receipt.get("attempts"), list) or not receipt["attempts"]:
+            raise RuntimeFailure(error_code, "private receipt is missing recorded attempts")
+        if not isinstance(receipt.get("isolationEvidence"), dict) or "command" not in receipt["isolationEvidence"]:
+            raise RuntimeFailure(error_code, "private receipt is missing recorded isolation evidence")
+        if not isinstance(receipt.get("baselineResult"), dict) or not isinstance(receipt.get("repairedResult"), dict):
+            raise RuntimeFailure(error_code, "private receipt is missing recorded validation evidence")
+        return model_id, adapter_class_path
 
     def _record_target_repair_receipt(
         self,
@@ -1409,7 +1473,11 @@ class RunStore:
             )
         if receipt.get("networkIsolationVerified") is not True:
             raise RuntimeFailure("TARGET_REPAIR_RECEIPT", "private receipt does not show network isolation verified")
-        model_id, adapter_type = self._validated_real_model_identity(receipt, error_code="TARGET_REPAIR_RECEIPT")
+        from each.outcome import sanitize_proposal_format
+
+        model_id, adapter_class_path = self._validated_real_model_identity(
+            receipt, error_code="TARGET_REPAIR_RECEIPT"
+        )
         spec_hash = receipt.get("specHash")
         target_run_id = receipt.get("runId")
         if not spec_hash or not target_run_id:
@@ -1423,6 +1491,7 @@ class RunStore:
         # evidence helper (never a fixed/reusable path) so a retried call
         # can never silently overwrite an already-registered receipt's bytes.
         sanitized_summary = {
+            "purpose": "target-repair-verified",
             "specHash": spec_hash,
             "targetRunId": target_run_id,
             "outcome": "REPAIR_VERIFIED",
@@ -1430,14 +1499,16 @@ class RunStore:
             "materialsVerification": "PASS",
             "networkIsolationVerified": True,
             "modelId": model_id,
-            "adapterType": adapter_type,
+            "adapterClassPath": adapter_class_path,
+            "adapterType": adapter_class_path.rsplit(".", 1)[-1],
             "originalProducerSha": self._extract_original_producer_sha(receipt),
             "selectedAttempt": receipt.get("selectedAttempt"),
+            "auditSubjectSha256": receipt.get("auditSubjectSha256"),
             "attemptProposalFormats": [
-                (attempt.get("proposal_format") if isinstance(attempt, dict) else None)
+                sanitize_proposal_format(attempt.get("proposal_format") if isinstance(attempt, dict) else None)
                 for attempt in receipt.get("attempts") or []
             ],
-            "seedProvenance": receipt.get("seedProvenance"),
+            "seedProvenance": sanitize_seed_provenance_summary(receipt.get("seedProvenance")),
             "receiptSha256": hashlib.sha256(resolved.read_bytes()).hexdigest(),
         }
         current_commit = self.load(run_id)["baseline"]["commit"]
@@ -1555,7 +1626,11 @@ class RunStore:
                 "(section 129 requires the Auditor to have actually run, not a stub or a forged mapping)",
                 details={"declared": sorted(audit_checks.keys()), "expected": sorted(real_auditor_check_names)},
             )
-        model_id, adapter_type = self._validated_real_model_identity(receipt, error_code="M7_EXPERIMENT_RECEIPT")
+        from each.outcome import sanitize_outcome_class, sanitize_proposal_format
+
+        model_id, adapter_class_path = self._validated_real_model_identity(
+            receipt, error_code="M7_EXPERIMENT_RECEIPT"
+        )
         spec_hash = receipt.get("specHash")
         target_run_id = receipt.get("runId")
         if not spec_hash or not target_run_id:
@@ -1571,26 +1646,35 @@ class RunStore:
             shadow_only = True
 
         sanitized_summary = {
+            "purpose": "clean-room-experiment-complete",
             "specHash": spec_hash,
             "targetRunId": target_run_id,
-            "outcome": outcome,
+            "outcome": sanitize_outcome_class(outcome),
             "signatureVerification": "PASS",
             "materialsVerification": "PASS",
             "networkIsolationVerified": bool(receipt.get("networkIsolationVerified")),
             "modelId": model_id,
-            "adapterType": adapter_type,
+            "adapterClassPath": adapter_class_path,
+            "adapterType": adapter_class_path.rsplit(".", 1)[-1],
             "auditChecksRun": sorted(audit_checks.keys()),
-            "auditResultStatuses": sorted({str(v.get("status")) for v in audit_checks.values() if isinstance(v, dict)}),
+            "auditResultStatuses": sorted(
+                {
+                    str(v.get("status"))
+                    for v in audit_checks.values()
+                    if isinstance(v, dict) and str(v.get("status")) in {"PASS", "FLAG", "FAIL", "UNAVAILABLE"}
+                }
+            ),
             "legalCertification": False,
             "cleanroomCertification": False,
             "shadowOnly": shadow_only,
             "originalProducerSha": self._extract_original_producer_sha(receipt),
             "selectedAttempt": receipt.get("selectedAttempt"),
+            "auditSubjectSha256": receipt.get("auditSubjectSha256"),
             "attemptProposalFormats": [
-                (attempt.get("proposal_format") if isinstance(attempt, dict) else None)
+                sanitize_proposal_format(attempt.get("proposal_format") if isinstance(attempt, dict) else None)
                 for attempt in receipt.get("attempts") or []
             ],
-            "seedProvenance": receipt.get("seedProvenance"),
+            "seedProvenance": sanitize_seed_provenance_summary(receipt.get("seedProvenance")),
             "receiptSha256": hashlib.sha256(resolved.read_bytes()).hexdigest(),
         }
         current_commit = self.load(run_id)["baseline"]["commit"]
@@ -1617,6 +1701,17 @@ class RunStore:
         evidence_refs: Sequence[str] = (),
         actor: str = "coordinator",
     ) -> dict[str, Any]:
+        from each.attestation import verify_materials_root, verify_receipt
+        from each.audit.checks import STATUSES as AUDIT_STATUSES
+        from each.audit.run import reject_on_audit_flag, run_audit
+        from each.executor.container import ContainerExecutor, ContainerExecutorError
+        from each.hashing import canonical_json, sha256_bytes
+        from each.models.base import validate_recorded_real_model_identity
+        from each.outcome import sanitize_outcome_class
+        from each.patch import PatchRejected, apply_patch, parse_patch
+        from each.signing import public_key_path
+        from each.worktree import build_worktree
+
         resolved = self._resolve_private_each_run_file(receipt_path, code="TARGET_REPLAY_RECEIPT")
         try:
             replay = json.loads(resolved.read_text(encoding="utf-8"))
@@ -1624,39 +1719,173 @@ class RunStore:
             raise RuntimeFailure("TARGET_REPLAY_RECEIPT", "private replay receipt is unreadable") from exc
         if not isinstance(replay, dict):
             raise RuntimeFailure("TARGET_REPLAY_RECEIPT", "private replay receipt must be a JSON object")
-        fidelity_checks = str(replay.get("fidelity_checks", ""))
-        if "PASS" not in fidelity_checks:
-            raise RuntimeFailure("TARGET_REPLAY_RECEIPT", "replay receipt does not declare fidelity PASS")
-        required_original_hashes = {
-            "original_patch_hash": replay.get("original_patch_hash"),
-            "original_trajectory_hash": replay.get("original_trajectory_hash"),
-            "original_spec_hash": replay.get("original_spec_hash"),
-        }
-        missing = sorted(key for key, value in required_original_hashes.items() if not isinstance(value, str) or not value)
-        if missing:
-            raise RuntimeFailure(
-                "TARGET_REPLAY_RECEIPT",
-                "replay receipt is missing required original hash fields",
-                details={"missing": missing},
-            )
-        original_receipt_path = replay.get("replay_of_original_receipt")
+        if replay.get("purpose") != "replay-validation":
+            raise RuntimeFailure("TARGET_REPLAY_RECEIPT", "replay receipt must declare purpose replay-validation")
+
+        expected_original = replay.get("original")
+        if not isinstance(expected_original, dict):
+            raise RuntimeFailure("TARGET_REPLAY_RECEIPT", "replay receipt must declare original lineage fields")
+        original_receipt_path = replay.get("originalReceiptPath") or replay.get("replayOfOriginalReceipt")
         if not isinstance(original_receipt_path, str) or not original_receipt_path:
-            raise RuntimeFailure("TARGET_REPLAY_RECEIPT", "replay receipt does not identify the original receipt")
+            raise RuntimeFailure("TARGET_REPLAY_RECEIPT", "replay receipt must identify the original receipt path")
         original_resolved = self._resolve_private_each_run_file(original_receipt_path, code="TARGET_REPLAY_RECEIPT")
-        current_auditor_result = replay.get("current_auditor_result")
-        if not isinstance(current_auditor_result, dict):
-            raise RuntimeFailure("TARGET_REPLAY_RECEIPT", "replay receipt must declare current_auditor_result")
+        try:
+            original = json.loads(original_resolved.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError) as exc:
+            raise RuntimeFailure("TARGET_REPLAY_RECEIPT", "original receipt is unreadable") from exc
+        if not isinstance(original, dict):
+            raise RuntimeFailure("TARGET_REPLAY_RECEIPT", "original receipt must be a JSON object")
+
+        try:
+            public_key_pem = public_key_path().read_bytes()
+        except OSError as exc:
+            raise RuntimeFailure("TARGET_REPLAY_RECEIPT", "public signing key is unavailable") from exc
+        signature_result = verify_receipt(original, public_key_pem)
+        if signature_result.get("status") != "PASS":
+            raise RuntimeFailure("TARGET_REPLAY_RECEIPT", "original receipt signature verification failed")
+        materials_root = original_resolved.parent / "materials"
+        materials_result = verify_materials_root(original, materials_root)
+        if materials_result.get("status") != "PASS":
+            raise RuntimeFailure("TARGET_REPLAY_RECEIPT", "original retained materials failed verification")
+
+        if sanitize_outcome_class(str(original.get("outcome", ""))) != "REPAIR_VERIFIED":
+            raise RuntimeFailure("TARGET_REPLAY_RECEIPT", "original receipt is not a verified repair")
+        try:
+            model_id, adapter_class_path = validate_recorded_real_model_identity(original.get("modelIdentity") or {})
+        except ValueError as exc:
+            raise RuntimeFailure("TARGET_REPLAY_RECEIPT", "original receipt does not declare a replayable real-model identity") from exc
+        selected_attempt = original.get("selectedAttempt")
+        if not isinstance(selected_attempt, int):
+            raise RuntimeFailure("TARGET_REPLAY_RECEIPT", "original receipt is missing selectedAttempt")
+        original_producer_sha = self._extract_original_producer_sha(original)
+        if original_producer_sha == "UNKNOWN":
+            raise RuntimeFailure("TARGET_REPLAY_RECEIPT", "original receipt does not declare a producer commit")
+        recorded_subject_sha = original.get("auditSubjectSha256")
+        if not isinstance(recorded_subject_sha, str) or not recorded_subject_sha:
+            raise RuntimeFailure("TARGET_REPLAY_RECEIPT", "original receipt is missing auditSubjectSha256")
+        expected_map = {
+            "specHash": original.get("specHash"),
+            "patchHash": original.get("patchHash"),
+            "trajectoryHash": original.get("trajectoryHash"),
+            "modelId": model_id,
+            "adapterClassPath": adapter_class_path,
+            "selectedAttempt": selected_attempt,
+            "outcome": "REPAIR_VERIFIED",
+            "targetRunId": original.get("runId"),
+            "auditSubjectSha256": recorded_subject_sha,
+            "producerCommit": original_producer_sha,
+        }
+        for key, actual_value in expected_map.items():
+            if expected_original.get(key) != actual_value:
+                raise RuntimeFailure("TARGET_REPLAY_RECEIPT", "replay receipt original lineage does not match the signed original")
+
+        execution_commit = replay.get("executionCommit")
+        actual_execution_commit = self.repository_identity()["commit"]
+        if execution_commit != actual_execution_commit:
+            raise RuntimeFailure("TARGET_REPLAY_RECEIPT", "replay execution commit does not match the current repository baseline")
+
+        executor_identity = original.get("executorIdentity") or {}
+        if executor_identity.get("executor") != "container":
+            raise RuntimeFailure("TARGET_REPLAY_RECEIPT", "original receipt does not declare a replayable container executor")
+        executor = ContainerExecutor(
+            image=str(executor_identity.get("image") or ""),
+            docker_context=str(executor_identity.get("dockerContext") or "colima-each"),
+            network=str(executor_identity.get("network") or "none"),
+            memory_limit=str(executor_identity.get("memoryLimit") or "512m"),
+            cpu_limit=str(executor_identity.get("cpuLimit") or "2"),
+        )
+
+        include_paths = sorted((original.get("materials") or {}).keys())
+        if not include_paths:
+            raise RuntimeFailure("TARGET_REPLAY_RECEIPT", "original receipt declares no retained materials")
+        spec = original.get("spec") or {}
+        build_commands = [command for command in spec.get("buildCommands") or [] if isinstance(command, list) and command]
+        acceptance_commands = [
+            command for command in spec.get("acceptanceCommands") or [] if isinstance(command, list) and command
+        ]
+        if not acceptance_commands:
+            raise RuntimeFailure("TARGET_REPLAY_RECEIPT", "original receipt does not declare acceptance commands")
+
+        def replay_results_for(worktree: Path) -> dict[str, list[dict[str, Any]]]:
+            build_results: list[dict[str, Any]] = []
+            acceptance_results: list[dict[str, Any]] = []
+            try:
+                for command in build_commands:
+                    result = executor.run(list(command), worktree)
+                    build_results.append(
+                        {
+                            "exitCode": result.exit_code,
+                            "stdoutSha256": sha256_bytes(result.stdout.encode("utf-8")),
+                            "stderrSha256": sha256_bytes(result.stderr.encode("utf-8")),
+                        }
+                    )
+                for command in acceptance_commands:
+                    result = executor.run(list(command), worktree)
+                    acceptance_results.append(
+                        {
+                            "exitCode": result.exit_code,
+                            "stdoutSha256": sha256_bytes(result.stdout.encode("utf-8")),
+                            "stderrSha256": sha256_bytes(result.stderr.encode("utf-8")),
+                        }
+                    )
+            except ContainerExecutorError as exc:
+                raise RuntimeFailure("TARGET_REPLAY_RECEIPT", "replay execution failed to produce a trusted execution record") from exc
+            return {"build": build_results, "acceptance": acceptance_results}
+
+        baseline_worktree, _baseline_manifest = build_worktree(materials_root, include_paths)
+        baseline_results = replay_results_for(baseline_worktree)
+
+        touched_paths = original.get("touchedPaths") or []
+        patch_text = str(original.get("patchText") or "")
+        if not touched_paths or not patch_text:
+            raise RuntimeFailure("TARGET_REPLAY_RECEIPT", "original receipt is missing its selected patch or touched paths")
+        candidate_worktree, _candidate_manifest = build_worktree(materials_root, include_paths)
+        try:
+            patch = parse_patch(patch_text)
+            apply_patch(patch, candidate_worktree, set(touched_paths))
+        except PatchRejected as exc:
+            raise RuntimeFailure("TARGET_REPLAY_RECEIPT", "original selected patch does not replay against retained materials") from exc
+        candidate_bytes = b"\n".join((candidate_worktree / path).read_bytes() for path in touched_paths)
+        candidate_sha = sha256_bytes(candidate_bytes)
+        if candidate_sha != recorded_subject_sha:
+            raise RuntimeFailure("TARGET_REPLAY_RECEIPT", "reconstructed candidate does not match the original trusted audit subject")
+        replay_results = replay_results_for(candidate_worktree)
+        try:
+            candidate_text = candidate_bytes.decode("utf-8")
+        except UnicodeDecodeError as exc:
+            raise RuntimeFailure("TARGET_REPLAY_RECEIPT", "reconstructed candidate source is not valid UTF-8") from exc
+        audit_result = run_audit(candidate_text, corpus_revision=str((original.get("audit") or {}).get("corpusRevision") or "none"))
+        audit_statuses = {
+            name: (
+                check.get("status")
+                if isinstance(check, dict) and str(check.get("status")) in AUDIT_STATUSES
+                else "UNAVAILABLE"
+            )
+            for name, check in (audit_result.get("checks") or {}).items()
+        }
 
         sanitized_summary = {
-            "originalReceiptPath": str(original_resolved),
-            "originalSpecHash": required_original_hashes["original_spec_hash"],
-            "originalPatchHash": required_original_hashes["original_patch_hash"],
-            "originalTrajectoryHash": required_original_hashes["original_trajectory_hash"],
-            "originalOutcome": replay.get("original_outcome"),
-            "fidelityChecks": fidelity_checks,
-            "currentAuditorResult": current_auditor_result,
-            "currentAuditorRejected": replay.get("current_auditor_rejected"),
-            "currentAuditorToolVersions": replay.get("current_auditor_tool_versions"),
+            "purpose": "replay-validation",
+            "originalRunId": original.get("runId"),
+            "specHash": original.get("specHash"),
+            "originalSpecHash": original.get("specHash"),
+            "originalPatchHash": original.get("patchHash"),
+            "originalTrajectoryHash": original.get("trajectoryHash"),
+            "originalProducerSha": original_producer_sha,
+            "originalOutcome": "REPAIR_VERIFIED",
+            "originalModelId": model_id,
+            "originalAdapterClassPath": adapter_class_path,
+            "selectedAttempt": selected_attempt,
+            "auditSubjectSha256": candidate_sha,
+            "replayExecutionCommit": actual_execution_commit,
+            "baselineExecution": baseline_results,
+            "replayExecution": replay_results,
+            "currentAuditorRejected": reject_on_audit_flag(audit_result),
+            "currentAuditorCheckStatuses": audit_statuses,
+            "currentAuditorToolVersionKeys": sorted((audit_result.get("toolVersions") or {}).keys()),
+            "currentAuditorToolVersionsSha256": sha256_bytes(
+                canonical_json(audit_result.get("toolVersions") or {}).encode("utf-8")
+            ),
             "replayReceiptSha256": hashlib.sha256(resolved.read_bytes()).hexdigest(),
             "originalReceiptSha256": hashlib.sha256(original_resolved.read_bytes()).hexdigest(),
         }
@@ -2177,6 +2406,7 @@ class RunStore:
             known_criteria = {item["id"] for item in state["acceptanceCriteria"]}
             if not bound_criteria or not set(bound_criteria).issubset(known_criteria):
                 raise RuntimeFailure("INVALID_GATE", "gate must bind to known acceptance criteria")
+            criteria_by_id = {criterion["id"]: criterion for criterion in state["acceptanceCriteria"]}
             if status == "PASS":
                 require_evidence_refs(state, evidence_refs, allowed={"artifact", "external"})
                 artifact_ids = [reference.split(":", 1)[1] for reference in evidence_refs if reference.startswith("artifact:")]
@@ -2251,38 +2481,66 @@ class RunStore:
                                 f"{gate_type} gate does not match verdict criteria",
                                 details={"artifact": artifact["id"], "criteria": verdict.get("criteria")},
                             )
-                if "target-repair" in producers:
-                    strict_repair_criteria = {cid for cid in bound_criteria if cid.endswith("-target-repair-verified")}
-                    milestone_owned_hashes = {
-                        cid: approved_spec_hash_for_criterion(cid)
+                # This block must trigger whenever EITHER a target-repair producer
+                # artifact is bound OR any bound criterion itself declares targetEvidence
+                # ownership -- not only the former. A criterion that owns targetEvidence
+                # but is satisfied solely by a different reality-gate producer (e.g.
+                # "external-proof", "mutation", or "legibility" -- all independently
+                # trusted for OTHER reality/e2e purposes) must still be rejected here,
+                # never silently skipped because no target-repair artifact happened to
+                # be present. Gating this solely on `"target-repair" in producers` would
+                # let a *-target-repair-verified criterion be satisfied by untyped
+                # external-proof evidence that was never validated against the
+                # criterion's own kind/purpose/specHash at all.
+                any_criterion_owns_target_evidence = any(
+                    criteria_by_id[cid].get("targetEvidence") is not None for cid in bound_criteria
+                )
+                if "target-repair" in producers or any_criterion_owns_target_evidence:
+                    target_declarations = {
+                        cid: criteria_by_id[cid].get("targetEvidence")
                         for cid in bound_criteria
-                        if approved_spec_hash_for_criterion(cid) is not None
+                    }
+                    if any(declaration is None for declaration in target_declarations.values()):
+                        raise RuntimeFailure(
+                            "EVIDENCE_BINDING_REQUIRED",
+                            "criteria bound to target-repair evidence must declare targetEvidence ownership explicitly",
+                        )
+                    artifact_summaries = {
+                        artifact["id"]: self._read_json_receipt(artifact["path"], "target-repair evidence")
+                        for artifact in state["artifacts"]
+                        if artifact["id"] in artifact_ids and artifact["producer"] == "target-repair"
                     }
                     for artifact in state["artifacts"]:
                         if artifact["id"] not in artifact_ids or artifact["producer"] != "target-repair":
                             continue
-                        if strict_repair_criteria and artifact["kind"] != "target-repair-receipt":
+                        summary = artifact_summaries[artifact["id"]]
+                        summary_purpose = summary.get("purpose")
+                        for declaration in target_declarations.values():
+                            if declaration is None:
+                                continue
+                            if artifact["kind"] != declaration["kind"]:
+                                continue
+                            if summary_purpose != declaration["purpose"]:
+                                continue
+                            if summary.get("specHash") != declaration["targetSpecHash"]:
+                                raise RuntimeFailure(
+                                    "EVIDENCE_SPEC_MISMATCH",
+                                    "target-repair evidence specHash does not match the criterion-owned target spec",
+                                )
+                    for declaration in target_declarations.values():
+                        if declaration is None:
+                            continue
+                        if not any(
+                            artifact["kind"] == declaration["kind"]
+                            and artifact_summaries[artifact["id"]].get("purpose") == declaration["purpose"]
+                            and artifact_summaries[artifact["id"]].get("specHash") == declaration["targetSpecHash"]
+                            for artifact in state["artifacts"]
+                            if artifact["id"] in artifact_ids and artifact["producer"] == "target-repair"
+                        ):
                             raise RuntimeFailure(
                                 "EVIDENCE_KIND_MISMATCH",
-                                "a *-target-repair-verified criterion requires target-repair-receipt "
-                                "evidence (a genuinely REPAIR_VERIFIED outcome); weaker "
-                                "clean-room-experiment-receipt evidence can never satisfy it",
-                                details={"criteria": sorted(strict_repair_criteria), "artifact": artifact["id"]},
+                                "target-repair evidence kind/purpose/spec does not match the bound criterion",
                             )
-                        if milestone_owned_hashes:
-                            summary = self._read_json_receipt(artifact["path"], "target-repair evidence")
-                            for criterion_id, expected_hash in milestone_owned_hashes.items():
-                                if summary.get("specHash") != expected_hash:
-                                    raise RuntimeFailure(
-                                        "EVIDENCE_SPEC_MISMATCH",
-                                        "target-repair evidence specHash does not match the criterion-owned milestone spec",
-                                        details={
-                                            "criterion": criterion_id,
-                                            "artifact": artifact["id"],
-                                            "expectedSpecHash": expected_hash,
-                                            "artifactSpecHash": summary.get("specHash"),
-                                        },
-                                    )
                 if gate_type in {"reality", "e2e"}:
                     # A reality/e2e PASS gate proves exactly one verification surface (web,
                     # electron, ios, deployment, runtime). Evidence spanning zero or more than
@@ -3069,6 +3327,12 @@ def normalize_criteria(criteria: Sequence[dict[str, Any]], outcome: str) -> list
                 f"criterion {criterion_id} has verificationType '{verification}' and must not "
                 "declare a verification surface",
             )
+        target_evidence = normalize_target_evidence(
+            raw.get("targetEvidence"),
+            criterion_id=criterion_id,
+            verification_type=verification,
+            surface=surface,
+        )
         normalized.append(
             {
                 "id": criterion_id,
@@ -3077,6 +3341,7 @@ def normalize_criteria(criteria: Sequence[dict[str, Any]], outcome: str) -> list
                 "risk": risk,
                 "verificationType": verification,
                 "surface": surface,
+                "targetEvidence": target_evidence,
                 "status": str(raw.get("status") or "UNTESTED"),
                 "evidenceRefs": list(dict.fromkeys(raw.get("evidenceRefs") or [])),
                 "blocking": bool(raw.get("blocking", True)),
@@ -3176,6 +3441,12 @@ def validate_run(state: dict[str, Any]) -> None:
         surface = criterion.get("surface")
         if surface is not None and surface not in SURFACE_VALUES:
             raise RuntimeFailure("RUN_INVALID", "acceptance criterion surface is invalid")
+        normalize_target_evidence(
+            criterion.get("targetEvidence"),
+            criterion_id=criterion_id,
+            verification_type=str(criterion.get("verificationType") or ""),
+            surface=surface,
+        )
         criteria_ids.add(criterion_id)
     outcome_ids = {item.get("id") for item in state["outcome"].get("requiredCriteria", [])}
     if not outcome_ids or not outcome_ids.issubset(criteria_ids):

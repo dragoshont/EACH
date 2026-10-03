@@ -6,6 +6,7 @@ from __future__ import annotations
 
 import json
 import shutil
+import subprocess
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -74,6 +75,7 @@ class Receipt:
     # reader to assume it is always the last attempt in ``attempts``.
     selected_attempt: int | None = None
     seed_provenance: dict[str, Any] | None = None
+    audit_subject_sha256: str | None = None
 
     @property
     def patch_hash(self) -> str:
@@ -111,6 +113,7 @@ class Receipt:
             "attempts": self.attempts,
             "selectedAttempt": self.selected_attempt,
             "seedProvenance": self.seed_provenance,
+            "auditSubjectSha256": self.audit_subject_sha256,
         }
 
     def write(self, directory: Path, *, materials_source: Path | None = None) -> tuple[Path, Path]:
@@ -206,6 +209,7 @@ class Receipt:
                 shutil.copyfile(src, dst)
 
         receipt_dict = self.to_dict()
+        receipt_dict.update(_capture_producer_provenance())
         receipt_dict["attestation"] = attest_receipt(receipt_dict)
         with json_path.open("x", encoding="utf-8") as handle:
             handle.write(json.dumps(receipt_dict, indent=2, sort_keys=True) + "\n")
@@ -284,3 +288,36 @@ class Receipt:
             "- This signature proves artifact integrity (nothing in this receipt was altered after signing); it is NOT legal clean-room certification.",
         ]
         return "\n".join(lines) + "\n"
+
+
+def _capture_producer_provenance() -> dict[str, str | bool]:
+    """Capture the actual harness-source git identity at receipt-write time.
+
+    Receipts are signed/private evidence, so the producer commit must be
+    recorded from the real repository state that wrote them -- never copied
+    from caller claims or a later registration-time stamp. If git metadata
+    is unavailable (e.g. installed package, exported source tree), the
+    receipt records explicit UNKNOWN markers instead of fabricating a sha.
+    """
+    try:
+        commit = subprocess.run(
+            ["git", "rev-parse", "HEAD"],
+            cwd=repo_root(),
+            check=True,
+            capture_output=True,
+            text=True,
+        ).stdout.strip()
+        dirty = bool(
+            subprocess.run(
+                ["git", "status", "--porcelain"],
+                cwd=repo_root(),
+                check=True,
+                capture_output=True,
+                text=True,
+            ).stdout.strip()
+        )
+        if not commit:
+            raise RuntimeError("empty git commit")
+        return {"producerCommit": commit, "producerDirty": dirty}
+    except (OSError, subprocess.SubprocessError, RuntimeError):
+        return {"producerCommit": "UNKNOWN", "producerDirty": "UNKNOWN"}
