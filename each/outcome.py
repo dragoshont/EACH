@@ -32,6 +32,10 @@ OUTCOME_CLASSES = frozenset(
         "BUILDER_CONTEXT_BUDGET_EXCEEDED",
         "BASELINE_INCONCLUSIVE",
         "REPAIRED_RUN_INCONCLUSIVE",
+        # each.benchmark_report: a per-task materialization failure (dead
+        # repo/tarball link, rate limit, pip install failure) before any
+        # benchmark attempt loop ever started.
+        "TASK_MATERIALIZATION_FAILED",
     }
 )
 

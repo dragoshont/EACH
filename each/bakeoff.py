@@ -151,21 +151,23 @@ def run_model_bakeoff(
 
     attempts: list[dict[str, Any]] = []
     prompt = base_prompt
-    final_outcome = "REPAIR_NOT_VERIFIED"
-    final_patch_text = ""
-    final_touched: list[str] = []
-    final_materials: dict[str, str] = {}
-    final_baseline: dict[str, Any] = {}
-    final_repaired: dict[str, Any] = {}
-    final_raw_completion = ""
-    final_audit = common_fields["audit"]
+    # Every attempt dict below always carries the SAME complete set of
+    # receipt-relevant keys (patch_text/touched_paths/materials/
+    # baseline_result/repaired_result/audit) regardless of which branch
+    # produced it. The receipt fields are read back out of exactly ONE
+    # selected attempt (the last one appended) after the loop -- never
+    # from separately loop-threaded variables defaulted to
+    # "REPAIR_NOT_VERIFIED", which would misreport an all-rejected run
+    # (every attempt's patch failed to even apply) as if a real patch had
+    # been applied, tested, and simply failed to verify. Matches the
+    # established selected-attempt pattern in
+    # each.clean_room.run_clean_room_build / each.benchmark.run_benchmark_task.
 
     for attempt_num in range(1, max_attempts + 1):
         worktree, manifest = build_worktree(FIXTURE_ROOT, FIXTURE_ALLOWED_PATHS + FIXTURE_TEST_PATHS)
         baseline = executor.run(ACCEPTANCE_COMMAND, worktree)
         baseline_verdict = _interpret_test_run(baseline, expected_tests=EXPECTED_TEST_COUNT)
-        final_materials = manifest
-        final_baseline = _result_to_dict(baseline)
+        attempt_baseline = _result_to_dict(baseline)
         raw_completion = model.complete(prompt)
         rendered_prompt = getattr(model, "last_prompt", None)
         attempt_record: dict[str, Any] = {
@@ -173,9 +175,12 @@ def run_model_bakeoff(
             "prompt": rendered_prompt if rendered_prompt is not None else prompt,
             "raw_completion": raw_completion,
             "materials": manifest,
-            "baseline_result": final_baseline,
+            "baseline_result": attempt_baseline,
+            "patch_text": "",
+            "touched_paths": [],
+            "repaired_result": {},
+            "audit": common_fields["audit"],
         }
-        final_raw_completion = raw_completion
 
         try:
             patch_text = extract_patch_text(raw_completion)
@@ -187,6 +192,12 @@ def run_model_bakeoff(
             prompt = base_prompt + _RETRY_SUFFIX.format(reason=str(exc))
             continue
 
+        # From here on this attempt's own patch_text/touched_paths are
+        # recorded on THIS attempt_record -- never left to be reported
+        # alongside a different, later attempt's outcome/prompt.
+        attempt_record["patch_text"] = patch_text
+        attempt_record["touched_paths"] = touched
+
         repaired = executor.run(ACCEPTANCE_COMMAND, worktree)
         # Matches each.demo.run_hello_repair's fail-loud precedent: a
         # FixtureExecutionError means the test run could not be classified
@@ -195,43 +206,43 @@ def run_model_bakeoff(
         # so it must not be folded into the same REPAIR_NOT_VERIFIED bucket
         # a real failing test would produce. Let it propagate uncaught.
         repaired_verdict = _interpret_test_run(repaired, expected_tests=EXPECTED_TEST_COUNT)
-        test_outcome = (
+        outcome = (
             "REPAIR_VERIFIED" if (baseline_verdict == "failed" and repaired_verdict == "passed") else "REPAIR_NOT_VERIFIED"
         )
 
-        final_patch_text = patch_text
-        final_touched = touched
-        final_materials = manifest
-        final_baseline = _result_to_dict(baseline)
-        final_repaired = _result_to_dict(repaired)
-        outcome = test_outcome
-        if test_outcome == "REPAIR_VERIFIED":
+        attempt_record["repaired_result"] = _result_to_dict(repaired)
+        if outcome == "REPAIR_VERIFIED":
             # Audit the source only after generation/validation ends.
-            final_repaired_source = "\n".join(
+            repaired_source = "\n".join(
                 (worktree / path).read_text(encoding="utf-8", errors="replace") for path in touched
             )
-            final_audit = run_audit(final_repaired_source, corpus=audit_corpus)
-            if reject_on_audit_flag(final_audit):
+            attempt_record["audit"] = run_audit(repaired_source, corpus=audit_corpus)
+            if reject_on_audit_flag(attempt_record["audit"]):
                 outcome = "REPAIR_REJECTED_AUDIT"
 
         attempt_record["outcome"] = outcome
         attempts.append(attempt_record)
-        final_outcome = outcome
 
         if outcome in {"REPAIR_VERIFIED", "REPAIR_REJECTED_AUDIT"}:
             break
         prompt = base_prompt + _RETRY_SUFFIX.format(reason="patch applied but did not make the failing test pass")
 
-    common_fields["raw_completion"] = final_raw_completion
-    if attempts:
-        common_fields["prompt"] = attempts[-1]["prompt"]
-    common_fields["audit"] = final_audit
+    # Exactly one selected attempt -- the last one appended, whatever its
+    # outcome -- supplies every receipt field below. max_attempts >= 1 is
+    # enforced above, and every loop iteration appends before looping or
+    # breaking, so attempts is never empty here.
+    selected = attempts[-1]
+    final_outcome = selected["outcome"]
+
+    common_fields["raw_completion"] = selected["raw_completion"]
+    common_fields["prompt"] = selected["prompt"]
+    common_fields["audit"] = selected["audit"]
     receipt = Receipt(
-        patch_text=final_patch_text,
-        touched_paths=final_touched,
-        materials=final_materials,
-        baseline_result=final_baseline,
-        repaired_result=final_repaired,
+        patch_text=selected["patch_text"],
+        touched_paths=selected["touched_paths"],
+        materials=selected["materials"],
+        baseline_result=selected["baseline_result"],
+        repaired_result=selected["repaired_result"],
         outcome=final_outcome,
         attempts=attempts,
         **common_fields,

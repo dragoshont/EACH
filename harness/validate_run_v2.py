@@ -10,7 +10,30 @@ import subprocess
 import sys
 from typing import Sequence
 
+import jsonschema
+
 from architrave_runtime import RunStore, RuntimeFailure
+
+
+SCHEMA_PATH = Path(__file__).resolve().parent / "schemas" / "run-v2.schema.json"
+
+
+def validate_against_schema(state: dict[str, object]) -> None:
+    """Real standards-conformant JSON Schema validation of one Run's full
+    state (F6) -- the hand-rolled required-key/type checks in
+    ``architrave_runtime.validate_run`` run on every internal mutation and
+    stay fast/dependency-free, but they are not a substitute for an actual
+    schema-conformance proof against the canonical, published
+    ``run-v2.schema.json`` contract. This is that proof."""
+    schema = json.loads(SCHEMA_PATH.read_text(encoding="utf-8"))
+    try:
+        jsonschema.validate(instance=state, schema=schema)
+    except jsonschema.ValidationError as exc:
+        raise RuntimeFailure(
+            "SCHEMA_NONCONFORMANT",
+            f"Run state does not conform to run-v2.schema.json: {exc.message}",
+            details={"path": list(exc.absolute_path)},
+        ) from exc
 
 
 REQUIRED_PROJECTIONS = (
@@ -44,6 +67,7 @@ def validate(run_dir: Path) -> dict[str, object]:
         raise RuntimeFailure("PATH_ESCAPE", "Run directory is outside .architrave/runs")
     store = RunStore(root)
     state = store.load(run_dir.name)
+    validate_against_schema(state)
     missing = [name for name in REQUIRED_PROJECTIONS if not (run_dir / name).is_file() or (run_dir / name).stat().st_size == 0]
     if missing:
         raise RuntimeFailure("PROJECTION_MISSING", "required Run projections are missing", details={"files": missing})

@@ -17,6 +17,7 @@ key-management solution.
 from __future__ import annotations
 
 import base64
+import os
 from pathlib import Path
 
 from cryptography.exceptions import InvalidSignature
@@ -24,10 +25,11 @@ from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey, Ed25519PublicKey
 
 from each.hashing import canonical_json, sha256_bytes
-from each.paths import keys_dir
+from each.paths import FileLock, keys_dir
 
 PRIVATE_KEY_FILENAME = "each-signing-ed25519.pem"
 PUBLIC_KEY_FILENAME = "each-signing-ed25519-public.pem"
+_LOCK_FILENAME = "each-signing-ed25519.lock"
 
 
 def private_key_path() -> Path:
@@ -41,26 +43,43 @@ def public_key_path() -> Path:
 def generate_or_load_signing_key() -> Ed25519PrivateKey:
     """Return the EACH signing key, generating and persisting a new Ed25519
     keypair on first use. Never regenerates an existing key (that would
-    silently invalidate every previously issued attestation)."""
+    silently invalidate every previously issued attestation).
+
+    First use is serialized with an exclusive file lock: without this,
+    concurrent processes could each observe "no key file yet", each
+    generate their own distinct keypair, and overwrite one another's
+    private key file -- silently invalidating whichever attestations were
+    signed by the key that lost the race, with no error raised anywhere.
+    """
     key_path = private_key_path()
     if key_path.exists():
         return serialization.load_pem_private_key(key_path.read_bytes(), password=None)
 
-    private_key = Ed25519PrivateKey.generate()
-    pem = private_key.private_bytes(
-        encoding=serialization.Encoding.PEM,
-        format=serialization.PrivateFormat.PKCS8,
-        encryption_algorithm=serialization.NoEncryption(),
-    )
-    key_path.write_bytes(pem)
-    key_path.chmod(0o600)
+    lock_path = keys_dir() / _LOCK_FILENAME
+    with FileLock(lock_path):
+        # Re-check inside the lock: another process may have generated and
+        # persisted the key while we were waiting to acquire it. Recovering
+        # the existing private key (never regenerating) keeps every signer
+        # using the one key, so all signatures share the same fingerprint.
+        if key_path.exists():
+            return serialization.load_pem_private_key(key_path.read_bytes(), password=None)
 
-    public_pem = private_key.public_key().public_bytes(
-        encoding=serialization.Encoding.PEM,
-        format=serialization.PublicFormat.SubjectPublicKeyInfo,
-    )
-    public_key_path().write_bytes(public_pem)
-    return private_key
+        private_key = Ed25519PrivateKey.generate()
+        pem = private_key.private_bytes(
+            encoding=serialization.Encoding.PEM,
+            format=serialization.PrivateFormat.PKCS8,
+            encryption_algorithm=serialization.NoEncryption(),
+        )
+        fd = os.open(str(key_path), os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+        with os.fdopen(fd, "wb") as handle:
+            handle.write(pem)
+
+        public_pem = private_key.public_key().public_bytes(
+            encoding=serialization.Encoding.PEM,
+            format=serialization.PublicFormat.SubjectPublicKeyInfo,
+        )
+        public_key_path().write_bytes(public_pem)
+        return private_key
 
 
 def load_public_key(pem_bytes: bytes) -> Ed25519PublicKey:

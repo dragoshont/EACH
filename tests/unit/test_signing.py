@@ -42,6 +42,48 @@ def test_private_key_file_has_owner_only_permissions() -> None:
     assert mode == 0o600
 
 
+def _subprocess_first_use_fingerprint(each_home: str) -> str:
+    """Run in a real child process: first-use key generation under a
+    shared, not-yet-populated EACH_HOME, returning the resulting public-key
+    fingerprint. Used to exercise the actual first-use race, not just
+    simulate it in-process."""
+    import os
+
+    os.environ["EACH_HOME"] = each_home
+    from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PublicKey
+
+    from each import signing as signing_module
+
+    key = signing_module.generate_or_load_signing_key()
+    public_key = key.public_key()
+    assert isinstance(public_key, Ed25519PublicKey)
+    return signing_module.public_key_fingerprint(public_key)
+
+
+def test_concurrent_first_use_does_not_overwrite_the_winning_keypair(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Real regression test for the first-use race: multiple processes
+    racing ``generate_or_load_signing_key`` against a shared, empty
+    EACH_HOME must all converge on the SAME persisted keypair (serialized
+    by the exclusive file lock), never each generating and overwriting a
+    distinct key."""
+    import multiprocessing
+
+    each_home = str(tmp_path / "shared-each-home")
+    ctx = multiprocessing.get_context("spawn")
+    with ctx.Pool(processes=8) as pool:
+        fingerprints = pool.map(_subprocess_first_use_fingerprint, [each_home] * 8)
+
+    assert len(set(fingerprints)) == 1, "concurrent first use produced more than one distinct keypair"
+
+    # The key persisted on disk must match what every process actually used
+    # -- not a key regenerated afterward by whichever process ran last.
+    monkeypatch.setenv("EACH_HOME", each_home)
+    key = signing.generate_or_load_signing_key()
+    assert signing.public_key_fingerprint(key.public_key()) == fingerprints[0]
+
+
 def test_sign_and_verify_round_trip_with_only_the_exported_public_key_bytes() -> None:
     """Proves genuine asymmetric verification: a party holding only the
     exported public key PEM bytes (not the private key, not even the same

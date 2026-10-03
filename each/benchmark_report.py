@@ -17,6 +17,7 @@ from typing import Any
 
 from each.benchmark import BenchmarkExecutionError, BenchmarkTask, run_benchmark_task
 from each.models.base import RepairModel
+from each.outcome import sanitize_outcome_class
 from each.paths import each_home
 
 
@@ -77,7 +78,11 @@ def run_suite(
                     "repo": task.repo,
                     "license": task.license,
                     "language": task.language,
-                    "outcome": f"TASK_MATERIALIZATION_FAILED: {exc}",
+                    # (F3) ``exc`` can embed raw fetch/subprocess detail
+                    # (URLs, HTTP reasons, pip install stderr); only the
+                    # bounded, reviewed outcome class is ever recorded in
+                    # this public/sanitized suite report.
+                    "outcome": sanitize_outcome_class(f"TASK_MATERIALIZATION_FAILED: {exc}"),
                     "attempts": 0,
                     "generationCallCount": 0,
                     "generationEligible": False,

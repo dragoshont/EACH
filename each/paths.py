@@ -11,8 +11,49 @@ from __future__ import annotations
 import os
 import re
 from pathlib import Path
+from typing import Self
 
 _TASK_ID_RE = re.compile(r"^[A-Za-z0-9_.-]+$")
+
+
+class FileLock:
+    """A small, cross-platform exclusive file lock using only the standard
+    library (``fcntl`` on POSIX, ``msvcrt`` on Windows) -- mirrors the
+    equivalent helper already used by ``harness/architrave_runtime.py``, so
+    first-use races on private, process-shared files (such as the signing
+    keypair) are serialized instead of silently overwriting each other.
+    """
+
+    def __init__(self, path: Path) -> None:
+        self.path = path
+        self.handle: object | None = None
+
+    def __enter__(self) -> Self:
+        self.path.parent.mkdir(parents=True, exist_ok=True)
+        self.handle = self.path.open("a+b")
+        if os.name == "nt":
+            import msvcrt
+
+            msvcrt.locking(self.handle.fileno(), msvcrt.LK_LOCK, 1)
+        else:
+            import fcntl
+
+            fcntl.flock(self.handle.fileno(), fcntl.LOCK_EX)
+        return self
+
+    def __exit__(self, exc_type: object, exc: object, traceback: object) -> None:
+        if self.handle is None:
+            return
+        if os.name == "nt":
+            import msvcrt
+
+            self.handle.seek(0)
+            msvcrt.locking(self.handle.fileno(), msvcrt.LK_UNLCK, 1)
+        else:
+            import fcntl
+
+            fcntl.flock(self.handle.fileno(), fcntl.LOCK_UN)
+        self.handle.close()
 
 
 def validate_task_id(task_id: str) -> str:
