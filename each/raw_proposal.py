@@ -27,6 +27,7 @@ parsing fails.
 
 from __future__ import annotations
 
+import ast
 import difflib
 import json
 import re
@@ -147,10 +148,21 @@ def extract_full_source(completion: str) -> str:
     # Remove only an unambiguous enclosing presentation wrapper; never
     # repair source, guess a missing fence, or accept prose/multiple fences.
     if body.startswith("```"):
-        fence = re.fullmatch(r"```(?:[A-Za-z0-9_+-]+)?[ \t]*\n(.*)\n```[ \t]*", body, re.DOTALL)
-        if fence is None or body.count("```") != 2:
+        fence = re.fullmatch(r"```([A-Za-z0-9_+-]*)[ \t]*\n(.*)\n```[ \t]*", body, re.DOTALL)
+        if fence is None:
             raise RawProposalRejected("source body has an unclosed or ambiguous code fence")
-        body = fence.group(1)
+        if body.count("```") != 2:
+            # Literal Markdown examples inside a valid Python docstring are
+            # source, not a second presentation block. Parse only, never
+            # import/execute target source on the host. Other languages keep
+            # the conservative unsupported-ambiguity boundary.
+            if fence.group(1).lower() != "python":
+                raise RawProposalRejected("source body has ambiguous code fences")
+            try:
+                ast.parse(fence.group(2))
+            except SyntaxError as exc:
+                raise RawProposalRejected("source body has ambiguous code fences") from exc
+        body = fence.group(2)
     if not body.strip():
         raise RawProposalRejected("empty source body")
     return body + "\n"

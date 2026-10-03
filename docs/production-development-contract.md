@@ -95,9 +95,20 @@ snapshot and dedicated executor:
 
 ```bash
 uv run python -m each.production_development
+uv run python -m each.production_development --task one-byte-float
+uv run python -m each.production_development --task yotta-rollover
 ```
 
 This is an explicit local-model development attempt, not the fixture setup demo.
 It prints sanitized status/counts/hashes only and retains a private signed
 receipt, immutable input materials and development summary under `~/.each/runs/`.
 Do not publish that directory or target patches.
+
+The authorized first exploration has exhausted its three-task/nine-call cap;
+these commands are reproducibility references, **not** permission to keep
+sampling this lane. There were zero verified repairs. All three negative signed
+receipts and all declared retained inputs verify. The one-byte packet produced
+unchanged original source; the rollover candidates failed meaningful regression
+cases when the recorded response was decoded and observed without new inference.
+Literal Markdown in Python docstrings is preserved by the corrected decoder;
+ambiguous separate presentation blocks remain rejected.

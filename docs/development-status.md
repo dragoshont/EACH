@@ -769,3 +769,25 @@ and evidence chain are complete, not that the cache implementation works.
 The reviewed implementation is `e3c0cf45b7091cb361f146b7338009bfa0fc7f53`.
 Subsequent documentation-only commits publish these results; they are not
 new implementation revisions covered by the recorded code verdicts.
+
+## Production development first slice — 2026-10-03
+
+This is a new development program, not a change to the completed research
+release above. Run `each-production-first-slice-20261003` owns the P0-P8 graph.
+P0 baseline reconciliation passed; P1 development controls/support calibration
+passed, with independent R4 acceptance still outstanding.
+
+The actual local Qwen2.5-Coder-14B original snapshot generated nine calls on
+three new MIT-licensed Python historical development tasks. **Zero repairs were
+verified.** All original negative receipts and retained inputs verify; source,
+prompts, completions and patches remain private. The three-task cap is exhausted,
+not extended. Parser interoperability, no-op and regression failures were
+diagnosed without new sampling or imported target execution on the Mac.
+
+See [executed ledger evidence](production-readiness-ledger.md#10-executed-first-development-slice-2026-10-03)
+and [measured contract](production-development-contract.md) for hashes, budgets,
+custody and limitations. The public changes harden the independent observer and
+durable development recovery; they do not establish a production repair tool.
+Independent review at the frozen implementation revision remains pending.
+P3/P4 may proceed independently; holdout, operational qualification, packaging
+qualification, seven-day pilot and genuine human go/no-go remain unaccepted.

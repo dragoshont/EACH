@@ -21,6 +21,7 @@ not correctness, originality or legal clean-room status.
 |---|---|
 | Research program | M0-M8 complete; full research release gate verified. |
 | Production | **Not qualified yet.** Autonomous qualification is underway under the [production ledger](docs/production-readiness-ledger.md). |
+| First production-development exploration | Three new Python development tasks, nine local-model calls, **zero verified repairs**; this utility lane is stopped at its authorized cap. |
 | Historical benchmark | 25 Python/C/C++/Rust tasks, 75 selected recorded calls, **0 verified repairs**. |
 | Controlled compatibility experiment | M7: **8 passing tests, 1 failure**; complete negative evidence, not a working cache. |
 | Private real-world demonstration | M8: one bounded C repair with verified baseline failure and repaired success. Not full Xodus/Wine/game compatibility. |
@@ -232,6 +233,11 @@ targets. [The mandate](docs/EACH_BOOTSTRAP_MANDATE.md) and
 [milestone prompts](docs/EACH_MILESTONE_PROMPTS.md) preserve the research scope.
 The [threat model](docs/threat-model.md) and
 [attestation documentation](docs/attestation.md) explain the trust boundaries.
+
+The [measured production-development contract](docs/production-development-contract.md)
+records the exact observed Mac/model row, budgets, candidate-independent Python
+validation boundary and development-only commands. It does not qualify a
+production release or authorize additional sampling after the bounded cap.
 
 Contribute harness code, reproducible tests and sanitized evidence. Do not
 include private target patches, prompts, credentials, model weights or signing

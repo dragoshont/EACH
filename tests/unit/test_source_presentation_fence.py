@@ -17,3 +17,8 @@ def test_one_closed_source_presentation_fence(language):
 def test_incomplete_ambiguous_or_empty_source_fence_rejected(body):
     with pytest.raises(RawProposalRejected):
         extract_full_source(f"BEGIN_SOURCE\n{body}\nEND_SOURCE")
+
+
+def test_literal_fences_in_python_docstring_are_preserved_not_rejected():
+    source = 'def f(x):\n    """Example:\n    ```python\n    f(1)\n    ```\n    """\n    return x\n'
+    assert extract_full_source(f"BEGIN_SOURCE\n```python\n{source}```\nEND_SOURCE") == source

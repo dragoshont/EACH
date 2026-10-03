@@ -72,14 +72,16 @@ returning to a demonstrable repair slice, unless a named blocker requires it.
 ## 4. Actionable work ledger
 
 Statuses: READY means dependency-ready, not done; PENDING means its dependencies
-are open; BLOCKED means an evidenced external obstruction. No production item
-below is accepted yet.
+are open; BLOCKED means an evidenced obstruction. Development task gates do not
+replace criterion risk floors or release approval. P0 was reconciled; P1 has a
+verified development candidate awaiting independent acceptance; P2a exhausted
+its authorized exploration without a verified repair.
 
 | ID | Work packet / accountable role | Prerequisites | Acceptance evidence | Status |
 |---|---|---|---|---|
-| P0 | Reconcile baseline and create production Run / coordinator | None | Verify actual research state; register user implementation authority, production outcome, criterion matrix and dependency graph through supported APIs. Default-deny policy permits only named in-scope operations. Never rewrite completed research acceptance. | READY |
-| P1 | Freeze production development contract / coordinator | P0 | One tested support row, permissive non-sensitive task class, existing model and measured limits recorded. Reject early exit, forged results, test mutation and wrong audit subject before accepting a repair. Development proceeds without invented release approval; qualification targets freeze before holdout use. | PENDING |
-| P2a | Deliver one useful vertical slice / harness implementer | P1 | Dedicated `colima-each`, pinned image, actual per-run no-egress proof, declared input/trajectory hashes and protected validators. Genuine pre-fix failure and independently observed acceptance/negative/regression cases pass; immutable subject is audited; signed retained files verify. Outer agent writes harness/tests, never target repair code or known-fix hints. | PENDING |
+| P0 | Reconcile baseline and create production Run / coordinator | None | Verify actual research state; register user implementation authority, production outcome, criterion matrix and dependency graph through supported APIs. Default-deny policy permits only named in-scope operations. Never rewrite completed research acceptance. | PASS (baseline reconciled) |
+| P1 | Freeze production development contract / coordinator | P0 | One tested support row, permissive non-sensitive task class, existing model and measured limits recorded. Reject early exit, forged results, test mutation and wrong audit subject before accepting a repair. Development proceeds without invented release approval; qualification targets freeze before holdout use. | DEVELOPMENT GATE PASS; R4 acceptance/review pending |
+| P2a | Deliver one useful vertical slice / harness implementer | P1 | Dedicated `colima-each`, pinned image, actual per-run no-egress proof, declared input/trajectory hashes and protected validators. Genuine pre-fix failure and independently observed acceptance/negative/regression cases pass; immutable subject is audited; signed retained files verify. Outer agent writes harness/tests, never target repair code or known-fix hints. | BLOCKED: 0/3 repairs, 9 calls; bounded exploration stopped |
 | P2b | Diagnose utility failures and qualify a blind holdout / evaluation owner | P2a, P3, P4 | Account for context, response format, patch application, compile, validation, infrastructure and audit failures separately. Freeze the candidate policy, run the holdout, report every outcome and budget overrun. Do not tune against holdout answers. | PENDING |
 | P3 | Qualify audit availability and policy / audit owner | P1 | Exact-copy, renamed-copy, boilerplate and semantic-equivalent fixtures; permitted reference corpus identity/license recorded; measured false-positive/negative behavior; required missing check cannot produce an audit-qualified acceptance. No Auditor-to-Builder information flow. | PENDING |
 | P4 | Harden supported operations and evidence lifecycle / harness implementer + security reviewer | P1 | Real cancellation, crash, disk-full, corrupt/missing materials, key loss/recovery, permission and concurrent-run exercises. No forged repair PASS, silent lost trajectory, private export or old-key overwrite. Document the local trusted-key boundary. | PENDING |
@@ -239,8 +241,10 @@ unproven. P1 records an initial work estimate; P2a and P3 produce the evidence
 needed to forecast P5-P8. The proposed pilot imposes a minimum seven-day
 observation window, not a total project estimate.
 
-**Next action: P0, then P1.** Load the accepted research evidence, open the
-production qualification Run, and freeze a small supported envelope and the
+**Next action: independent review of the frozen development candidate, then
+P3/P4 only.** P2a's current exploration is stopped, not silently extended.
+The original intake direction was to load the accepted research evidence,
+open the production qualification Run, and freeze a small supported envelope and the
 development contract under the user's autonomous implementation authority.
 This document does not publish a release or claim human approval of its
 engineering thresholds.
@@ -275,3 +279,58 @@ supported APIs; do not reconstruct nonexistent execution history.
 Related sources: [claims and non-claims](claims-and-nonclaims.md),
 [threat model](threat-model.md), [research release evidence](development-status.md),
 [authoritative mandate](EACH_BOOTSTRAP_MANDATE.md).
+
+## 10. Executed first development slice (2026-10-03)
+
+Canonical Run: `each-production-first-slice-20261003`. The completed research
+Run remains revision 102, with original acceptance/evidence untouched. The new
+Run represents P0-P8, with default-deny development grants and confirmation
+requirements for target publication, gated terms, sensitive specs and release.
+Engineering authorization is not fabricated human consent.
+
+P0 reconciled source, research state and absent owned worker PIDs. P1 measured
+the support row and separate arithmetic calibration in
+[the development contract](production-development-contract.md). Qualification
+defaults were retained as an engineering decision before any holdout use.
+
+The candidate-independent observer reuses the executor and standard library.
+Actual controls and the benchmark API exercise early exit, forged summaries,
+skipped cases, immutable test/source mounts, real failure and real success.
+Forty-one additional harness regressions cover this slice, partial source-cache
+provisioning, authenticated resource ownership/resume recovery and source-fence
+decoding. This is regression coverage, not the later 100-case qualification.
+Independent GPT/Claude, security/policy and criterion reality acceptance remain
+outstanding; a development task gate is not R4 acceptance.
+
+| Development task | Actual calls | Original signed outcome | Receipt SHA-256 |
+|---|---:|---|---|
+| humanize negative-size | 3 | REPAIRED_RUN_INCONCLUSIVE | `de8bdeea965c19a029585b80ccd7ef7d17768d7712d8280782b23edf23da2498` |
+| humanize one-byte-float | 3 | PATCH_REJECTED | `a84459107ffc6fc764f04e131a0050d49c6f7026374ce7307fd99abd8c29c461` |
+| humanize yotta-rollover | 3 | PATCH_REJECTED | `021cf3c6dff8ed51049e4e101d0281bcdd70e86ee3d94f6403f5993da8d535eb` |
+
+**Utility: zero verified repairs out of three new development tasks; nine real
+local-model calls.** No holdout was selected/consumed. All tasks belong to the
+humanize development cluster, excluded from future holdouts; they do not supply
+independent population-rate evidence. Each task reproduced genuine baseline
+failure with every expected case observed. Each signed receipt and all three
+declared retained paths verify. Task times were 101.30, 140.67 and 131.59 seconds,
+all below the reported 1,200-second ceiling.
+Generation source is `e635eebf7c211e25846b3a7cf07c7529b306ce9e` for the first
+task and `47cf12df2313e3ae44c71360b4e85825dfaebb50` for the latter two;
+later diagnostics do not restamp original producer SHAs.
+
+Diagnosis identified a real source-presentation defect: a closed code fence
+was passed through as Python, then a conservative fence count rejected literal
+Markdown in valid Python docstrings. The consolidated correction removes only
+the outer presentation wrapper, preserves valid Python literals and rejects
+ambiguous separate blocks. Original receipts/outcomes remain immutable.
+Source-free diagnosis of recorded responses, with **zero new model calls**,
+showed unchanged one-byte candidates and rollover candidates failing meaningful
+lower-unit regressions. This is an evidenced format/no-op/behavioral ceiling
+under this packet policy, not proof that every local model is incapable.
+
+No candidate qualified for terminal provenance comparison; audit stayed
+UNAVAILABLE/not-run for that explicit reason. There is no audit-qualified
+repair, EACH-P3, production-launch, human-adoption or legal-certification claim.
+This utility lane stops at its authorized cap. P3/P4 are the next independent
+dependency-ready engineering workstreams after frozen-candidate review.
