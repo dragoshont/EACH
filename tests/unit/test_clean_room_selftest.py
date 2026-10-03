@@ -285,10 +285,21 @@ def test_real_test_feedback_from_a_failed_repair_is_wired_into_the_next_attempts
     assert "Exception/assertion detail" not in second_prompt
     assert "Failing test case(s)" not in second_prompt
     assert "untrusted validation" not in first_prompt
+    assert "BEGIN_OWN_PREVIOUS_CANDIDATE" not in first_prompt
+    assert "BEGIN_OWN_PREVIOUS_CANDIDATE" in second_prompt
+    assert "captured before execution" in second_prompt
+    assert "untrusted code data" in second_prompt
     receipt = json.loads(Path(result["receipt_json"]).read_text())
     assert receipt["attempts"][0]["outcome"] == "REPAIR_NOT_VERIFIED"
     assert receipt["attempts"][0]["test_feedback_hash"]
     assert receipt["attempts"][0]["test_feedback_truncated"] is False
+    assert receipt["attempts"][0]["correction_candidate_hash"]
+    from each.hashing import sha256_text
+
+    previous = second_prompt.split("BEGIN_OWN_PREVIOUS_CANDIDATE\n", 1)[1].split(
+        "\nEND_OWN_PREVIOUS_CANDIDATE", 1
+    )[0]
+    assert sha256_text(previous) == receipt["attempts"][0]["correction_candidate_hash"]
     assert receipt["attempts"][1]["outcome"] == "REPAIR_VERIFIED"
 
 
