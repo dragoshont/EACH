@@ -105,7 +105,10 @@ def _starcoderbase_mlx(*, max_tokens: int = 512) -> RepairModel:
     manifest = replace(manifest, training_data_provenance=dict(STARCODERBASE_LINEAGE))
     from each.models.mlx_model import MLXRepairModel
 
-    return MLXRepairModel(snapshot_dir, manifest, max_tokens=max_tokens)
+    return MLXRepairModel(
+        snapshot_dir, manifest, max_tokens=max_tokens,
+        model_config={"tie_word_embeddings": False},
+    )
 
 
 def _granite_3b_code_base_mlx() -> RepairModel:

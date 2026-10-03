@@ -96,6 +96,24 @@ def test_lazy_load_refuses_a_shard_added_after_manifest_creation(tmp_path, monke
         model._ensure_loaded()
 
 
+def test_runtime_model_configuration_is_applied_and_recorded(tmp_path, monkeypatch):
+    root = _snapshot(tmp_path, max_position_embeddings=8192)
+    manifest = build_manifest_from_snapshot(
+        root, repo_id="fixture/model", license="Apache-2.0",
+        runtime_name="fixture", runtime_version="1", conversion_chain="fixture",
+    )
+    observed = []
+    monkeypatch.setattr(
+        "mlx_lm.load",
+        lambda path, **kwargs: observed.append(kwargs) or (_FakeModel(), _FakeTokenizer()),
+        raising=False,
+    )
+    model = MLXRepairModel(root, manifest, model_config={"tie_word_embeddings": False})
+    model._ensure_loaded()
+    assert observed == [{"model_config": {"tie_word_embeddings": False}}]
+    assert model.identity()["runtimeModelConfig"] == {"tie_word_embeddings": False}
+
+
 def test_context_budget_passes_when_prompt_and_output_fit(monkeypatch, tmp_path) -> None:
     model = _model(tmp_path, max_position_embeddings=20, max_tokens=5, monkeypatch=monkeypatch)
     rendered, count = model.check_context_budget("one two three")

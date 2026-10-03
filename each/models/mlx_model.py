@@ -31,6 +31,7 @@ class MLXRepairModel(RepairModel):
         manifest: ModelManifest,
         *,
         max_tokens: int = 512,
+        model_config: dict[str, Any] | None = None,
     ) -> None:
         if max_tokens < 1:
             raise ValueError("max_tokens must be at least 1")
@@ -45,6 +46,7 @@ class MLXRepairModel(RepairModel):
         self._manifest = manifest
         self._max_tokens = max_tokens
         self._snapshot_dir = str(snapshot_dir)
+        self._model_config = dict(model_config) if model_config is not None else {}
         self._model = None
         self._tokenizer = None
         # last_prompt (inherited from RepairModel) is set to the exact
@@ -71,7 +73,9 @@ class MLXRepairModel(RepairModel):
                 )
             import mlx_lm
 
-            self._model, self._tokenizer = mlx_lm.load(self._snapshot_dir)
+            self._model, self._tokenizer = mlx_lm.load(
+                self._snapshot_dir, **({"model_config": self._model_config} if self._model_config else {})
+            )
 
     @property
     def model_id(self) -> str:
@@ -99,6 +103,8 @@ class MLXRepairModel(RepairModel):
             "reservedOutputTokens": self._max_tokens,
             "lastInputTokenCount": self.last_input_token_count,
         }
+        if self._model_config:
+            identity["runtimeModelConfig"] = dict(self._model_config)
         return identity
 
     def _render_prompt(self, prompt: str) -> str:

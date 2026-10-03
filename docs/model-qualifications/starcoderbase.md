@@ -103,6 +103,20 @@ Private release-identity comparison:
 `764769847cd3b677b43c282153df61ef7fc4e19f7eef7ce62358e24d69a77ca7`.
 Original model/dataset cards are retained with their hashes.
 
+The original seven publisher shards have now been acquired, hash-verified and
+converted locally to FP16 safetensors. Every converted tensor was read back and
+compared with the intended rounded tensor; the original FP32 shards remain
+retained. The conversion record binds source and output files and records that
+no training or inference was performed by provisioning.
+
+The first backend-load check exposed an MLX representation mismatch: the
+checkpoint stores `lm_head.weight` explicitly while MLX's default tied-embedding
+model omits that parameter. The actual stored input/output embedding tensors
+were compared and are equal (both shapes 49152 by 6144). The adapter loads the
+explicit output head with `tie_word_embeddings=False`, recording this runtime
+configuration in identity. No weight is silently discarded or rewritten; the
+failed load is retained separately, not counted as a successful generation.
+
 An independent read-only Adversarial Judge reviewed this dossier and retained
 inspection evidence and returned PASS/ELIGIBLE for the exact base checkpoint.
 It explicitly accepted documented inspectable dataset/stage lineage, not
