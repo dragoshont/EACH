@@ -241,6 +241,61 @@ def test_a_later_rejected_retry_never_overwrites_an_earlier_classified_attempts_
 
 
 @requires_colima_each
+def test_real_test_feedback_from_a_failed_repair_is_wired_into_the_next_attempts_prompt(tmp_path) -> None:
+    """Root-cause fix: a bare "did not make the failing tests pass" retry
+    message gives the Builder no actionable signal. Attempt 1 genuinely
+    applies and genuinely runs (against the real no-network container
+    executor) but does not implement correct behavior, so the repaired
+    test run genuinely fails; attempt 2's actual rendered prompt must then
+    contain bounded, structurally-extracted diagnostic detail (an "E "
+    exception/assertion line or a failing test node id) derived from
+    attempt 1's own REAL repaired-run output -- not a repeat of the exact
+    same generic retry text, and never any line from the harness's own
+    private corpus (there is none here; both patches are self-contained
+    fixture text).
+    """
+
+    class CapturingModel(FixtureModel):
+        def __init__(self, responses: list[str], model_id: str) -> None:
+            super().__init__(responses[0], model_id=model_id)
+            self._responses = responses
+            self._call_count = 0
+            self.prompts: list[str] = []
+
+        def complete(self, prompt: str) -> str:
+            response = self._responses[min(self._call_count, len(self._responses) - 1)]
+            self._call_count += 1
+            self.last_prompt = prompt
+            self.prompts.append(prompt)
+            return response
+
+    model = CapturingModel(
+        [_APPLIES_BUT_FAILS_PATCH, _CORRECT_PATCH],
+        model_id="fixture/clean-room-selftest-feedback-v1",
+    )
+    approved = _approve_selftest_spec("test-clean-room-test-feedback-wiring")
+
+    result = run_clean_room_build(model, approved, max_attempts=2, run_id=f"selftest-feedback-{tmp_path.name}-{uuid.uuid4().hex[:8]}")
+
+    assert result["outcome"] == "REPAIR_VERIFIED"
+    assert result["attempts"] == 2
+    assert len(model.prompts) == 2
+    first_prompt, second_prompt = model.prompts
+    assert "actual test run" in second_prompt
+    # the bounded extractor surfaces either an "E "-prefixed assertion line
+    # or a "Failing test case(s):" nodeid line -- accept either, since the
+    # exact real pytest wording is not itself asserted here (this is a
+    # structural/plumbing regression, not a pytest-output-format test).
+    assert ("Exception/assertion detail" in second_prompt) or ("Failing test case(s)" in second_prompt)
+    assert "actual test run" not in first_prompt
+    receipt = json.loads(Path(result["receipt_json"]).read_text())
+    assert receipt["attempts"][0]["outcome"] == "REPAIR_NOT_VERIFIED"
+    assert receipt["attempts"][0]["test_feedback_hash"]
+    assert receipt["attempts"][0]["test_feedback_truncated"] is False
+    assert receipt["attempts"][1]["outcome"] == "REPAIR_VERIFIED"
+
+
+@requires_colima_each
 def test_an_ambiguous_repaired_run_still_preserves_the_applied_patch_and_real_run_result(tmp_path, monkeypatch) -> None:
     """F6 regression: a patch that genuinely applies and genuinely runs, but
     whose repaired-test run is ambiguous (e.g. a skip/collection-error

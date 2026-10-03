@@ -33,8 +33,9 @@ from typing import Any
 
 from each.audit.run import reject_on_audit_flag, run_audit
 from each.benchmark import BENCHMARK_IMAGE_DIGEST, BenchmarkExecutionError, _interpret_pytest_run
-from each.demo import _result_to_dict
+from each.demo import _DOCKER_LAUNCH_FAILURE_EXIT_CODES, _result_to_dict
 from each.executor.container import ContainerExecutor, ContainerExecutorError, derive_assurance_level
+from each.hashing import sha256_text
 from each.models.base import ContextBudgetExceeded, RepairModel
 from each.outcome import sanitize_outcome_class
 from each.patch import PatchRejected, apply_patch, extract_patch_text, parse_patch
@@ -42,6 +43,7 @@ from each.paths import runs_dir, validate_private_root, validate_task_id
 from each.raw_proposal import RawProposalRejected, derive_unified_diff, extract_full_source
 from each.receipt import Receipt
 from each.spec import ApprovedSpec
+from each.test_feedback import TRUNCATION_MARKER, extract_bounded_test_feedback
 from each.worktree import build_worktree, verify_unchanged
 
 FIXTURE_ROOT = Path(__file__).resolve().parent.parent / "examples" / "clean-room-lru-cache"
@@ -85,7 +87,7 @@ _RETRY_SUFFIX = (
     "every one of the {line_count} original lines as its own \"-\" line, verbatim, with no "
     "elision and no lines skipped, then your replacement as \"+\" lines. Implement this "
     "yourself from the specification only; do not reference any external library's "
-    "implementation."
+    "implementation.{test_feedback_block}"
 )
 
 # (full-source proposal mode) An alternative to the diff-mode template above
@@ -121,8 +123,25 @@ _FULL_SOURCE_RETRY_SUFFIX = (
     "Try again: reply with ONLY the complete, corrected file content between BEGIN_SOURCE and "
     "END_SOURCE markers, with no other text, no markdown fences, and no explanation. Implement "
     "this yourself from the specification only; do not reference any external library's "
-    "implementation."
+    "implementation.{test_feedback_block}"
 )
+
+_TEST_FEEDBACK_BLOCK = (
+    "\n\nThe real, actual test run against your previous attempt produced this diagnostic "
+    "information (exception type, failing test case, and assertion detail only -- use it to "
+    "fix the actual defect; do not just change wire format again):\n{test_feedback}"
+)
+
+
+def _render_test_feedback_block(test_feedback: str) -> str:
+    """Render the optional trailing diagnostic-feedback section. Returns an
+    empty string when no bounded feedback was extracted (e.g. the previous
+    attempt was rejected before any real test run happened), never a
+    placeholder claiming feedback exists when it does not.
+    """
+    if not test_feedback:
+        return ""
+    return _TEST_FEEDBACK_BLOCK.format(test_feedback=test_feedback)
 
 
 def _extract_patch_text_for_mode(raw_completion: str, proposal_format: str, *, path: str, original_text: str) -> str:
@@ -146,10 +165,11 @@ def _extract_patch_text_for_mode(raw_completion: str, proposal_format: str, *, p
     return diff_text
 
 
-def _retry_suffix_for_mode(proposal_format: str, *, reason: str, line_count: int) -> str:
+def _retry_suffix_for_mode(proposal_format: str, *, reason: str, line_count: int, test_feedback: str = "") -> str:
+    test_feedback_block = _render_test_feedback_block(test_feedback)
     if proposal_format == "diff":
-        return _RETRY_SUFFIX.format(reason=reason, line_count=line_count)
-    return _FULL_SOURCE_RETRY_SUFFIX.format(reason=reason)
+        return _RETRY_SUFFIX.format(reason=reason, line_count=line_count, test_feedback_block=test_feedback_block)
+    return _FULL_SOURCE_RETRY_SUFFIX.format(reason=reason, test_feedback_block=test_feedback_block)
 
 
 def run_clean_room_build(
@@ -441,10 +461,28 @@ def run_clean_room_build(
             # would silently discard every attempt recorded so far and
             # leave no receipt written at all for a run that genuinely
             # happened (F6).
+            # Genuine compiler/test feedback from the REAL repaired run's
+            # own output, not a repeat of the same "try again" ritual --
+            # but only when the run itself actually executed (never for a
+            # Docker-launch failure, whose stdout/stderr is infra noise,
+            # not test evidence). Hash/truncation recorded for provenance;
+            # the feedback text itself is never shown outside this local
+            # pipeline (it already lives in the private repaired_result
+            # dict above, this only reuses it to build the next prompt).
+            feedback = (
+                extract_bounded_test_feedback(repaired.stdout, repaired.stderr)
+                if repaired.exit_code not in _DOCKER_LAUNCH_FAILURE_EXIT_CODES
+                else ""
+            )
             attempt_record["outcome"] = f"REPAIRED_RUN_INCONCLUSIVE: {exc}"
+            attempt_record["test_feedback_hash"] = sha256_text(feedback) if feedback else None
+            attempt_record["test_feedback_truncated"] = feedback.endswith(TRUNCATION_MARKER)
             attempts.append(attempt_record)
             prompt = base_prompt + _retry_suffix_for_mode(
-                proposal_format, reason="the repaired test run could not be classified; try again", line_count=line_count
+                proposal_format,
+                reason="the repaired test run could not be classified; try again",
+                line_count=line_count,
+                test_feedback=feedback,
             )
             continue
         test_outcome = (
@@ -487,7 +525,12 @@ def run_clean_room_build(
             if materials_drift
             else "patch applied but did not make the failing tests pass"
         )
-        prompt = base_prompt + _retry_suffix_for_mode(proposal_format, reason=reason, line_count=line_count)
+        feedback = "" if materials_drift else extract_bounded_test_feedback(repaired.stdout, repaired.stderr)
+        attempt_record["test_feedback_hash"] = sha256_text(feedback) if feedback else None
+        attempt_record["test_feedback_truncated"] = feedback.endswith(TRUNCATION_MARKER)
+        prompt = base_prompt + _retry_suffix_for_mode(
+            proposal_format, reason=reason, line_count=line_count, test_feedback=feedback
+        )
 
     if final_outcome is None:
         # Every attempt was exhausted on a PATCH_REJECTED retry without ever
