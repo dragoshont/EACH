@@ -284,6 +284,46 @@ Related sources: [claims and non-claims](claims-and-nonclaims.md),
 [threat model](threat-model.md), [research release evidence](development-status.md),
 [authoritative mandate](EACH_BOOTSTRAP_MANDATE.md).
 
+### Final bounded review disposition (2026-10-03)
+
+The independent corrective evidence review and security/policy documentation
+review returned scoped PASS for tested implementation
+`5505301b6e41adf26e799efc95ebcefba645666d` and documentation publication
+`be9c5b506770d8675ab81f3503376ba06e338b2b`. These admissions close the
+reader-output/schema evidence gap and the overbroad material-permissions
+wording. They do not accept authenticated API returns, repair usefulness,
+the failed audit target, universal recovery, or a production release.
+
+The retained reader proof is SHA-256
+`271191892c35a262021ff8f415d04317aa05bbf00094e5d5293fa17d0e31b86c`;
+the schema-only invocation is
+`9479ae2799186bf87d1040c793579beb6f281798c61d79c2f4d1f03d81d523da`.
+Standalone targeted output was not fully retained; that limitation remains
+visible. The existing clean-source integrated suite separately covers those
+controls. No new inference, threshold reduction or holdout reuse was performed.
+
+Current production execution has stopped at its recorded bounds: P1 is
+BLOCKED, P2a remains failed, and P3 remains failed. The independent P4 review
+admits only its documented engineering controls, not full production
+qualification. P2b and P5-P8 do not advance.
+
+The original research release remains COMPLETED revision 102. The initial
+abandoned P3/P4 intake was closed through supported APIs as FAILED revision 9;
+the other production Runs preserve FAILED revisions 69, 36 and 33. There
+are no active production workers or additional utility attempts.
+
+The README now clones the explicitly named experimental development branch.
+Default `main` and a production release have not been published by this program.
+The GitHub app's draft-PR creation attempt failed to resolve the repository;
+no draft was created and no alternative PR command was used.
+
+A product-scope/publication choice was requested, but the user was unavailable;
+no choice or consent is inferred from that. The original production repair
+goal stays blocked. A separately bounded, materially different repair strategy
+needs an evidence-backed decision before reopening inference. Publishing an
+experimental version or switching to an evidence-only production product must
+not be represented as completion of the current production repair goal.
+
 ## 10. Executed first development slice (2026-10-03)
 
 Canonical Run: `each-production-first-slice-20261003`. The completed research
