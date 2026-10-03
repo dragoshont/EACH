@@ -93,6 +93,37 @@ def _granite_3_3_8b_instruct_mlx(*, max_tokens: int = 2048) -> RepairModel:
     return MLXRepairModel(snapshot_dir, manifest, max_tokens=max_tokens)
 
 
+def _qwen2_5_coder_14b_instruct_mlx(*, max_tokens: int = 2048) -> RepairModel:
+    snapshot_dir = (
+        HF_CACHE_DIR
+        / "models--Qwen--Qwen2.5-Coder-14B-Instruct"
+        / "snapshots"
+        / "aedcc2d42b622764e023cf882b6652e646b95671"
+    )
+    if not snapshot_dir.exists():
+        raise UnavailableModelError(f"snapshot not downloaded: {snapshot_dir}")
+    manifest = build_manifest_from_snapshot(
+        snapshot_dir,
+        repo_id="Qwen/Qwen2.5-Coder-14B-Instruct",
+        license="Apache-2.0",
+        runtime_name="mlx-lm",
+        runtime_version=_mlx_runtime_version(),
+        # ORIGINAL Qwen publisher weights (Qwen/Qwen2.5-Coder-14B-Instruct's
+        # own repo, bf16 safetensors, LICENSE file present in the snapshot),
+        # not a third-party community re-conversion: no conversion chain
+        # applies. config.json declares model_type="qwen2"; verified
+        # mlx_lm.utils._get_classes(config) resolves this to
+        # mlx_lm.models.qwen2.{Model,ModelArgs} before this snapshot was
+        # loaded. A pragmatic fallback candidate (not a pure-capacity
+        # escalation) justified only after the newer, non-deprecated
+        # granite-3.3-8b-instruct also failed to produce a verified repair.
+        conversion_chain="none; original Qwen publisher bf16 safetensors loaded directly via mlx_lm",
+    )
+    from each.models.mlx_model import MLXRepairModel
+
+    return MLXRepairModel(snapshot_dir, manifest, max_tokens=max_tokens)
+
+
 def _granite_8b_code_instruct_128k_mlx(*, max_tokens: int = 512) -> RepairModel:
     snapshot_dir = (
         HF_CACHE_DIR
@@ -244,6 +275,7 @@ _CATALOG: dict[str, Callable[..., RepairModel]] = {
     "granite-3b-code-instruct-mlx": _granite_3b_code_instruct_mlx,
     "granite-8b-code-instruct-128k-mlx": _granite_8b_code_instruct_128k_mlx,
     "granite-3.3-8b-instruct-mlx": _granite_3_3_8b_instruct_mlx,
+    "qwen2.5-coder-14b-instruct-mlx": _qwen2_5_coder_14b_instruct_mlx,
     "granite-20b-code-instruct-mlx": _granite_20b_code_instruct_mlx,
     "granite-34b-code-instruct-mlx": _granite_34b_code_instruct_mlx,
     "octocoder-transformers-mps": _octocoder_transformers_mps,
