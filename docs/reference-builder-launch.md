@@ -1,11 +1,12 @@
 # Reference Builder: first qualified Xodus experiment
 
-**Status: awaiting genuine approval of this new sensitive Spec.**
+**Status: COMPLETE — negative result (`PATCH_REJECTED`).**
 This is a new experiment, not reuse of the historical M8 one-attempt approval.
 The registry now authorizes the retained StarCoderBase artifact after
 original-file, conversion and signed-runtime verification. Model qualification
-is no longer the launch blocker. The approval request could not obtain a user
-decision; unavailability is not approval or rejection.
+is no longer the launch blocker. The user subsequently approved this exact
+displayed Spec and asked execution to proceed. Approval does not extend to
+future Specs.
 
 ## Exact proposed run
 
@@ -13,6 +14,7 @@ decision; unavailability is not approval or rejection.
 |---|---|
 | Task | `each-launch-sandboxid-98510d3ac7c3` |
 | Draft SHA-256 | `9fc83e8b91ff421ba05367781eb486ccb3e2abe68f57904b5f4e7b533f211606` |
+| Approved Spec SHA-256 | `6e3f2736aa810ffa443c6a3ba139058d9d048f5644f719cd5f0afac024fd5d25` |
 | Evidence SHA-256 | `e41d362603bb6b1a8aaf53b8c8af5c64d9f2d569ae5047e9bb644215e4eebf2a` |
 | Initial Builder | `starcoderbase-mlx`, exact `bigcode/starcoderbase@88ec5781ad071a9d9e925cd28f327dea22eb5188`, retained qualified FP16 conversion only |
 | Conversion record SHA-256 | `48bc14f9240345e8c81a5586e71a9f0ce7102fdc9ac80ded74199869653dbed7` |
@@ -22,6 +24,32 @@ decision; unavailability is not approval or rejection.
 | Proposal format | Existing `full_source` mode; EACH derives the scoped diff |
 | Visibility | Private candidate, raw prompt/response and Auditor results |
 | Prohibited | Cloud target authoring/review, dirty source or implementation advice, Auditor feedback, upstream submission |
+
+## Actual result
+
+Run `reference-base-sandboxid-98510d3ac7c3` invoked the authorized retained
+StarCoderBase artifact exactly once. The response proposed no change from the
+pinned public source, so the harness returned **`PATCH_REJECTED`** before
+candidate compilation or tests. No retry, model substitution or hand-authored
+target change occurred.
+
+- Baseline acceptance exit: **1**, as required to exercise the documented bug.
+- Candidate validation: **not run**; there was no candidate.
+- Terminal Auditor: **not run**; there was no validated candidate subject.
+- Network-denial probe: **verified**.
+- Receipt assurance: **EACH-P1**. Although network isolation verified, the
+  shared pipeline conservatively downgrades the overall label when no candidate
+  reaches protected-material integrity verification.
+- Signed receipt and both retained materials: **PASS**.
+- Receipt SHA-256:
+  `28683ef83ac69c9954956391b0684035298f8fa8686fb1f68ae0b643f41a219b`.
+- Input/output token counts, completion-call seconds, decoder throughput and
+  peak memory: **UNAVAILABLE** for this historical call; none is inferred.
+
+This satisfies the launch-cycle requirement to perform a first real, bounded,
+authorized provenance experiment. It does **not** establish repair capability,
+full Xodus/Wine/game compatibility, production readiness, legal clean-room
+status or upstream acceptability.
 
 The existing full-source prompt is instruction-shaped, not native base-model
 FIM. This known capability limitation will be recorded. Format rejection or a
@@ -68,16 +96,14 @@ Current upstream target and contribution-policy revisions were fetched again.
 The policy remains at `ae13b61ce23f68e376e6f0562d5a690e41bd1587` and rejects
 LLM-assisted code for this API-layer work. This experiment does not override it.
 
-Approval applies only to the exact draft hash and the run envelope above.
+Approval applied only to the exact draft hash and the run envelope above.
 No approval is inferred from program authorization, model-access consent,
 historical M8 approval, or this document's existence.
 
-## Ready execution entry point
+## Executed entry point
 
-After genuine approval has been recorded through the existing Spec workflow,
-the Mac uses the existing APIs below. Loading the approved Spec happens first;
-the absent approval currently prevents this command from reaching the loader.
-The fixed run ID prevents silently overwriting or repeating this run.
+After genuine approval was recorded through the existing Spec workflow, the Mac
+used the APIs below. The fixed run ID now prevents silently repeating the call.
 
 ```python
 from each.models.catalog import load_model
@@ -95,6 +121,6 @@ result = run_xodus_shadow_build(
 )
 ```
 
-Use the project's declared `models` and `audit` extras. Keep the resulting
+The project used its declared `models` and `audit` extras. Keep the resulting
 receipt and target artifacts in the existing private store; expose only the
 source-free outcome and verification summary.

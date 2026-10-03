@@ -1,6 +1,6 @@
 # Production readiness ledger and backward plan
 
-Last updated: 2026-10-03.
+Last updated: 2026-10-04.
 
 **State: NOT PRODUCTION READY.** The M0-M8 research program is complete;
 production qualification is a separate program. The user authorized
@@ -10,9 +10,12 @@ gated-model terms or certification claims.
 
 **User-directed correction, 2026-10-03:** clear training-data provenance is
 a hard prerequisite for model eligibility. The exact StarCoderBase checkpoint
-has subsequently passed a bounded training-lineage dossier review; it still
-requires verified local artifact provisioning. Other catalog entries remain
-blocked until independently qualified. Qwen trials are historical
+and OctoCoder exact checkpoints are now AUTHORIZED in the finite registry after
+retained artifacts and runtime evidence verified. StarCoderBase completed the
+first qualified Xodus experiment with one `PATCH_REJECTED`/no-change response;
+this is trustworthy negative evidence, not useful repair performance or
+production qualification. StarCoder2 is BLOCKED and Comma DEFERRED. Qwen trials
+are historical
 capability comparisons, excluded from this program's provenance qualification.
 P1 must assess base and every post-training dataset stage using
 [the model eligibility contract](model-provenance.md), before calibration or

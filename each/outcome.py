@@ -31,6 +31,7 @@ OUTCOME_CLASSES = frozenset(
         "ISOLATION_UNVERIFIED",
         "BUILDER_CONTEXT_BUDGET_EXCEEDED",
         "BASELINE_INCONCLUSIVE",
+        "BASELINE_NOT_REPRODUCED",
         "REPAIRED_RUN_INCONCLUSIVE",
         # each.benchmark_report: a per-task materialization failure (dead
         # repo/tarball link, rate limit, pip install failure) before any

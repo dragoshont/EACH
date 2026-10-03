@@ -31,6 +31,7 @@ from pathlib import Path
 import pytest
 
 import each.xodus_shadow as xodus_shadow_module
+from each.executor.base import ExecutionResult
 from each.models.fixture import FixtureModel
 from each.spec import ApprovedSpec, make_spec_packet
 from each.spec_workflow import specs_dir
@@ -281,6 +282,44 @@ def test_xodus_shadow_fails_closed_when_isolation_cannot_be_verified(tmp_path, m
     assert receipt["attempts"] == []
 
 
+@pytest.mark.parametrize("error", [PermissionError("denied"), OSError("unavailable")])
+def test_xodus_shadow_isolation_exception_retains_signed_originals_without_generation(
+    tmp_path, monkeypatch, error,
+) -> None:
+    monkeypatch.setenv("EACH_HOME", str(tmp_path / "each-home"))
+    monkeypatch.setattr(xodus_shadow_module, "fetch_file", lambda *_a, **_k: _CACHED_SOURCE)
+    monkeypatch.setattr(
+        xodus_shadow_module.ContainerExecutor,
+        "verify_isolation",
+        lambda *_a, **_k: (_ for _ in ()).throw(error),
+    )
+    calls = 0
+
+    class NoGeneration(FixtureModel):
+        def complete(self, prompt: str) -> str:
+            nonlocal calls
+            calls += 1
+            pytest.fail("isolation failure must not invoke the Builder")
+
+    approved = _approve_selftest_spec(f"test-xodus-isolation-exception-{type(error).__name__.lower()}")
+    result = run_xodus_shadow_build(
+        NoGeneration("unused"), approved, max_attempts=1,
+        run_id=f"selftest-iso-exception-{tmp_path.name}-{type(error).__name__.lower()}",
+    )
+
+    assert calls == 0
+    assert result["outcome"] == "ISOLATION_UNVERIFIED"
+    receipt_path = Path(result["receipt_json"])
+    receipt = json.loads(receipt_path.read_text())
+    assert receipt["isolationEvidence"]["errorType"] == type(error).__name__
+    assert len(receipt["materials"]) == 3
+    from each.attestation import verify_materials_root, verify_receipt
+    from each.signing import public_key_path
+
+    assert verify_receipt(receipt, public_key_path().read_bytes())["status"] == "PASS"
+    assert verify_materials_root(receipt, receipt_path.parent / "materials")["status"] == "PASS"
+
+
 @requires_colima_each
 @requires_m8_native_image
 def test_xodus_shadow_audit_match_is_terminal_without_builder_feedback(tmp_path, monkeypatch) -> None:
@@ -330,18 +369,210 @@ _ALREADY_FIXED_SOURCE = _CACHED_SOURCE.replace(
 @requires_colima_each
 @requires_m8_native_image
 def test_xodus_shadow_baseline_must_genuinely_reproduce_the_bug(tmp_path, monkeypatch) -> None:
-    """If the fetched 'buggy' source is actually already fixed, this harness
-    must raise rather than silently accept a vacuous (never-failing)
-    baseline -- proving this is a real regression check, not a fake one."""
+    """An already-fixed baseline must finalize signed fail-closed evidence,
+    never accept a vacuous regression check or discard the run history."""
     assert _ALREADY_FIXED_SOURCE != _CACHED_SOURCE
     monkeypatch.setattr(xodus_shadow_module, "fetch_file", lambda *_a, **_k: _ALREADY_FIXED_SOURCE)
     approved = _approve_selftest_spec("test-xodus-shadow-baseline-honesty")
     model = FixtureModel(_CORRECT_PATCH, model_id="fixture/xodus-shadow-selftest-v1")
 
-    from each.benchmark import BenchmarkExecutionError
+    result = run_xodus_shadow_build(
+        model, approved, max_attempts=1,
+        run_id=f"selftest-baseline-{tmp_path.name}-{uuid.uuid4().hex[:8]}",
+    )
+    assert result["outcome"] == "BASELINE_NOT_REPRODUCED"
+    receipt_path = Path(result["receipt_json"])
+    receipt = json.loads(receipt_path.read_text())
+    assert receipt["baselineResult"]["exit_code"] == 0
+    assert receipt["attempts"] == []
+    from each.attestation import verify_materials_root
 
-    with pytest.raises(BenchmarkExecutionError):
-        run_xodus_shadow_build(model, approved, max_attempts=1, run_id=f"selftest-baseline-{tmp_path.name}-{uuid.uuid4().hex[:8]}")
+    assert verify_materials_root(receipt, receipt_path.parent / "materials")["status"] == "PASS"
+
+
+@requires_colima_each
+@requires_m8_native_image
+def test_xodus_shadow_baseline_classification_error_finalizes_signed_receipt_without_generation(
+    tmp_path, monkeypatch,
+) -> None:
+    monkeypatch.setattr(xodus_shadow_module, "fetch_file", lambda *_a, **_k: _CACHED_SOURCE)
+    real_interpret = xodus_shadow_module._interpret_native_run
+    calls = 0
+
+    def fail_baseline_classification(build_result, run_result):
+        nonlocal calls
+        calls += 1
+        if calls == 1:
+            raise xodus_shadow_module.BenchmarkExecutionError("private launch classification detail")
+        return real_interpret(build_result, run_result)
+
+    class NoGeneration(FixtureModel):
+        def complete(self, prompt: str) -> str:
+            pytest.fail("unclassified baseline must not invoke the Builder")
+
+    monkeypatch.setattr(xodus_shadow_module, "_interpret_native_run", fail_baseline_classification)
+    approved = _approve_selftest_spec("test-xodus-shadow-baseline-classification-error")
+    result = run_xodus_shadow_build(
+        NoGeneration("unused"), approved, max_attempts=1,
+        run_id=f"selftest-baseline-classification-{tmp_path.name}-{uuid.uuid4().hex[:8]}",
+    )
+
+    assert result["outcome"] == "EXECUTION_ERROR"
+    receipt_path = Path(result["receipt_json"])
+    receipt = json.loads(receipt_path.read_text())
+    assert receipt["attempts"] == []
+    assert receipt["baselineResult"]["exit_code"] == 1
+    from each.attestation import verify_materials_root, verify_receipt
+    from each.signing import public_key_path
+
+    assert verify_receipt(receipt, public_key_path().read_bytes())["status"] == "PASS"
+    assert verify_materials_root(receipt, receipt_path.parent / "materials")["status"] == "PASS"
+    assert "private launch classification detail" not in json.dumps(summarize_receipt(receipt_path))
+
+
+@requires_colima_each
+@requires_m8_native_image
+@pytest.mark.parametrize(
+    ("fail_call", "replacement", "expected_outcome", "expected_exit"),
+    [
+        (2, OSError("private baseline build OS detail"), "EXECUTION_ERROR", None),
+        (3, OSError("private baseline acceptance OS detail"), "EXECUTION_ERROR", 0),
+        (2, ExecutionResult(("docker",), 125, "", "launch failed"), "EXECUTION_ERROR", 125),
+        (2, ExecutionResult(("cc",), 2, "", "compile failed"), "BASELINE_NOT_REPRODUCED", 2),
+    ],
+)
+def test_xodus_shadow_baseline_stage_failures_finalize_decisive_signed_evidence(
+    tmp_path, monkeypatch, fail_call, replacement, expected_outcome, expected_exit,
+) -> None:
+    import each.executor.container as container_module
+
+    monkeypatch.setattr(xodus_shadow_module, "fetch_file", lambda *_a, **_k: _CACHED_SOURCE)
+    original_run = container_module.ContainerExecutor.run
+    call_count = 0
+
+    def fail_baseline_stage(self, command, worktree, **kwargs):
+        nonlocal call_count
+        call_count += 1
+        if call_count == fail_call:
+            if isinstance(replacement, BaseException):
+                raise replacement
+            return replacement
+        return original_run(self, command, worktree, **kwargs)
+
+    class NoGeneration(FixtureModel):
+        def complete(self, prompt: str) -> str:
+            pytest.fail("failed baseline must not invoke the Builder")
+
+    monkeypatch.setattr(container_module.ContainerExecutor, "run", fail_baseline_stage)
+    approved = _approve_selftest_spec(
+        f"test-xodus-shadow-baseline-stage-{fail_call}-{expected_outcome.lower()}"
+    )
+    result = run_xodus_shadow_build(
+        NoGeneration("unused"), approved, max_attempts=1,
+        run_id=f"selftest-baseline-stage-{fail_call}-{expected_outcome.lower()}-{uuid.uuid4().hex[:8]}",
+    )
+
+    assert result["outcome"] == expected_outcome
+    receipt_path = Path(result["receipt_json"])
+    receipt = json.loads(receipt_path.read_text())
+    assert receipt["attempts"] == []
+    assert receipt["baselineResult"].get("exit_code") == expected_exit
+    summary = summarize_receipt(receipt_path)
+    assert summary["outcome"] == expected_outcome
+    assert "private baseline" not in json.dumps(summary)
+    from each.attestation import verify_materials_root, verify_receipt
+    from each.signing import public_key_path
+
+    assert verify_receipt(receipt, public_key_path().read_bytes())["status"] == "PASS"
+    assert verify_materials_root(receipt, receipt_path.parent / "materials")["status"] == "PASS"
+
+
+@requires_colima_each
+@requires_m8_native_image
+@pytest.mark.parametrize("fail_call", [4, 5])
+def test_xodus_shadow_candidate_os_error_preserves_partial_stage_evidence(
+    tmp_path, monkeypatch, fail_call,
+) -> None:
+    import each.executor.container as container_module
+
+    monkeypatch.setattr(xodus_shadow_module, "fetch_file", lambda *_a, **_k: _CACHED_SOURCE)
+    original_run = container_module.ContainerExecutor.run
+    call_count = 0
+
+    def fail_candidate_stage(self, command, worktree, **kwargs):
+        nonlocal call_count
+        call_count += 1
+        if call_count == fail_call:
+            raise OSError("private candidate OS detail")
+        return original_run(self, command, worktree, **kwargs)
+
+    monkeypatch.setattr(container_module.ContainerExecutor, "run", fail_candidate_stage)
+    approved = _approve_selftest_spec(f"test-xodus-shadow-candidate-os-error-{fail_call}")
+    model = FixtureModel(_CORRECT_PATCH, model_id="fixture/xodus-shadow-selftest-v1")
+    result = run_xodus_shadow_build(
+        model, approved, max_attempts=1,
+        run_id=f"selftest-candidate-os-{fail_call}-{tmp_path.name}-{uuid.uuid4().hex[:8]}",
+    )
+
+    assert result["outcome"] == "EXECUTION_ERROR"
+    receipt_path = Path(result["receipt_json"])
+    receipt = json.loads(receipt_path.read_text())
+    attempt = receipt["attempts"][0]
+    assert attempt["patch_text"]
+    assert attempt["touched_paths"]
+    if fail_call == 4:
+        assert attempt["build_result"] is None
+    else:
+        assert attempt["build_result"]["exit_code"] == 0
+    assert attempt["run_result"] is None
+    assert "private candidate OS detail" not in json.dumps(summarize_receipt(receipt_path))
+    from each.attestation import verify_materials_root, verify_receipt
+    from each.signing import public_key_path
+
+    assert verify_receipt(receipt, public_key_path().read_bytes())["status"] == "PASS"
+    assert verify_materials_root(receipt, receipt_path.parent / "materials")["status"] == "PASS"
+
+
+@requires_colima_each
+@requires_m8_native_image
+def test_xodus_shadow_candidate_build_failure_is_decisive_and_skips_acceptance(
+    tmp_path, monkeypatch,
+) -> None:
+    import each.executor.container as container_module
+
+    monkeypatch.setattr(xodus_shadow_module, "fetch_file", lambda *_a, **_k: _CACHED_SOURCE)
+    original_run = container_module.ContainerExecutor.run
+    call_count = 0
+
+    def fail_candidate_build(self, command, worktree, **kwargs):
+        nonlocal call_count
+        call_count += 1
+        if call_count == 4:
+            return ExecutionResult(tuple(command), 2, "", "private compiler detail")
+        if call_count > 4:
+            pytest.fail("candidate acceptance must not run after a decisive build failure")
+        return original_run(self, command, worktree, **kwargs)
+
+    monkeypatch.setattr(container_module.ContainerExecutor, "run", fail_candidate_build)
+    approved = _approve_selftest_spec("test-xodus-shadow-candidate-build-decisive")
+    result = run_xodus_shadow_build(
+        FixtureModel(_CORRECT_PATCH, model_id="fixture/xodus-shadow-selftest-v1"),
+        approved,
+        max_attempts=1,
+        run_id=f"selftest-candidate-build-decisive-{tmp_path.name}-{uuid.uuid4().hex[:8]}",
+    )
+
+    assert call_count == 4
+    assert result["outcome"] == "BUILD_FAILED"
+    receipt_path = Path(result["receipt_json"])
+    receipt = json.loads(receipt_path.read_text())
+    attempt = receipt["attempts"][0]
+    assert attempt["build_result"]["exit_code"] == 2
+    assert attempt["run_result"] is None
+    assert receipt["repairedResult"]["exit_code"] == 2
+    summary = summarize_receipt(receipt_path)
+    assert summary["outcome"] == "BUILD_FAILED"
+    assert "private compiler detail" not in json.dumps(summary)
 
 
 @requires_colima_each
@@ -366,6 +597,10 @@ def test_exhausting_all_attempts_on_a_rejected_patch_reports_that_real_outcome_n
     assert receipt["outcome"].startswith("PATCH_REJECTED")
     assert len(receipt["attempts"]) == 2
     assert all(a["outcome"].startswith("PATCH_REJECTED") for a in receipt["attempts"])
+    assert all(a["completion_call_seconds"] >= 0 for a in receipt["attempts"])
+    summary = summarize_receipt(result["receipt_json"])
+    assert len(summary["attemptMetrics"]) == 2
+    assert all(metric["completionCallSeconds"] >= 0 for metric in summary["attemptMetrics"])
     # F4: no attempt ever reached the point the materials-integrity check
     # runs at all (every attempt was rejected before any candidate
     # build/run) -- an UNPERFORMED required check must never be silently
@@ -374,6 +609,42 @@ def test_exhausting_all_attempts_on_a_rejected_patch_reports_that_real_outcome_n
     # probe genuinely passed.
     assert receipt["networkIsolationVerified"] is True
     assert receipt["assuranceLevel"] != "EACH-P2"
+
+
+@requires_colima_each
+@requires_m8_native_image
+def test_xodus_shadow_backend_failure_retains_signed_partial_receipt_and_metrics(tmp_path, monkeypatch) -> None:
+    monkeypatch.setattr(xodus_shadow_module, "fetch_file", lambda *_a, **_k: _CACHED_SOURCE)
+    approved = _approve_selftest_spec("test-xodus-shadow-backend-failure")
+    model = FixtureModel("unused", model_id="fixture/xodus-shadow-selftest-v1")
+
+    def fail_generation(prompt: str) -> str:
+        model.last_generation_attempted = True
+        raise RuntimeError("private backend detail")
+
+    monkeypatch.setattr(model, "complete", fail_generation)
+    result = run_xodus_shadow_build(
+        model, approved, max_attempts=1,
+        run_id=f"selftest-backend-failure-{tmp_path.name}-{uuid.uuid4().hex[:8]}",
+    )
+
+    assert result["outcome"] == "EXECUTION_ERROR"
+    receipt_path = Path(result["receipt_json"])
+    receipt = json.loads(receipt_path.read_text())
+    assert len(receipt["attempts"]) == 1
+    attempt = receipt["attempts"][0]
+    assert attempt["outcome"].startswith("EXECUTION_ERROR")
+    assert attempt["completion_call_seconds"] >= 0
+    assert attempt["generation_attempted"] is True
+    from each.attestation import verify_materials_root, verify_receipt
+    from each.signing import public_key_path
+
+    assert verify_receipt(receipt, public_key_path().read_bytes())["status"] == "PASS"
+    assert verify_materials_root(receipt, receipt_path.parent / "materials")["status"] == "PASS"
+    summary = summarize_receipt(receipt_path)
+    assert summary["outcome"] == "EXECUTION_ERROR"
+    assert summary["attemptMetrics"][0]["generationAttempted"] is True
+    assert "private backend detail" not in json.dumps(summary)
 
 
 @requires_colima_each

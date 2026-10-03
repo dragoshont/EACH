@@ -152,10 +152,29 @@
             "baseline_exit": 1,
             "candidate_exit": 1,
             "input_tokens": 36
+          },
+          {
+            "run_id": "reference-base-sandboxid-98510d3ac7c3",
+            "task": "xodus-gaming/xgameruntime XSystemGetXboxLiveSandboxId documented optional-output contract",
+            "proposal_format": "full_source",
+            "receipt_sha256": "28683ef83ac69c9954956391b0684035298f8fa8686fb1f68ae0b643f41a219b",
+            "signature_and_materials": "PASS",
+            "material_count": 2,
+            "outcome": "PATCH_REJECTED",
+            "outcome_detail": "NO_CHANGE_FROM_PINNED_PUBLIC_SOURCE",
+            "baseline_exit": 1,
+            "candidate_exit": "NOT_RUN",
+            "max_output_tokens": 4096,
+            "input_tokens": "UNAVAILABLE",
+            "completion_call_seconds": "UNAVAILABLE",
+            "audit": "NOT_RUN_NO_CANDIDATE",
+            "network_isolation_verified": true,
+            "receipt_assurance": "EACH-P1",
+            "assurance_note": "The network-denial probe passed, but no candidate reached protected-material verification; the shared receipt conservatively downgraded the overall run label."
           }
         ],
-        "capability_result": "Local invocation, nonempty responses, provenance capture and FIM candidate application verified. Neither fixture attempt proved repair usefulness; neither invalidates lineage. C/C++/Rust and Xodus repair capability UNKNOWN.",
-        "maximum_supported_assurance": "EACH-P2 for retained fixture wiring; no production/P3, legal, destination-policy or whole-Run approval."
+        "capability_result": "Local invocation, nonempty responses, provenance capture and FIM candidate application verified. On the first qualified Xodus C task, one full-source response proposed no change and was rejected before candidate validation. This is a complete negative provenance experiment, not verified Xodus repair usefulness.",
+        "maximum_supported_assurance": "EACH-P2 for retained fixture wiring. The qualified Xodus attempt retained verified network denial but is labeled EACH-P1 because no candidate reached protected-material verification. No production/P3, legal, destination-policy or whole-Run approval."
       },
       "decision": {
         "status": "AUTHORIZED",

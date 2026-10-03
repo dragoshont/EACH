@@ -19,7 +19,7 @@ not correctness, originality or legal clean-room status.
 
 | Area | Current position |
 |---|---|
-| Current provenance-first work | Exact retained StarCoderBase and OctoCoder artifacts are **AUTHORIZED**. **StarCoderBase is the initial Builder**; its failed wiring repairs do not invalidate provenance. Model qualification no longer blocks launch. |
+| Current provenance-first work | Exact retained StarCoderBase and OctoCoder artifacts are **AUTHORIZED**. StarCoderBase completed the first qualified Xodus experiment: one private response, **PATCH_REJECTED** because it proposed no source change. |
 | Third approved candidate | StarCoder2 access is granted, but required supplementary/synthetic-generator ancestry remains unresolved. **Blocked before model loading.** |
 | Research program | M0-M8 complete; full research release gate verified. |
 | Production | **Not qualified.** Blockers remain in the [production ledger](docs/production-readiness-ledger.md); current work prioritizes the provenance-first Xodus pilot. |
@@ -43,9 +43,10 @@ eligibility does not certify lawful training or originality.
 The [finite registry](docs/model-qualifications/registry.json) and
 [dual-lane addendum](docs/EACH_DUAL_LANE_ADDENDUM.md) close this model-research
 cycle: StarCoder2 is blocked; Comma is deferred, not a launch dependency.
-The [first qualified Xodus run](docs/reference-builder-launch.md) has verified
-isolated baseline evidence and awaits genuine approval of its exact new Spec.
-No qualified-model Xodus generation has occurred yet.
+The [first qualified Xodus run](docs/reference-builder-launch.md) is complete.
+Its signed receipt and materials verify; no candidate, validation or terminal
+audit occurred because the model proposed no change. This is a valid negative
+provenance result, not production qualification.
 
 ## What you get
 

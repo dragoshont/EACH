@@ -3,14 +3,17 @@
 Status: StarCoderBase's bounded training-lineage dossier is accepted, the
 original artifact is provisioned, and two actual EACH wiring attempts have run.
 The diff attempt produced **PATCH_REJECTED**; the documented FIM attempt applied
-a candidate but produced **REPAIR_NOT_VERIFIED**. Neither was an Xodus trial.
+a candidate but produced **REPAIR_NOT_VERIFIED**. The first qualified-model
+Xodus trial subsequently produced **PATCH_REJECTED** because the one response
+proposed no change.
 OctoCoder's bounded dataset-stage lineage is independently accepted; its first
 actual local wiring response produced **REPAIR_VERIFIED** on the fixture.
 Independent review found failure-evidence defects; corrections passed bounded
 re-review at `2440d2ff887e0ac8dc27212b4b4cfbb5140aaa2a`. This is not a
 full-Run or cross-family release approval.
-StarCoder2 remains **BLOCKED** on supplementary and
-synthetic-generator ancestry. **The qualified-model Xodus task trial has not run.**
+StarCoder2 remains **BLOCKED** on supplementary and synthetic-generator
+ancestry. **The first qualified-model Xodus trial is a complete negative
+result; no verified Xodus repair exists.**
 User-directed reset: 2026-10-03. Access prerequisites come before model loading,
 adapter work, repair trials or production qualification.
 
@@ -25,9 +28,10 @@ cycle; no additional candidate or stronger model is a launch dependency.
 The [launch packet](reference-builder-launch.md) selects the smallest existing
 documentation-grounded Xodus issue instead of waiting for the larger save
 subsystem draft. It excludes raw issue implementation advice, has fresh
-isolated baseline build/pass and acceptance/fail evidence, and needs a genuine
-new hash-bound approval. The approval request could not obtain a user decision;
-that is **pending approval**, not consent or rejection.
+isolated baseline build/pass and acceptance/fail evidence. The user later
+approved that exact displayed Spec. One Base response proposed no change,
+yielding `PATCH_REJECTED`; no retry, candidate validation, Auditor run or model
+substitution followed.
 
 ## Focused outcome: findings to independent implementation
 
@@ -53,7 +57,8 @@ allowed materials, model eligibility, isolated execution, truthful validation,
 terminal audit and complete receipts. Reuse existing components; change them
 only for a concrete failure in this workflow. The catalog blocks unqualified
 models; qualified StarCoderBase has exercised the pipeline, without a verified
-repair or an actual qualified-model Xodus result.
+repair. Its actual qualified-model Xodus result is the retained
+`PATCH_REJECTED`/no-candidate run.
 
 **Tasks:** independently implement one representative behavior from the user's
 Xodus work, then expand to its remaining bounded behaviors. Unrelated humanize
@@ -235,8 +240,10 @@ The FIM contract is implemented and exercised: baseline and candidate both
 failed, so the applied candidate is not a verified repair. OctoCoder's one
 instruction-formatted response passed the same fixture's protected candidate
 tests. The failure-evidence corrections passed bounded independent review.
-The next deliverable is the origin-reviewed Xodus packet, not additional
-fixture retries. StarCoder2's unresolved required ancestry does not
+The origin-reviewed Xodus packet and first real run are complete. The next task
+is not another model search or retry: analyze this bounded negative result and
+decide separately whether a future prompt-contract experiment is justified.
+StarCoder2's unresolved required ancestry does not
 prevent work with the separately qualified models; do not substitute an
 unqualified model.
 See [model provenance](model-provenance.md) for primary sources and
@@ -249,14 +256,15 @@ can be published. This is not permission to publish private target artifacts.
 
 ### Actual qualified-model wiring observations
 
-These are **individual wiring checks, not a matched capability benchmark**.
-Prompt formats differ, and none is a qualified-model Xodus trial.
+These are **individual wiring/launch checks, not a matched capability benchmark**.
+Prompt formats and target tasks differ.
 
 | Model / format | Actual responses | Baseline / candidate exit | Outcome | Completion-call seconds | Total seconds |
 |---|---:|---|---|---:|---:|
 | StarCoderBase / instruction-shaped diff | 1 | 1 / not run | PATCH_REJECTED | Unavailable | 31.863 |
 | StarCoderBase / documented FIM | 1 | 1 / 1 | REPAIR_NOT_VERIFIED | 13.009 | 33.012 |
 | OctoCoder / documented Question/Answer diff | 1 | 1 / 0 | REPAIR_VERIFIED | 4.436 | 28.302 |
+| StarCoderBase / Xodus full source | 1 | 1 / not run | PATCH_REJECTED (no change) | Unavailable | Unavailable |
 
 Exact checkpoint, conversion, receipt identities and scope are in the respective
 model dossiers. OctoCoder's encoded input was 195 tokens; output-token counts,
@@ -272,6 +280,11 @@ that old receipt requires the explicit `--artifact-root`, not the absent default
 their standard retained-material directories. This location distinction must
 not be hidden behind a claim that all historical runs originally retained their
 inputs in the same way.
+
+The qualified Xodus receipt also verifies with two retained materials. Its
+overall assurance is EACH-P1 despite a verified network-denial probe because no
+candidate reached protected-material verification. No performance values were
+invented for this call.
 
 Keep original specifications, permitted input files, model/dataset eligibility
 evidence, exact model manifests, backend/environment identity, rendered prompts,

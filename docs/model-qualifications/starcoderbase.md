@@ -166,6 +166,31 @@ Measured loader/harness time was 33.012 seconds; completion-call time was
 rejection remains a separate original run. These are wiring/calibration
 results, not evidence that the Xodus behavior has been implemented.
 
+## First qualified Xodus experiment
+
+After genuine approval of the exact documentation-derived sensitive Spec, the
+same authorized artifact ran once against the pinned public
+`xodus-gaming/xgameruntime` `XSystemGetXboxLiveSandboxId` task.
+
+- Run: `reference-base-sandboxid-98510d3ac7c3`.
+- Approved Spec:
+  `6e3f2736aa810ffa443c6a3ba139058d9d048f5644f719cd5f0afac024fd5d25`.
+- Proposal contract: existing `full_source`, one attempt, maximum 4,096 output
+  tokens.
+- Baseline acceptance exit **1**; one real response proposed no source change.
+- Outcome: **PATCH_REJECTED**. Candidate validation and terminal audit did not
+  run because no candidate existed.
+- Network isolation verified. Overall receipt label **EACH-P1** because no
+  candidate reached protected-material integrity verification.
+- Signature and both retained materials: **PASS**.
+- Receipt SHA-256:
+  `28683ef83ac69c9954956391b0684035298f8fa8686fb1f68ae0b643f41a219b`.
+
+No retry, prompt adaptation, model substitution or human target edit followed.
+Performance counters were not recorded by that historical call and remain
+UNAVAILABLE. This resolves Xodus capability from UNKNOWN to one bounded negative
+observation; it does not revoke the model's provenance authorization.
+
 An independent read-only Adversarial Judge reviewed this dossier and retained
 inspection evidence and returned PASS/ELIGIBLE for the exact base checkpoint.
 It explicitly accepted documented inspectable dataset/stage lineage, not

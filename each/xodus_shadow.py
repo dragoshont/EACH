@@ -26,6 +26,7 @@ never read as pass/fail evidence).
 from __future__ import annotations
 
 import shutil
+import time
 import uuid
 from pathlib import Path
 from typing import Any
@@ -304,13 +305,18 @@ def run_xodus_shadow_build(
 
     executor = ContainerExecutor(image=NATIVE_IMAGE_DIGEST)
     probe_worktree, _probe_manifest = build_worktree(materialize_root, include_paths)
-    isolation_result = executor.verify_isolation(probe_worktree)
-    assurance_level = derive_assurance_level(executor, isolation_result)
+    try:
+        isolation_result = executor.verify_isolation(probe_worktree)
+    except (ContainerExecutorError, OSError) as exc:
+        assurance_level = "EACH-P1"
+        isolation_evidence = {"errorType": type(exc).__name__, "errorDetail": str(exc)}
+    else:
+        assurance_level = derive_assurance_level(executor, isolation_result)
+        isolation_evidence = _result_to_dict(isolation_result)
     # Captured once, from the real pre-run probe only, and never itself
     # downgraded later -- see the identical fix/rationale in
     # each.clean_room.run_clean_room_build (F4).
     network_isolation_verified = assurance_level == "EACH-P2"
-    isolation_evidence = _result_to_dict(isolation_result)
 
     source_lines = fetched_source.splitlines()
     line_count = len(source_lines)
@@ -347,13 +353,13 @@ def run_xodus_shadow_build(
         receipt = Receipt(
             patch_text="",
             touched_paths=[],
-            materials={},
+            materials=_probe_manifest,
             baseline_result={},
             repaired_result={},
             outcome=outcome,
             **common_fields,
         )
-        json_path, md_path = receipt.write(runs_dir() / run_id)
+        json_path, md_path = receipt.write(runs_dir() / run_id, materials_source=probe_worktree)
         return {"outcome": outcome, "receipt_json": str(json_path), "receipt_md": str(md_path), "attempts": 0}
 
     # Baseline: the real, unmodified public source must build but genuinely
@@ -364,14 +370,87 @@ def run_xodus_shadow_build(
     # minus the one editable allowed_path stays protected).
     baseline_worktree, baseline_manifest = build_worktree(materialize_root, include_paths)
     baseline_protected_paths = tuple(include_paths)
-    baseline_build = executor.run(build_command, baseline_worktree, protected_paths=baseline_protected_paths)
-    baseline_run = executor.run(acceptance_command, baseline_worktree, protected_paths=baseline_protected_paths)
-    baseline_verdict = _interpret_native_run(baseline_build, baseline_run)
-    if baseline_verdict != "failed":
-        raise BenchmarkExecutionError(
-            f"baseline (unmodified public source) did not genuinely fail acceptance "
-            f"(verdict={baseline_verdict!r}); this harness does not exercise the reported bug"
+    try:
+        baseline_build = executor.run(build_command, baseline_worktree, protected_paths=baseline_protected_paths)
+    except (ContainerExecutorError, OSError) as exc:
+        outcome = f"EXECUTION_ERROR: baseline build failed to execute: {exc}"
+        receipt = Receipt(
+            patch_text="",
+            touched_paths=[],
+            materials=baseline_manifest,
+            baseline_result={},
+            repaired_result={},
+            outcome=outcome,
+            **common_fields,
         )
+        json_path, md_path = receipt.write(runs_dir() / run_id, materials_source=baseline_worktree)
+        return {"outcome": "EXECUTION_ERROR", "receipt_json": str(json_path), "receipt_md": str(md_path), "attempts": 0}
+    if baseline_build.exit_code != 0:
+        outcome_class = (
+            "EXECUTION_ERROR"
+            if baseline_build.exit_code in _DOCKER_LAUNCH_FAILURE_EXIT_CODES
+            else "BASELINE_NOT_REPRODUCED"
+        )
+        outcome = f"{outcome_class}: baseline build exited {baseline_build.exit_code}"
+        receipt = Receipt(
+            patch_text="",
+            touched_paths=[],
+            materials=baseline_manifest,
+            baseline_result=_result_to_dict(baseline_build),
+            repaired_result={},
+            outcome=outcome,
+            **common_fields,
+        )
+        json_path, md_path = receipt.write(runs_dir() / run_id, materials_source=baseline_worktree)
+        return {"outcome": outcome_class, "receipt_json": str(json_path), "receipt_md": str(md_path), "attempts": 0}
+    try:
+        baseline_run = executor.run(acceptance_command, baseline_worktree, protected_paths=baseline_protected_paths)
+    except (ContainerExecutorError, OSError) as exc:
+        outcome = f"EXECUTION_ERROR: baseline acceptance failed to execute: {exc}"
+        receipt = Receipt(
+            patch_text="",
+            touched_paths=[],
+            materials=baseline_manifest,
+            baseline_result=_result_to_dict(baseline_build),
+            repaired_result={},
+            outcome=outcome,
+            **common_fields,
+        )
+        json_path, md_path = receipt.write(runs_dir() / run_id, materials_source=baseline_worktree)
+        return {"outcome": "EXECUTION_ERROR", "receipt_json": str(json_path), "receipt_md": str(md_path), "attempts": 0}
+    try:
+        baseline_verdict = _interpret_native_run(baseline_build, baseline_run)
+    except BenchmarkExecutionError as exc:
+        outcome = f"EXECUTION_ERROR: baseline result could not be classified: {exc}"
+        receipt = Receipt(
+            patch_text="",
+            touched_paths=[],
+            materials=baseline_manifest,
+            baseline_result=_result_to_dict(baseline_run),
+            repaired_result={},
+            outcome=outcome,
+            **common_fields,
+        )
+        json_path, md_path = receipt.write(runs_dir() / run_id, materials_source=baseline_worktree)
+        return {"outcome": "EXECUTION_ERROR", "receipt_json": str(json_path), "receipt_md": str(md_path), "attempts": 0}
+    if baseline_verdict != "failed":
+        outcome = f"BASELINE_NOT_REPRODUCED: verdict={baseline_verdict!r}"
+        receipt = Receipt(
+            patch_text="",
+            touched_paths=[],
+            materials=baseline_manifest,
+            baseline_result=_result_to_dict(baseline_run),
+            repaired_result={},
+            outcome=outcome,
+            **common_fields,
+        )
+        json_path, md_path = receipt.write(runs_dir() / run_id, materials_source=baseline_worktree)
+        return {
+            "outcome": "BASELINE_NOT_REPRODUCED",
+            "receipt_json": str(json_path),
+            "receipt_md": str(md_path),
+            "attempts": 0,
+        }
     final_baseline = _result_to_dict(baseline_run)
     final_materials = baseline_manifest
 
@@ -406,6 +485,9 @@ def run_xodus_shadow_build(
         # a repeat of the exact same greedy completion; attempt 1 stays
         # fully deterministic.
         model.configure_sampling(temperature=0.0 if attempt_num == 1 else 0.2, seed=None if attempt_num == 1 else attempt_num)
+        completion_started = time.perf_counter()
+        model.last_prompt = None
+        model.last_prompt_tokens = None
         try:
             raw_completion = model.complete(prompt)
         except ContextBudgetExceeded as exc:
@@ -430,12 +512,40 @@ def run_xodus_shadow_build(
                     "model_identity": model.identity(),
                     "materials_integrity": "UNAVAILABLE",
                     "proposal_format": proposal_format,
+                    "completion_call_seconds": time.perf_counter() - completion_started,
+                    "input_tokens": getattr(model, "last_prompt_tokens", None),
+                    "generation_attempted": False,
                     "outcome": outcome,
                 }
             )
             final_outcome = outcome
             selected_attempt_record = attempts[-1]
             break
+        except (RuntimeError, OSError, ValueError, TypeError, ImportError, MemoryError, KeyboardInterrupt) as exc:
+            outcome = f"EXECUTION_ERROR: model generation failed: {exc}"
+            attempts.append(
+                {
+                    "attempt": attempt_num,
+                    "prompt": getattr(model, "last_prompt", None) or prompt,
+                    "raw_completion": "",
+                    "materials": manifest,
+                    "baseline_result": final_baseline,
+                    "patch_text": "",
+                    "touched_paths": [],
+                    "repaired_result": {},
+                    "model_identity": model.identity(),
+                    "materials_integrity": "UNAVAILABLE",
+                    "proposal_format": proposal_format,
+                    "completion_call_seconds": time.perf_counter() - completion_started,
+                    "input_tokens": getattr(model, "last_prompt_tokens", None),
+                    "generation_attempted": getattr(model, "last_generation_attempted", None),
+                    "outcome": outcome,
+                }
+            )
+            final_outcome = outcome
+            selected_attempt_record = attempts[-1]
+            break
+        completion_call_seconds = time.perf_counter() - completion_started
         rendered_prompt = getattr(model, "last_prompt", None)
         attempt_record: dict[str, Any] = {
             "attempt": attempt_num,
@@ -450,6 +560,9 @@ def run_xodus_shadow_build(
             "repaired_result": {},
             "model_identity": model.identity(),
             "proposal_format": proposal_format,
+            "completion_call_seconds": completion_call_seconds,
+            "input_tokens": getattr(model, "last_prompt_tokens", None),
+            "generation_attempted": getattr(model, "last_generation_attempted", None),
         }
 
         try:
@@ -479,7 +592,7 @@ def run_xodus_shadow_build(
         harness_relative_paths = tuple(include_paths[1:])
         try:
             candidate_build = executor.run(build_command, worktree, protected_paths=harness_relative_paths)
-        except ContainerExecutorError as exc:
+        except (ContainerExecutorError, OSError) as exc:
             # A genuine container-launch/timeout failure during the build
             # step itself (not a classification of its result) is an infra
             # failure, not test feedback to retry against: the applied
@@ -504,9 +617,36 @@ def run_xodus_shadow_build(
         # fields; ``repaired_result`` (the final reported view) is only
         # ever reassigned once classification actually succeeds below.
         attempt_record["build_result"] = _result_to_dict(candidate_build)
+        if candidate_build.exit_code in _DOCKER_LAUNCH_FAILURE_EXIT_CODES:
+            attempt_record["materials_integrity"] = "UNAVAILABLE"
+            attempt_record["repaired_result"] = attempt_record["build_result"]
+            attempt_record["outcome"] = "EXECUTION_ERROR: candidate build did not launch"
+            attempts.append(attempt_record)
+            final_outcome = attempt_record["outcome"]
+            selected_attempt_record = attempt_record
+            break
+        if candidate_build.exit_code != 0:
+            materials_drift = verify_unchanged(worktree, manifest, harness_relative_paths)
+            attempt_record["materials_integrity"] = (
+                "PASS" if not materials_drift else f"FAIL: {len(materials_drift)} path(s) drifted"
+            )
+            attempt_record["repaired_result"] = attempt_record["build_result"]
+            attempt_record["outcome"] = "BUILD_FAILED"
+            attempt_record["build_failure_result"] = attempt_record["build_result"]
+            attempts.append(attempt_record)
+            final_outcome = attempt_record["outcome"]
+            selected_attempt_record = attempt_record
+            prompt = base_prompt + _retry_suffix_for_mode(
+                proposal_format,
+                reason=(
+                    "patch applied but the validation harness scaffold was altered during execution"
+                    if materials_drift else "patch applied but did not compile"
+                ),
+            )
+            continue
         try:
             candidate_run = executor.run(acceptance_command, worktree, protected_paths=harness_relative_paths)
-        except ContainerExecutorError as exc:
+        except (ContainerExecutorError, OSError) as exc:
             # The build genuinely completed (already recorded above and
             # preserved as ``build_result``); the run step itself never
             # produced evidence. ``run_result`` stays an explicit None --
@@ -716,6 +856,14 @@ def summarize_receipt(receipt_json_path: str | Path) -> dict[str, Any]:
         "attemptCount": len(data.get("attempts", [])),
         "attemptOutcomes": [sanitize_outcome_class(a.get("outcome", "")) for a in data.get("attempts", [])],
         "attemptProposalFormats": [sanitize_proposal_format(a.get("proposal_format")) for a in data.get("attempts", [])],
+        "attemptMetrics": [
+            {
+                "completionCallSeconds": a.get("completion_call_seconds"),
+                "inputTokens": a.get("input_tokens"),
+                "generationAttempted": a.get("generation_attempted"),
+            }
+            for a in data.get("attempts", [])
+        ],
         "selectedAttempt": data.get("selectedAttempt"),
         "materialsManifest": data.get("materials", {}),
     }
