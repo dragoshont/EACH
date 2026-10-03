@@ -3,6 +3,8 @@ honest "unavailable" reasons must be real, not silently swallowed."""
 
 from __future__ import annotations
 
+import json
+
 import pytest
 
 from each.models.catalog import UnavailableModelError, load_model
@@ -13,17 +15,43 @@ def test_load_model_unknown_key_raises_with_known_keys_listed() -> None:
         load_model("not-a-real-model")
 
 
-def test_octocoder_reports_a_concrete_unavailability_reason() -> None:
-    # Either the download is still incomplete (missing shard count named) or
-    # it completed and the "no adapter implemented" reason fires instead --
-    # both are legitimate, both must be a real, specific message, never a
-    # silent pass or a generic placeholder.
-    with pytest.raises(UnavailableModelError) as exc_info:
+# (F5) These three cases used to depend on whatever real, host-specific state
+# happened to exist under this Mac's actual ~/.each/models cache (absent,
+# partially downloaded, or fully downloaded with no shard missing) -- the
+# test only passed because the then-current real download state on this one
+# development machine happened to match one of the two branches it checked,
+# and silently did not even cover the "weights not downloaded" (fully
+# absent) case at all. Each case now uses a hermetic tmp_path models_dir,
+# independent of any real downloaded weights, so this test is reproducible
+# on a fresh clone/CI host and exercises all three real code paths.
+def test_octocoder_reports_absent_weights_honestly(monkeypatch, tmp_path) -> None:
+    monkeypatch.setattr("each.models.catalog.models_dir", lambda: tmp_path)
+    with pytest.raises(UnavailableModelError, match="weights not downloaded"):
         load_model("octocoder-transformers-mps")
-    message = str(exc_info.value)
-    assert ("download incomplete" in message and "shard(s) missing" in message) or (
-        "no Transformers/MPS RepairModel adapter is implemented" in message
-    )
+
+
+def test_octocoder_reports_incomplete_download_with_a_concrete_shard_count(monkeypatch, tmp_path) -> None:
+    monkeypatch.setattr("each.models.catalog.models_dir", lambda: tmp_path)
+    weights_dir = tmp_path / "bigcode--octocoder"
+    weights_dir.mkdir(parents=True)
+    index = {"weight_map": {"layer.0": "shard-00001.safetensors", "layer.1": "shard-00002.safetensors"}}
+    (weights_dir / "model.safetensors.index.json").write_text(json.dumps(index), encoding="utf-8")
+    # Only one of the two declared shards actually present on disk.
+    (weights_dir / "shard-00001.safetensors").write_bytes(b"")
+    with pytest.raises(UnavailableModelError, match=r"download incomplete: 1/2 safetensors shard\(s\) missing"):
+        load_model("octocoder-transformers-mps")
+
+
+def test_octocoder_reports_no_adapter_once_every_declared_shard_is_present(monkeypatch, tmp_path) -> None:
+    monkeypatch.setattr("each.models.catalog.models_dir", lambda: tmp_path)
+    weights_dir = tmp_path / "bigcode--octocoder"
+    weights_dir.mkdir(parents=True)
+    index = {"weight_map": {"layer.0": "shard-00001.safetensors", "layer.1": "shard-00002.safetensors"}}
+    (weights_dir / "model.safetensors.index.json").write_text(json.dumps(index), encoding="utf-8")
+    (weights_dir / "shard-00001.safetensors").write_bytes(b"")
+    (weights_dir / "shard-00002.safetensors").write_bytes(b"")
+    with pytest.raises(UnavailableModelError, match="no Transformers/MPS RepairModel adapter is implemented"):
+        load_model("octocoder-transformers-mps")
 
 
 def test_gguf_reports_no_verified_conversion_provenance() -> None:

@@ -439,6 +439,13 @@
         "retryPolicy": { "$ref": "#/definitions/retryPolicy" },
         "checkpointPolicy": { "$ref": "#/definitions/checkpointPolicy" },
         "attempts": { "type": "integer", "minimum": 0 },
+        "retryNotBefore": {
+          "description": "An earliest-retry deadline set after a backoff-eligible failure; null once cleared or before first use.",
+          "oneOf": [
+            { "type": "null" },
+            { "$ref": "#/definitions/timestamp" }
+          ]
+        },
         "lease": {
           "type": ["object", "null"],
           "required": ["owner", "acquiredAt", "expiresAt"],
@@ -530,7 +537,9 @@
         "resolvedBy": { "type": "string", "minLength": 1 },
         "resolutionRef": { "type": ["string", "null"] },
         "recoveryGrantConsumed": { "type": "boolean" },
-        "interruptedAttempt": { "type": ["integer", "null"], "minimum": 0 }
+        "interruptedAttempt": { "type": ["integer", "null"], "minimum": 0 },
+        "challengeReissuedAt": { "$ref": "#/definitions/timestamp" },
+        "challengeReissueCount": { "type": "integer", "minimum": 0 }
       }
     },
     "artifact": {
@@ -542,14 +551,18 @@
         "kind": { "type": "string", "minLength": 1 },
         "producer": {
           "type": "string",
-          "enum": ["coordinator", "deterministic", "invariant", "workspace", "worker", "legibility", "mutation", "reconciliation", "semantic-judge", "security-review", "policy-engine", "external-proof"]
+          "enum": ["coordinator", "deterministic", "invariant", "workspace", "worker", "legibility", "mutation", "reconciliation", "semantic-judge", "security-review", "policy-engine", "external-proof", "target-repair"]
         },
         "path": { "type": "string", "minLength": 1 },
         "createdAt": { "$ref": "#/definitions/timestamp" },
         "sha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
         "evidenceRefs": { "$ref": "#/definitions/evidenceRefs" },
         "attestation": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
-        "consumedByTask": { "type": ["string", "null"] }
+        "consumedByTask": { "type": ["string", "null"] },
+        "sourceCommit": {
+          "description": "The run baseline commit in effect when this artifact was registered (F2/F7); absent/null for artifacts registered before this field existed.",
+          "type": ["string", "null"]
+        }
       }
     },
     "worker": {
@@ -586,7 +599,11 @@
         "status": { "type": "string", "enum": ["PASS", "FAIL", "BLOCKED", "SKIPPED"] },
         "startedAt": { "$ref": "#/definitions/timestamp" },
         "finishedAt": { "$ref": "#/definitions/timestamp" },
-        "evidenceRefs": { "$ref": "#/definitions/evidenceRefs" }
+        "evidenceRefs": { "$ref": "#/definitions/evidenceRefs" },
+        "sourceCommit": {
+          "description": "The run baseline commit in effect when this gate was registered (F2/F7); absent/null for gates registered before this field existed.",
+          "type": ["string", "null"]
+        }
       }
     }
   }

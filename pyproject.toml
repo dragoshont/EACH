@@ -46,6 +46,11 @@ packages = ["each"]
 dev = [
     "pytest>=8.0",
     "ruff>=0.6",
+    # (F6) Real standards-conformant JSON Schema validation for the
+    # harness's own durable architrave.run.v2 state, replacing the prior
+    # ad-hoc hand-rolled required-key checks. Harness/test tooling only --
+    # never imported by the `each` product package itself.
+    "jsonschema>=4.23",
 ]
 
 [tool.ruff]
