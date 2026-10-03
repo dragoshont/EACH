@@ -672,20 +672,20 @@ def run_benchmark_task(
 
     attempts: list[dict[str, Any]] = []
     prompt = base_prompt
-    # No sentinel default: REPAIR_NOT_VERIFIED is only a valid final outcome
-    # once a patch actually applied and the repaired-test run was classified.
-    # If every attempt is exhausted on a PATCH_REJECTED/REPAIRED_RUN_INCONCLUSIVE
-    # retry (never reaching that point), this stays None and is resolved from
-    # the real last attempt's own outcome after the loop -- never silently
-    # mislabeled as a verified-but-failing repair that never happened.
-    final_outcome: str | None = None
-    final_patch_text = ""
-    final_touched: list[str] = []
-    final_materials: dict[str, str] = {}
-    final_baseline: dict[str, Any] = {}
-    final_repaired: dict[str, Any] = {}
-    final_raw_completion = ""
-    final_audit = _no_audit_yet
+    # Every attempt dict below always carries the SAME complete set of
+    # receipt-relevant keys (patch_text/touched_paths/materials/
+    # baseline_result/repaired_result/audit), regardless of which branch
+    # produced it -- not just "outcome" and "prompt". The receipt fields
+    # are then read back out of exactly ONE selected attempt (the last one
+    # appended) after the loop, never from separately loop-threaded
+    # variables that an earlier successful-but-not-yet-verified attempt
+    # could leave stale if a LATER attempt rejects early (e.g. attempt 2's
+    # patch applies and tests run but REPAIR_NOT_VERIFIED, then attempt 3's
+    # patch is rejected before parsing -- the old code would report
+    # attempt 3's PATCH_REJECTED outcome/prompt alongside attempt 2's
+    # stale patch_text/materials, a mixed receipt that never actually
+    # happened as a whole). Matches the established selected-attempt
+    # pattern in each.clean_room.run_clean_room_build.
     expected_tests = task.expected_tests
 
     for attempt_num in range(1, max_attempts + 1):
@@ -701,13 +701,18 @@ def run_benchmark_task(
             try:
                 check_budget(prompt)
             except ContextBudgetExceeded as exc:
-                final_outcome = f"BUILDER_CONTEXT_BUDGET_EXCEEDED: {exc}"
                 attempts.append(
                     {
                         "attempt": attempt_num,
                         "prompt": prompt,
                         "raw_completion": "",
-                        "outcome": final_outcome,
+                        "materials": {},
+                        "baseline_result": {},
+                        "patch_text": "",
+                        "touched_paths": [],
+                        "repaired_result": {},
+                        "audit": _no_audit_yet,
+                        "outcome": f"BUILDER_CONTEXT_BUDGET_EXCEEDED: {exc}",
                         "generation_attempted": False,
                     }
                 )
@@ -717,19 +722,24 @@ def run_benchmark_task(
             baseline = executor.run(_wrapped_test_command(task), worktree)
             baseline_verdict = _interpret_pytest_run(baseline, expected_tests=expected_tests)
         except BenchmarkExecutionError as exc:
-            final_outcome = f"BASELINE_INCONCLUSIVE: {exc}"
             attempts.append(
                 {
                     "attempt": attempt_num,
                     "prompt": prompt,
                     "raw_completion": "",
-                    "outcome": final_outcome,
+                    "materials": {**manifest, excerpt_material_key: excerpt_sha256},
+                    "baseline_result": {},
+                    "patch_text": "",
+                    "touched_paths": [],
+                    "repaired_result": {},
+                    "audit": _no_audit_yet,
+                    "outcome": f"BASELINE_INCONCLUSIVE: {exc}",
                     "generation_attempted": False,
                 }
             )
             break
-        final_materials = {**manifest, excerpt_material_key: excerpt_sha256}
-        final_baseline = _result_to_dict(baseline)
+        attempt_materials = {**manifest, excerpt_material_key: excerpt_sha256}
+        attempt_baseline = _result_to_dict(baseline)
         try:
             raw_completion = model.complete(prompt)
         except ContextBudgetExceeded as exc:
@@ -742,13 +752,18 @@ def run_benchmark_task(
             # declared context budget. Retrying would only make the prompt
             # larger (the retry suffix appends to base_prompt), so this is
             # terminal for the task rather than consuming another attempt.
-            final_outcome = f"BUILDER_CONTEXT_BUDGET_EXCEEDED: {exc}"
             attempts.append(
                 {
                     "attempt": attempt_num,
                     "prompt": prompt,
                     "raw_completion": "",
-                    "outcome": final_outcome,
+                    "materials": attempt_materials,
+                    "baseline_result": attempt_baseline,
+                    "patch_text": "",
+                    "touched_paths": [],
+                    "repaired_result": {},
+                    "audit": _no_audit_yet,
+                    "outcome": f"BUILDER_CONTEXT_BUDGET_EXCEEDED: {exc}",
                     "generation_attempted": False,
                 }
             )
@@ -759,10 +774,13 @@ def run_benchmark_task(
             "generation_attempted": True,
             "prompt": rendered_prompt if rendered_prompt is not None else prompt,
             "raw_completion": raw_completion,
-            "materials": final_materials,
-            "baseline_result": final_baseline,
+            "materials": attempt_materials,
+            "baseline_result": attempt_baseline,
+            "patch_text": "",
+            "touched_paths": [],
+            "repaired_result": {},
+            "audit": _no_audit_yet,
         }
-        final_raw_completion = raw_completion
 
         try:
             patch_text = extract_patch_text(raw_completion)
@@ -773,6 +791,12 @@ def run_benchmark_task(
             attempts.append(attempt_record)
             prompt = base_prompt + _RETRY_SUFFIX.format(reason=str(exc))
             continue
+
+        # From here on this attempt's own patch_text/touched_paths are
+        # recorded on THIS attempt_record -- never left to be reported
+        # alongside a different, later attempt's outcome/prompt.
+        attempt_record["patch_text"] = patch_text
+        attempt_record["touched_paths"] = touched
 
         try:
             repaired = executor.run(_wrapped_test_command(task), worktree)
@@ -786,52 +810,43 @@ def run_benchmark_task(
         outcome = (
             "REPAIR_VERIFIED" if (baseline_verdict == "failed" and repaired_verdict == "passed") else "REPAIR_NOT_VERIFIED"
         )
-
-        final_patch_text = patch_text
-        final_touched = touched
-        final_materials = {**manifest, excerpt_material_key: excerpt_sha256}
-        final_baseline = _result_to_dict(baseline)
-        final_repaired = _result_to_dict(repaired)
+        attempt_record["repaired_result"] = _result_to_dict(repaired)
         if outcome == "REPAIR_VERIFIED":
             # Audit the source only after generation/validation ends on a
             # genuinely validated candidate -- matches each.bakeoff's
             # terminal-boundary discipline (mandate section 126: the
             # Auditor is a terminal gate, never pre-generation feedback
             # that could steer or restart a later Builder attempt).
-            final_repaired_source = "\n".join(
+            repaired_source = "\n".join(
                 (worktree / path).read_text(encoding="utf-8", errors="replace") for path in touched
             )
-            final_audit = run_audit(final_repaired_source, corpus=audit_corpus)
-            if reject_on_audit_flag(final_audit):
+            attempt_record["audit"] = run_audit(repaired_source, corpus=audit_corpus)
+            if reject_on_audit_flag(attempt_record["audit"]):
                 outcome = "REPAIR_REJECTED_AUDIT"
 
         attempt_record["outcome"] = outcome
         attempts.append(attempt_record)
-        final_outcome = outcome
 
         if outcome in {"REPAIR_VERIFIED", "REPAIR_REJECTED_AUDIT"}:
             break
         prompt = base_prompt + _RETRY_SUFFIX.format(reason="patch applied but did not make the failing test pass")
 
-    if final_outcome is None:
-        # Every attempt was exhausted on a PATCH_REJECTED or
-        # REPAIRED_RUN_INCONCLUSIVE retry without ever reaching a classified
-        # repaired-test run: the honest final outcome is that last attempt's
-        # own recorded outcome (e.g. "PATCH_REJECTED: ..."), never a silent
-        # "REPAIR_NOT_VERIFIED" that would misrepresent a never-applied
-        # patch as one that was applied, tested, and simply failed to verify.
-        final_outcome = attempts[-1]["outcome"] if attempts else "REPAIR_NOT_VERIFIED"
+    # Exactly one selected attempt -- the last one appended, whatever its
+    # outcome -- supplies every receipt field below. max_attempts >= 1 is
+    # enforced above, and every loop path above appends before breaking or
+    # looping, so attempts is never empty here.
+    selected = attempts[-1]
+    final_outcome = selected["outcome"]
 
-    common_fields["raw_completion"] = final_raw_completion
-    if attempts and "prompt" in attempts[-1]:
-        common_fields["prompt"] = attempts[-1]["prompt"]
-    common_fields["audit"] = final_audit
+    common_fields["raw_completion"] = selected["raw_completion"]
+    common_fields["prompt"] = selected["prompt"]
+    common_fields["audit"] = selected["audit"]
     receipt = Receipt(
-        patch_text=final_patch_text,
-        touched_paths=final_touched,
-        materials=final_materials,
-        baseline_result=final_baseline,
-        repaired_result=final_repaired,
+        patch_text=selected["patch_text"],
+        touched_paths=selected["touched_paths"],
+        materials=selected["materials"],
+        baseline_result=selected["baseline_result"],
+        repaired_result=selected["repaired_result"],
         outcome=final_outcome,
         attempts=attempts,
         **common_fields,

@@ -94,11 +94,58 @@ def test_bakeoff_bounds_attempts_and_reports_last_rejection() -> None:
     receipt = json.loads(Path(result["receipt_json"]).read_text())
     assert len(receipt["attempts"]) == 2
     assert all(a["outcome"].startswith("PATCH_REJECTED") for a in receipt["attempts"])
+    # F4 regression: when every attempt is rejected before any patch ever
+    # applies, the TOP-LEVEL receipt/result outcome must honestly say
+    # PATCH_REJECTED too -- never a leftover "REPAIR_NOT_VERIFIED" default
+    # that would misrepresent a patch that was never even applied as one
+    # that was applied, tested, and simply failed to verify.
+    assert result["outcome"].startswith("PATCH_REJECTED")
+    assert receipt["outcome"].startswith("PATCH_REJECTED")
     assert set(receipt["materials"]) == {"src/greet.py", "tests/test_greet.py"}
     assert receipt["baselineResult"]["exit_code"] == 1
     assert all(a["materials"] == receipt["materials"] for a in receipt["attempts"])
     # No patch ever applied: nothing to leak into touched_paths/materials.
     assert receipt["touchedPaths"] == []
+
+
+@requires_colima_each
+def test_bakeoff_does_not_mix_an_earlier_attempts_patch_with_a_later_rejection() -> None:
+    """F4 regression: if an EARLIER attempt applies a patch and runs the
+    repaired tests (but does not verify, so the loop retries) and a LATER
+    attempt is rejected before even parsing a patch, the final receipt must
+    report that LATER attempt's own outcome/prompt/raw_completion together
+    with ITS OWN (empty) patch_text/touched_paths/repaired_result -- never
+    a Frankenstein receipt mixing the newest rejection's outcome with an
+    earlier attempt's stale applied-but-unverified patch."""
+    # Attempt 1: a syntactically valid patch that applies but does not fix
+    # the bug (so REPAIR_NOT_VERIFIED, triggering a retry). Attempt 2: not a
+    # diff at all (PATCH_REJECTED), exhausting max_attempts=2.
+    _wrong_patch = """BEGIN_PATCH
+--- a/src/greet.py
++++ b/src/greet.py
+@@ -1,2 +1,2 @@
+ def greet(name: str) -> str:
+-    return "Hell, " + name
++    return "Hell, " + name + "!"
+END_PATCH
+"""
+    model = _StubRepairModel([_wrong_patch, "not a diff at all"])
+    result = bakeoff_module.run_model_bakeoff(model, max_attempts=2)
+    assert result["attempts"] == 2
+    receipt = json.loads(Path(result["receipt_json"]).read_text())
+    assert receipt["attempts"][0]["outcome"] == "REPAIR_NOT_VERIFIED"
+    assert receipt["attempts"][1]["outcome"].startswith("PATCH_REJECTED")
+
+    # Top-level fields must match the LAST (selected) attempt, not the
+    # first: the rejected attempt's own prompt/raw_completion/outcome,
+    # with no patch_text/touchedPaths/repairedResult left over from the
+    # earlier, unrelated applied-but-unverified attempt.
+    assert result["outcome"].startswith("PATCH_REJECTED")
+    assert receipt["outcome"].startswith("PATCH_REJECTED")
+    assert receipt["rawCompletion"] == "not a diff at all"
+    assert receipt["patchText"] == ""
+    assert receipt["touchedPaths"] == []
+    assert receipt["repairedResult"] == {}
 
 
 @requires_colima_each
