@@ -427,3 +427,41 @@ Run is FAILED revision 33: original API acceptance unmet, F1/F2 R4 acceptance
 UNTESTED, recovered F3 evidence PASS. Source-free artifact identity and the
 unchanged exact-8b output supplement are in the correction report. Neither
 engineering success nor schema validity removes the P1 blocker.
+
+## 13. Same-task documentation/evidence closure (2026-10-03)
+
+The user reports actual reviews of `5505301b6e41`: bounded security PASS,
+policy REVISE for the runbook's universal materials-mode claim, and
+adversarial REVISE for reader evidence only, with F1/F2/source-fidelity code
+findings closed. No new reviewer family or production PASS is fabricated.
+
+The runbook now distinguishes `Receipt.write(materials_source=...)`'s explicit
+0700/0600 copy modes from observation-benchmark retention through
+`build_worktree`/excerpt writes, which uses creation/umask or inherited modes.
+The latter's privacy depends on owner-only private root/ancestor directories;
+there is no blanket materials-mode guarantee or observed exposure requiring
+a new permissions framework. This closure changes documentation only.
+
+Existing exact-550 base/extras/Ruff/doctor/package logs are supplied as actual
+reader payloads, including completion/progression/runtime sections and original
+stdout/stderr/log hashes, with private paths redacted. No unchanged test
+command was rerun. The recorded separate 44-targeted execution was pre-freeze
+and dirty; its original completion section/hash is supplied honestly, not
+restamped as a clean-550 full log. The same 44 named controls belong to the
+existing clean-550 588-passed, zero-skip suite. A new collection-only query
+provides their identities without executing tests; candidate-code parameter
+IDs are hash-redacted. All three base optional skip identities are listed.
+
+A fresh **schema-only** invocation verifies the actual corrective Run FAILED
+revision 33. Firstslice revision 69, research revision 102, P3/P4 revision 36,
+their canonical/event bytes, original negative receipts/inputs and the user's
+key remain unchanged. The stale initial intake was actually RUNNING revision 3
+with zero attempts/workers/leases; supported resume/failure/criterion/verify
+operations now close it as FAILED revision 9 without launching work or changing
+grants. READY task labels inside that terminal Run cannot start.
+
+[The correction report](observer-review-corrections.md) identifies the actual
+reader/schema/reconciliation proof paths and hashes. P1 remains BLOCKED,
+P3 remains FAIL with unchanged thresholds/consumed holdout, and P4 evidence
+remains bounded. Parent review of docs/proof and disposition of the production
+blocker are next; no utility lane, model acquisition or production tag advances.

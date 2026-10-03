@@ -43,8 +43,20 @@ CLI. Do not invent such commands or delete evidence to make a run pass.
 ## Evidence and partial outcomes
 
 Private storage defaults to `~/.each`; `EACH_HOME` selects a real outside-checkout
-directory. The root, keys directory, run directory and new copied materials
-directories are owner-only (0700); new receipt/draft/material files are 0600.
+directory. The private root and keys/runs directories are set to 0700;
+`Receipt.write` also sets its final run directory to 0700 and writes new
+receipt/draft files as 0600.
+
+**Materials modes depend on the actual retention path.** When
+`Receipt.write(..., materials_source=...)` performs its own copy, it explicitly
+sets copied materials directories to 0700 and files to 0600. The observation
+benchmark instead retains inputs through `build_worktree` and an excerpt write
+before receipt finalization; that path does **not** enforce those per-material
+modes. Creation/umask and pre-existing or inherited modes apply (typically
+0755 directories/0644 files with umask 022). Privacy there relies on the
+owner-only private root/ancestor directories, not universally owner-only
+materials leaves. No actual exposure was observed in the bounded exercises.
+
 Symlinked roots, artifacts, signing-key leaves and locks are refused.
 These are local filesystem controls, not Keychain, encryption, HSM or TEE
 protection. The same-user/key-holder/host/Docker administrator remains trusted.
