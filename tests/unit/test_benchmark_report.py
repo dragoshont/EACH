@@ -93,6 +93,28 @@ def test_a_per_task_materialization_failure_is_recorded_not_a_suite_crash(monkey
     assert report["tasks"][1]["outcome"] == "REPAIR_VERIFIED"
 
 
+def test_a_per_task_materialization_failure_never_leaks_the_raw_exception_text(monkeypatch, tmp_path):
+    """F3 regression: a materialization failure's exception message (dead
+    repo URL, HTTP reason, pip install stderr) can contain arbitrary,
+    potentially sensitive detail -- the public/sanitized suite report must
+    only ever record the bounded "TASK_MATERIALIZATION_FAILED" class, never
+    that raw text verbatim."""
+    _sensitive_sentinel = "SENTINEL-PRIVATE-DETAIL-should-never-be-exported-abc123"
+
+    def fake_run_benchmark_task(task, model, *, max_attempts, run_id):
+        del model, max_attempts, run_id
+        raise BenchmarkExecutionError(f"could not fetch repo tarball: {_sensitive_sentinel}")
+
+    monkeypatch.setattr("each.benchmark_report.run_benchmark_task", fake_run_benchmark_task)
+    monkeypatch.setattr("each.benchmark_report.each_home", lambda: tmp_path)
+
+    outcome = run_suite([_TASK_A], model=object(), report_id="test-report-leak-check")
+    report = outcome["report"]
+    assert report["tasks"][0]["outcome"] == "TASK_MATERIALIZATION_FAILED"
+    assert _sensitive_sentinel not in json.dumps(report)
+    assert _sensitive_sentinel not in render_sanitized_markdown(report)
+
+
 def test_report_is_actually_written_to_disk_under_each_home(monkeypatch, tmp_path):
     def fake_run_benchmark_task(task, model, *, max_attempts, run_id):
         del task, model, max_attempts

@@ -38,6 +38,7 @@ from each.executor.base import ExecutionResult
 from each.executor.container import ContainerExecutor, derive_assurance_level
 from each.hashing import sha256_bytes
 from each.models.base import ContextBudgetExceeded, RepairModel
+from each.outcome import sanitize_outcome_class
 from each.patch import PatchRejected, apply_patch, extract_patch_text, parse_patch
 from each.paths import cache_dir, runs_dir
 from each.receipt import Receipt
@@ -862,7 +863,14 @@ def run_benchmark_task(
         known_fix_sha256 = None
     return {
         "task_id": task.task_id,
-        "outcome": final_outcome,
+        # (F3) ``final_outcome`` may embed candidate-controlled or raw
+        # pytest stdout/stderr detail after its leading label (e.g.
+        # ``BASELINE_INCONCLUSIVE: <raw combined output>``) -- that full
+        # detail is fine inside the already-written PRIVATE receipt above,
+        # but this returned dict is consumed by each.benchmark_report's
+        # public/sanitized suite report and Markdown export, so only the
+        # bounded, reviewed outcome class ever crosses that boundary.
+        "outcome": sanitize_outcome_class(final_outcome),
         "receipt_json": str(json_path),
         "receipt_md": str(md_path),
         "attempts": len(attempts),

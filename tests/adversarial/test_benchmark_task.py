@@ -125,6 +125,46 @@ def test_exhausting_all_attempts_on_a_rejected_patch_reports_that_real_outcome_n
     assert receipt["baselineResult"]
 
 
+_SYNTAX_BREAKING_PATCH = """BEGIN_PATCH
+--- a/clamp.py
++++ b/clamp.py
+@@ -1,4 +1,4 @@
+-def clamp(value, lo, hi):
++def clamp(value, lo, hi)
+     if value > hi:
+         return hi
+     return value
+END_PATCH
+"""
+
+
+@requires_colima_each
+def test_repaired_run_inconclusive_outcome_never_leaks_raw_pytest_output_publicly(monkeypatch, tmp_path) -> None:
+    """F3 regression: a patch that applies cleanly but breaks the REPAIRED
+    test run's collection (e.g. introduces a syntax error) makes
+    ``_interpret_pytest_run`` raise ``BenchmarkExecutionError`` with the raw
+    combined pytest stdout/stderr embedded in its message -- which can
+    include literal source-line fragments from the candidate's own (private)
+    code. That raw detail is fine inside the private receipt (needed for
+    real diagnosis), but ``run_benchmark_task``'s returned ``outcome`` (the
+    value each.benchmark_report's public/sanitized suite export consumes
+    directly) must only ever be the bounded "REPAIRED_RUN_INCONCLUSIVE"
+    class, never the raw collection-error text."""
+    monkeypatch.setattr(benchmark_module, "cache_dir", lambda: tmp_path)
+    monkeypatch.setattr(benchmark_module, "fetch_file", _stub_fetch_file)
+    monkeypatch.setattr(benchmark_module, "_extract_repo_tree", _stub_extract_repo_tree)
+    model = _StubRepairModel([_SYNTAX_BREAKING_PATCH])
+    result = run_benchmark_task(_TASK, model, max_attempts=1)
+    # The public-boundary outcome is exactly the bounded class -- no raw
+    # pytest collection-error/source-fragment detail attached.
+    assert result["outcome"] == "REPAIRED_RUN_INCONCLUSIVE"
+    # The private receipt, by contrast, is allowed (and expected) to retain
+    # the full diagnostic detail for real local troubleshooting.
+    receipt = json.loads(Path(result["receipt_json"]).read_text())
+    assert receipt["outcome"].startswith("REPAIRED_RUN_INCONCLUSIVE")
+    assert receipt["outcome"] != "REPAIRED_RUN_INCONCLUSIVE"  # i.e. it DOES have extra detail after the class
+
+
 @requires_colima_each
 def test_does_not_mix_an_earlier_attempts_patch_with_a_later_rejection(monkeypatch, tmp_path) -> None:
     """F4 regression: if an EARLIER attempt applies a patch and runs the
