@@ -47,6 +47,87 @@ STARCODERBASE_LINEAGE = {
         "No legal, originality, memorization or repair-correctness guarantee.",
     ],
 }
+OCTOCODER_REVISION = "0f863c63e38ba80fc2c4010f34a7f46d537a9eee"
+OCTOCODER_SOURCE_WEIGHTS = dict(zip(
+    [f"model-{i:05d}-of-00007.safetensors" for i in range(1, 8)],
+    [
+        "09ac7601c3d2f981714b44d2b52c9caebd0c77b934e56203d6021d91e00bf41c",
+        "e983ec634521f4e32fb06de0a37de5a12adf1195f1d56ef662647a20179c2dd8",
+        "dc9b7beaba475db0578e79ecc545a2f6c7647c05deab03bed3b92da52b930341",
+        "1c3207001107e933840897b7b4f54f89c666115efa47c15e5624be58a8bae189",
+        "71f732da4a08546b712eed97021bf29aa7d57f40f817528eab4a46214c6b15e9",
+        "e3834928c2ea4919d6fe81e379ff16343f802dd57d9a00d1828c92df89a706ec",
+        "b053bc62199e0d4636f6819412fb45065311f71a886194a14309ebbb1608c69b",
+    ], strict=True,
+))
+OCTOCODER_LINEAGE = {
+    "status": "ELIGIBLE",
+    "scope": "documented-inspectable-training-dataset-lineage",
+    "modelRepo": "bigcode/octocoder",
+    "modelRevision": OCTOCODER_REVISION,
+    "baseTraining": STARCODERBASE_LINEAGE,
+    "pythonContinuation": {
+        "tokens": 35_000_000_000,
+        "dataset": "same StarCoder training dataset; Python continuation",
+        "evidence": "https://arxiv.org/html/2305.06161v2",
+    },
+    "postTraining": {
+        "evidence": "https://arxiv.org/html/2308.07124v2",
+        "commitpackft": {
+            "repo": "bigcode/commitpackft",
+            "revision": "fc56fe33c030c6daa414c2b112c932b8eed085e6",
+            "selectedCount": 5000,
+            "exactSelectedRowIds": "NOT_RECOVERED",
+            "languages": ["Python", "JavaScript", "Java", "Go", "C++", "Rust"],
+        },
+        "oasst": {
+            "repo": "bigcode/oasst-octopack",
+            "revision": "1f5db3451c66a64e37158fcdf8c1951db8e90b33",
+            "fileSha256": "de45760df5da837d265615a17f23fddefb13c18569481e75a522d2bbb5732ada",
+            "conversations": 8587,
+            "selectedOriginalMessagesMatched": 17174,
+            "originalRepo": "OpenAssistant/oasst1",
+            "originalRevision": "fdf72ae0827c1cda404aff25b6603abec9e3399b",
+            "originalFileSha256": "2ff4aa8999c911ffec7972ddf70359f220b3da184b731f3649f68b1391e19341",
+            "syntheticTrue": 0,
+            "syntheticFlagUnknown": 0,
+        },
+        "processingSource": "bigcode-project/octopack@e17a8f6470264286bc6a52eb8263582083bf3bf6",
+    },
+    "dossier": "docs/model-qualifications/octocoder-progress.md",
+    "limitations": [
+        "Dataset-stage eligibility, not exact 5000-row membership or historical training-job reconstruction.",
+        "Intermediate guanaco repository returned 404; final-to-original OASST IDs/text hashes matched.",
+        "Mixed source licenses, including sampled AGPL-3.0; no blanket permissive or legal certification.",
+        "False synthetic metadata is not proof of exclusively human authorship.",
+    ],
+}
+
+
+def qualified_profile(name: str) -> dict:
+    """Only the two independently assessed original artifacts; no family fallback."""
+    if name == "starcoderbase":
+        revision, weights, lineage, source_format = (
+            STARCODERBASE_REVISION, STARCODERBASE_SOURCE_WEIGHTS, STARCODERBASE_LINEAGE, "pytorch",
+        )
+    elif name == "octocoder":
+        revision, weights, lineage, source_format = (
+            OCTOCODER_REVISION, OCTOCODER_SOURCE_WEIGHTS, OCTOCODER_LINEAGE, "safetensors",
+        )
+    else:
+        raise UnavailableModelError("training-data provenance is not qualified")
+    if (
+        lineage.get("status") != "ELIGIBLE"
+        or lineage.get("modelRepo") != f"bigcode/{name}"
+        or lineage.get("modelRevision") != revision
+        or STARCODERBASE_LINEAGE.get("status") != "ELIGIBLE"
+    ):
+        raise UnavailableModelError("training-data provenance is not qualified")
+    return {
+        "name": name, "repo": f"bigcode/{name}", "revision": revision,
+        "weights": weights, "lineage": lineage, "source_format": source_format,
+        "operation": f"{source_format}-fp32-to-safetensors-fp16",
+    }
 
 
 class UnavailableModelError(RuntimeError):
@@ -61,53 +142,80 @@ def _mlx_runtime_version() -> str:
 
 
 def _starcoderbase_mlx(*, max_tokens: int = 512) -> RepairModel:
-    snapshot_dir = models_dir() / "qualified" / "starcoderbase-fp16" / STARCODERBASE_REVISION
+    return _qualified_mlx("starcoderbase", max_tokens=max_tokens)
+
+
+def _octocoder_mlx(*, max_tokens: int = 512) -> RepairModel:
+    return _qualified_mlx("octocoder", max_tokens=max_tokens)
+
+
+def _qualified_mlx(name: str, *, max_tokens: int) -> RepairModel:
+    profile = qualified_profile(name)
+    snapshot_dir = models_dir() / "qualified" / f"{name}-fp16" / profile["revision"]
     assert_no_symlink_escape(snapshot_dir, label="qualified model artifact")
     conversion_path = snapshot_dir / "conversion.json"
     if not conversion_path.is_file():
-        raise UnavailableModelError("qualified StarCoderBase artifact is not provisioned; conversion provenance required")
+        raise UnavailableModelError(f"qualified {name} artifact is not provisioned; conversion provenance required")
     import json
 
     try:
         conversion = json.loads(conversion_path.read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError) as exc:
-        raise UnavailableModelError("StarCoderBase conversion record is unreadable") from exc
+        raise UnavailableModelError(f"{name} conversion record is unreadable") from exc
     if (
         not isinstance(conversion, dict)
-        or conversion.get("sourceRepo") != "bigcode/starcoderbase"
-        or conversion.get("sourceRevision") != STARCODERBASE_REVISION
-        or conversion.get("operation") != "pytorch-fp32-to-safetensors-fp16"
-        or conversion.get("sourceWeightsSha256") != STARCODERBASE_SOURCE_WEIGHTS
+        or conversion.get("sourceRepo") != profile["repo"]
+        or conversion.get("sourceRevision") != profile["revision"]
+        or conversion.get("operation") != profile["operation"]
+        or conversion.get("sourceWeightsSha256") != profile["weights"]
         or not isinstance(conversion.get("outputFilesSha256"), dict)
         or conversion.get("tensorRoundTripVerified") is not True
         or conversion.get("trainingPerformed") is not False
     ):
-        raise UnavailableModelError("StarCoderBase conversion does not match its qualified source artifact")
+        raise UnavailableModelError(f"{name} conversion does not match its qualified source artifact")
     manifest = build_manifest_from_snapshot(
         snapshot_dir,
-        repo_id="bigcode/starcoderbase",
+        repo_id=profile["repo"],
         license="bigcode-openrail-m",
         runtime_name="mlx-lm",
         runtime_version=_mlx_runtime_version(),
-        conversion_chain="original publisher FP32 PyTorch -> local FP16 safetensors; retained conversion.json",
+        conversion_chain=(
+            "original publisher FP32 "
+            + ("PyTorch" if name == "starcoderbase" else "safetensors")
+            + " -> local FP16 safetensors; retained conversion.json"
+        ),
     )
-    for name, expected in conversion["outputFilesSha256"].items():
-        if manifest.files_sha256.get(name) != expected:
-            raise UnavailableModelError("qualified StarCoderBase converted artifact has changed")
+    for filename, expected in conversion["outputFilesSha256"].items():
+        if manifest.files_sha256.get(filename) != expected:
+            raise UnavailableModelError(f"qualified {name} converted artifact has changed")
     if set(manifest.files_sha256) - {"conversion.json"} != set(conversion["outputFilesSha256"]):
-        raise UnavailableModelError("qualified StarCoderBase conversion does not cover every output artifact")
+        raise UnavailableModelError(f"qualified {name} conversion does not cover every output artifact")
     expected_weights = {
         f"model-{index:05d}-of-00007.safetensors"
         for index in range(1, 8)
     }
     if set(manifest.weights_sha256) != expected_weights or not expected_weights.issubset(conversion["outputFilesSha256"]):
-        raise UnavailableModelError("qualified StarCoderBase conversion must bind all seven output weight shards")
-    manifest = replace(manifest, training_data_provenance=dict(STARCODERBASE_LINEAGE))
+        raise UnavailableModelError(f"qualified {name} conversion must bind all seven output weight shards")
+    model_config = {"tie_word_embeddings": False}
+    if name == "octocoder":
+        index = json.loads((snapshot_dir / "model.safetensors.index.json").read_text())
+        weight_map = index["weight_map"]
+        model_config = {"tie_word_embeddings": "lm_head.weight" not in weight_map}
+        if (
+            set(weight_map.values()) != expected_weights
+            or conversion.get("tensorCount") != len(weight_map)
+            or conversion.get("sourceIndexVerified") is not True
+            or conversion.get("runtimeModelConfig") != model_config
+            or any(conversion.get("sourceFilesSha256", {}).get(k) != v for k, v in profile["weights"].items())
+        ):
+            raise UnavailableModelError("OctoCoder conversion does not match its complete source tensor map")
+    manifest = replace(manifest, training_data_provenance=dict(profile["lineage"]))
     from each.models.mlx_model import MLXRepairModel
 
     return MLXRepairModel(
         snapshot_dir, manifest, max_tokens=max_tokens,
-        model_config={"tie_word_embeddings": False},
+        model_config=model_config,
+        **({"prompt_format": "question-answer"} if name == "octocoder" else {}),
     )
 
 
@@ -353,6 +461,7 @@ def _granite_gguf_llamacpp() -> RepairModel:
 
 _CATALOG: dict[str, Callable[..., RepairModel]] = {
     "starcoderbase-mlx": _starcoderbase_mlx,
+    "octocoder-mlx": _octocoder_mlx,
     "granite-3b-code-base-mlx": _granite_3b_code_base_mlx,
     "granite-3b-code-instruct-mlx": _granite_3b_code_instruct_mlx,
     "granite-8b-code-instruct-128k-mlx": _granite_8b_code_instruct_128k_mlx,
@@ -373,7 +482,7 @@ def load_model(key: str, **kwargs) -> RepairModel:
     """
     if key not in _CATALOG:
         raise UnavailableModelError(f"unknown model key: {key!r}; known keys: {sorted(_CATALOG)}")
-    if key == "starcoderbase-mlx":
+    if key in {"starcoderbase-mlx", "octocoder-mlx"}:
         return _CATALOG[key](**kwargs)
     raise UnavailableModelError(
         f"training-data provenance is not qualified for {key!r}; "

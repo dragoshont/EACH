@@ -162,6 +162,18 @@ def test_raw_and_rendered_prompts_are_recorded_distinctly(monkeypatch, tmp_path)
     assert model.last_raw_prompt != model.last_prompt
 
 
+def test_question_answer_format_records_exact_backend_input(monkeypatch, tmp_path):
+    model = _model(tmp_path, max_position_embeddings=2048, max_tokens=5, monkeypatch=monkeypatch)
+    model._prompt_format = "question-answer"
+    received = []
+    monkeypatch.setattr("mlx_lm.generate", lambda *a, **k: received.append(k["prompt"]) or "fixture")
+    model.complete("raw diff instruction")
+    assert received == ["Question: raw diff instruction\n\nAnswer:"]
+    assert model.last_prompt == received[0]
+    assert model.last_raw_prompt == "raw diff instruction"
+    assert model.identity()["promptFormat"] == "question-answer"
+
+
 def test_default_sampling_identity_is_unchanged_greedy(monkeypatch, tmp_path) -> None:
     """Without ever calling configure_sampling, identity() reports exactly
     the same deterministic greedy defaults as before this feature existed

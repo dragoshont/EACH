@@ -32,7 +32,10 @@ class MLXRepairModel(RepairModel):
         *,
         max_tokens: int = 512,
         model_config: dict[str, Any] | None = None,
+        prompt_format: str = "auto",
     ) -> None:
+        if prompt_format not in {"auto", "question-answer"}:
+            raise ValueError("unsupported prompt_format")
         if max_tokens < 1:
             raise ValueError("max_tokens must be at least 1")
         try:
@@ -47,6 +50,7 @@ class MLXRepairModel(RepairModel):
         self._max_tokens = max_tokens
         self._snapshot_dir = str(snapshot_dir)
         self._model_config = dict(model_config) if model_config is not None else {}
+        self._prompt_format = prompt_format
         self._model = None
         self._tokenizer = None
         # last_prompt (inherited from RepairModel) is set to the exact
@@ -105,10 +109,14 @@ class MLXRepairModel(RepairModel):
         }
         if self._model_config:
             identity["runtimeModelConfig"] = dict(self._model_config)
+        if self._prompt_format != "auto":
+            identity["promptFormat"] = self._prompt_format
         return identity
 
     def _render_prompt(self, prompt: str) -> str:
         self._ensure_loaded()
+        if self._prompt_format == "question-answer":
+            return f"Question: {prompt}\n\nAnswer:"
         chat_template = getattr(self._tokenizer, "chat_template", None)
         if chat_template:
             # Instruction-tuned checkpoints (e.g. granite-*-instruct) expect

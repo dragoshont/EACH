@@ -1,4 +1,4 @@
-"""Explicitly provision the qualified original StarCoderBase artifact locally.
+"""Provision either qualified original GPT-BigCode artifact locally.
 
 Run on the development Mac with the models extra after Hugging Face access
 has been granted. Original publisher shards are retained; no inference runs.
@@ -12,51 +12,71 @@ from importlib.metadata import version
 from pathlib import Path
 
 from each.hashing import sha256_file
-from each.models.catalog import STARCODERBASE_REVISION, STARCODERBASE_SOURCE_WEIGHTS
+from each.models.catalog import qualified_profile
 from each.paths import FileLock, assert_no_symlink_escape, models_dir
 
 
-def provision() -> Path:
+def provision(name: str = "starcoderbase") -> Path:
+    profile = qualified_profile(name)  # Fail closed before download or tensor loading.
     import torch
-    from huggingface_hub import snapshot_download
+    from huggingface_hub import HfApi, snapshot_download
     from safetensors import safe_open
-    from safetensors.torch import save_file
+    from safetensors.torch import load_file, save_file
 
     root = models_dir()
-    destination = root / "qualified" / "starcoderbase-fp16" / STARCODERBASE_REVISION
+    destination = root / "qualified" / f"{name}-fp16" / profile["revision"]
     assert_no_symlink_escape(destination, label="qualified model conversion")
-    with FileLock(root / "starcoderbase-provision.lock"):
-        if (destination / "conversion.json").exists():
-            raise ValueError("StarCoderBase conversion already exists; verify it rather than overwriting it")
+    with FileLock(root / f"{name}-provision.lock"):
+        if destination.exists():
+            raise ValueError("Conversion or partial destination already exists; preserve it rather than overwriting it")
         if shutil.disk_usage(root).free < 120 * 1024**3:
-            raise ValueError("StarCoderBase original and converted artifacts require at least 120 GiB free disk")
+            raise ValueError("Original and converted artifacts require at least 120 GiB free disk")
+        info = HfApi().model_info(profile["repo"], revision=profile["revision"], files_metadata=True)
+        publisher_hashes = {f.rfilename: f.lfs.sha256 for f in info.siblings if f.lfs}
+        if info.sha != profile["revision"] or any(
+            publisher_hashes.get(k) != v for k, v in profile["weights"].items()
+        ):
+            raise ValueError("Publisher metadata does not match qualified source pins")
         snapshot = Path(snapshot_download(
-            "bigcode/starcoderbase",
-            revision=STARCODERBASE_REVISION,
+            profile["repo"],
+            revision=profile["revision"],
             cache_dir=str(root / ".hf_cache"),
             allow_patterns=[
                 "*.json", "merges.txt", "vocab.json", "README.md",
-                "pytorch_model-*.bin",
+                *profile["weights"],
             ],
+            ignore_patterns=["*.bin*"] if profile["source_format"] == "safetensors" else ["*.safetensors*"],
             max_workers=2,
         ))
-        destination.mkdir(parents=True, exist_ok=True, mode=0o700)
         original_files = {
             path.name: sha256_file(path)
             for path in snapshot.iterdir()
             if path.is_file()
         }
-        if any(original_files.get(name) != expected for name, expected in STARCODERBASE_SOURCE_WEIGHTS.items()):
-            raise ValueError("Downloaded original StarCoderBase weights do not match the pinned publisher identities")
+        if any(original_files.get(k) != v for k, v in profile["weights"].items()):
+            raise ValueError("Downloaded original weights do not match the pinned publisher identities")
+        source_index_name = (
+            "model.safetensors.index.json" if profile["source_format"] == "safetensors"
+            else "pytorch_model.bin.index.json"
+        )
+        source_map = json.loads((snapshot / source_index_name).read_text())["weight_map"]
+        if set(source_map.values()) != set(profile["weights"]):
+            raise ValueError("Original tensor index does not cover exactly the qualified shards")
+        destination.mkdir(parents=True, exist_ok=False, mode=0o700)
         outputs = {}
         weight_map = {}
         tensor_count = 0
-        for index, name in enumerate(STARCODERBASE_SOURCE_WEIGHTS, start=1):
+        for index, shard_name in enumerate(profile["weights"], start=1):
             output_name = f"model-{index:05d}-of-00007.safetensors"
             output = destination / output_name
             if output.exists():
                 raise ValueError("Partial conversion exists; preserve it and inspect before retrying")
-            state = torch.load(snapshot / name, map_location="cpu", weights_only=True, mmap=True)
+            state = (
+                load_file(snapshot / shard_name, device="cpu") if profile["source_format"] == "safetensors"
+                else torch.load(snapshot / shard_name, map_location="cpu", weights_only=True, mmap=True)
+            )
+            if set(state) != {k for k, v in source_map.items() if v == shard_name}:
+                raise ValueError("Original shard tensors do not match the publisher index")
             converted = {}
             for key, value in state.items():
                 if not isinstance(key, str) or not isinstance(value, torch.Tensor):
@@ -81,7 +101,7 @@ def provision() -> Path:
             print(f"Converted and verified shard {index}/7", flush=True)
 
         for path in snapshot.iterdir():
-            if not path.is_file() or path.suffix == ".bin" or path.name == "pytorch_model.bin.index.json":
+            if not path.is_file() or path.suffix in {".bin", ".safetensors"} or path.name.endswith(".index.json"):
                 continue
             target = destination / path.name
             if target.exists():
@@ -101,16 +121,21 @@ def provision() -> Path:
         index_path.chmod(0o600)
         outputs[index_path.name] = sha256_file(index_path)
         record = {
-            "sourceRepo": "bigcode/starcoderbase",
-            "sourceRevision": STARCODERBASE_REVISION,
-            "operation": "pytorch-fp32-to-safetensors-fp16",
-            "sourceWeightsSha256": STARCODERBASE_SOURCE_WEIGHTS,
+            "sourceRepo": profile["repo"],
+            "sourceRevision": profile["revision"],
+            "operation": profile["operation"],
+            "sourceWeightsSha256": profile["weights"],
             "sourceFilesSha256": original_files,
             "outputFilesSha256": outputs,
             "torchVersion": version("torch"),
             "safetensorsVersion": version("safetensors"),
+            "mlxLmVersion": version("mlx-lm"),
+            "sourceDtype": "float32",
+            "outputDtype": "float16",
             "tensorCount": tensor_count,
             "tensorRoundTripVerified": True,
+            "sourceIndexVerified": True,
+            "runtimeModelConfig": {"tie_word_embeddings": "lm_head.weight" not in source_map},
             "precisionChange": "FP32 to FP16; explicit rounding, not byte-identical weights",
             "trainingPerformed": False,
             "inferencePerformed": False,
@@ -122,4 +147,8 @@ def provision() -> Path:
 
 
 if __name__ == "__main__":
-    print(provision())
+    import argparse
+
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--model", choices=["starcoderbase", "octocoder"], default="starcoderbase")
+    print(provision(parser.parse_args().model))

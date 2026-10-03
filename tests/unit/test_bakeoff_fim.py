@@ -43,7 +43,8 @@ def test_missing_fixture_test_module_is_not_a_genuine_failing_test():
 
 
 @requires_colima_each
-def test_fim_uses_the_declared_prefix_and_retains_original_inputs(container_home, monkeypatch):
+@pytest.mark.parametrize("proposal_format", ["fim", "diff"])
+def test_fim_uses_the_declared_prefix_and_retains_original_inputs(container_home, monkeypatch, proposal_format):
     calls = []
     original_run = bakeoff.ContainerExecutor.run
 
@@ -53,15 +54,22 @@ def test_fim_uses_the_declared_prefix_and_retains_original_inputs(container_home
 
     monkeypatch.setattr(bakeoff.ContainerExecutor, "run", observed_run)
     completion = '    return "Hello, " + name\n'
+    if proposal_format == "diff":
+        from tests.adversarial.test_bakeoff import _CORRECT_PATCH
+
+        completion = _CORRECT_PATCH
     model = CapturingFixture(completion)
-    result = bakeoff.run_model_bakeoff(model, max_attempts=1, proposal_format="fim")
+    result = bakeoff.run_model_bakeoff(model, max_attempts=1, proposal_format=proposal_format)
     receipt_path = Path(result["receipt_json"])
     receipt = json.loads(receipt_path.read_text())
     assert result["outcome"] == "REPAIR_VERIFIED"
-    assert model.prompt.startswith("<fim_prefix># ")
-    assert model.prompt.endswith("def greet(name: str) -> str:\n<fim_suffix><fim_middle>")
+    if proposal_format == "fim":
+        assert model.prompt.startswith("<fim_prefix># ")
+        assert model.prompt.endswith("def greet(name: str) -> str:\n<fim_suffix><fim_middle>")
+    else:
+        assert model.prompt.startswith("You are repairing")
     assert receipt["rawCompletion"] == completion
-    assert receipt["attempts"][0]["proposal_format"] == "fim"
+    assert receipt["attempts"][0]["proposal_format"] == proposal_format
     assert receipt["attempts"][0]["completion_call_seconds"] >= 0
     validation_calls = [(path, protected) for path, protected in calls if protected]
     assert len(validation_calls) == 2

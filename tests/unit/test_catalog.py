@@ -69,7 +69,9 @@ def test_load_model_rejects_unsupported_kwarg_for_entries_without_tunable_params
         catalog._granite_gguf_llamacpp(max_tokens=1024)
 
 
-@pytest.mark.parametrize("key", [key for key in catalog._CATALOG if key != "starcoderbase-mlx"])
+@pytest.mark.parametrize("key", [
+    key for key in catalog._CATALOG if key not in {"starcoderbase-mlx", "octocoder-mlx"}
+])
 def test_catalog_blocks_unqualified_training_provenance_before_loading(key, monkeypatch) -> None:
     def must_not_load(**kwargs):
         pytest.fail("unqualified model builder was invoked")
@@ -100,33 +102,67 @@ def test_unrelated_conversion_cannot_enter_qualified_base(monkeypatch, tmp_path)
         load_model("starcoderbase-mlx")
 
 
-def test_qualified_conversion_binds_lineage_and_rejects_output_drift(monkeypatch, tmp_path):
+@pytest.mark.parametrize("name", ["starcoderbase", "octocoder"])
+def test_qualified_conversion_binds_lineage_and_rejects_output_drift(monkeypatch, tmp_path, name):
     """Synthetic artifact/adapter fixture, never a real model qualification."""
     monkeypatch.setattr(catalog, "models_dir", lambda: tmp_path)
     monkeypatch.setattr(catalog, "_mlx_runtime_version", lambda: "test-runtime")
     monkeypatch.setattr(
         "each.models.mlx_model.MLXRepairModel",
-        lambda path, manifest, **kwargs: SimpleNamespace(manifest=manifest),
+        lambda path, manifest, **kwargs: SimpleNamespace(manifest=manifest, options=kwargs),
     )
-    root = tmp_path / "qualified" / "starcoderbase-fp16" / catalog.STARCODERBASE_REVISION
+    profile = catalog.qualified_profile(name)
+    root = tmp_path / "qualified" / f"{name}-fp16" / profile["revision"]
     root.mkdir(parents=True)
     for index in range(1, 8):
         (root / f"model-{index:05d}-of-00007.safetensors").write_bytes(b"synthetic-test-weights")
     (root / "config.json").write_text('{"n_positions":8192}')
     (root / "tokenizer.json").write_text("{}")
+    weight_map = {f"tensor.{i}": f"model-{i:05d}-of-00007.safetensors" for i in range(1, 8)}
+    (root / "model.safetensors.index.json").write_text(json.dumps({"weight_map": weight_map}))
     record = {
-        "sourceRepo": "bigcode/starcoderbase",
-        "sourceRevision": catalog.STARCODERBASE_REVISION,
-        "operation": "pytorch-fp32-to-safetensors-fp16",
-        "sourceWeightsSha256": catalog.STARCODERBASE_SOURCE_WEIGHTS,
+        "sourceRepo": profile["repo"],
+        "sourceRevision": profile["revision"],
+        "operation": profile["operation"],
+        "sourceWeightsSha256": profile["weights"],
+        "sourceFilesSha256": profile["weights"],
         "outputFilesSha256": {p.name: sha256_file(p) for p in root.iterdir()},
         "tensorRoundTripVerified": True,
+        "sourceIndexVerified": True,
+        "tensorCount": 7,
+        "runtimeModelConfig": {"tie_word_embeddings": True},
         "trainingPerformed": False,
     }
     (root / "conversion.json").write_text(json.dumps(record))
-    result = load_model("starcoderbase-mlx")
-    assert result.manifest.to_dict()["trainingDataProvenance"]["modelRevision"] == catalog.STARCODERBASE_REVISION
+    result = load_model(f"{name}-mlx")
+    assert result.manifest.to_dict()["trainingDataProvenance"]["modelRevision"] == profile["revision"]
     assert result.manifest.max_position_embeddings == 8192
+    assert result.options["model_config"] == {"tie_word_embeddings": name == "octocoder"}
+    if name == "octocoder":
+        assert result.options["prompt_format"] == "question-answer"
+    (root / "extra.json").write_text("{}")
+    with pytest.raises(UnavailableModelError, match="every output artifact"):
+        load_model(f"{name}-mlx")
+    (root / "extra.json").unlink()
     (root / "model-00001-of-00007.safetensors").write_bytes(b"changed")
     with pytest.raises(UnavailableModelError, match="changed"):
-        load_model("starcoderbase-mlx")
+        load_model(f"{name}-mlx")
+
+
+def test_octocoder_unknown_lineage_blocks_before_artifact_access(monkeypatch):
+    monkeypatch.setitem(catalog.OCTOCODER_LINEAGE, "status", "UNKNOWN")
+    monkeypatch.setattr(catalog, "models_dir", lambda: pytest.fail("must reject before disk or backend access"))
+    with pytest.raises(UnavailableModelError, match="not qualified"):
+        load_model("octocoder-mlx")
+
+
+def test_octocoder_wrong_source_is_refused(monkeypatch, tmp_path):
+    monkeypatch.setattr(catalog, "models_dir", lambda: tmp_path)
+    root = tmp_path / "qualified" / "octocoder-fp16" / catalog.OCTOCODER_REVISION
+    root.mkdir(parents=True)
+    (root / "conversion.json").write_text(json.dumps({
+        "sourceRepo": "bigcode/starcoderbase",
+        "sourceRevision": catalog.OCTOCODER_REVISION,
+    }))
+    with pytest.raises(UnavailableModelError, match="does not match"):
+        load_model("octocoder-mlx")

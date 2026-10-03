@@ -209,7 +209,7 @@ def run_model_bakeoff(
         try:
             baseline = executor.run(
                 ACCEPTANCE_COMMAND, worktree,
-                **({"protected_paths": tuple(FIXTURE_TEST_PATHS)} if proposal_format == "fim" else {}),
+                protected_paths=tuple(FIXTURE_TEST_PATHS),
             )
         except ContainerExecutorError as exc:
             attempts.append(
@@ -305,13 +305,13 @@ def run_model_bakeoff(
                     raise RawProposalRejected("FIM completion did not change the source")
                 attempt_record["infillPrefixSha256"] = sha256_bytes(source_prefix.encode())
                 attempt_record["infillSuffixSha256"] = sha256_bytes(b"")
-                worktree, candidate_manifest = build_worktree(
-                    FIXTURE_ROOT, FIXTURE_ALLOWED_PATHS + FIXTURE_TEST_PATHS
-                )
-                if candidate_manifest != manifest:
-                    raise RawProposalRejected("FIM candidate preimage differs from the validated baseline")
             else:
                 patch_text = extract_patch_text(raw_completion)
+            worktree, candidate_manifest = build_worktree(
+                FIXTURE_ROOT, FIXTURE_ALLOWED_PATHS + FIXTURE_TEST_PATHS
+            )
+            if candidate_manifest != manifest:
+                raise RawProposalRejected("Candidate preimage differs from the validated baseline")
             patch = parse_patch(patch_text)
             touched = apply_patch(patch, worktree, set(FIXTURE_ALLOWED_PATHS))
         except (PatchRejected, RawProposalRejected) as exc:
@@ -331,7 +331,7 @@ def run_model_bakeoff(
         try:
             repaired = executor.run(
                 ACCEPTANCE_COMMAND, worktree,
-                **({"protected_paths": tuple(FIXTURE_TEST_PATHS)} if proposal_format == "fim" else {}),
+                protected_paths=tuple(FIXTURE_TEST_PATHS),
             )
         except ContainerExecutorError as exc:
             attempt_record["outcome"] = f"EXECUTION_ERROR: {exc}"
@@ -394,7 +394,7 @@ def run_model_bakeoff(
         **common_fields,
     )
     json_path, md_path = receipt.write(
-        runs_dir() / run_id, materials_source=FIXTURE_ROOT if proposal_format == "fim" else None
+        runs_dir() / run_id, materials_source=FIXTURE_ROOT
     )
     return {
         "outcome": sanitize_outcome_class(final_outcome),
