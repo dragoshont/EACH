@@ -4,6 +4,7 @@ import json
 import subprocess
 import sys
 from pathlib import Path
+from types import ModuleType
 
 import pytest
 
@@ -39,6 +40,33 @@ _NEGATIVE_PATCH = """--- a/xsystem.c
 """
 _NEGATIVE_REPAIRED_SOURCE = "int sandbox_id(void) { return 0; }\nint keep(void) { return 8; }\n"
 
+
+@pytest.mark.parametrize("foreign_module", [None, "each.executor.container", "each.patch", "each.audit.run"])
+def test_current_execution_checks_every_loaded_each_module(tmp_path, monkeypatch, foreign_module):
+    repo = tmp_path / "checkout"
+    (repo / "each").mkdir(parents=True)
+    (repo / "each" / "__init__.py").write_text("", encoding="utf-8")
+    store = art.RunStore(repo)
+    commit = "a" * 40
+    monkeypatch.setattr(store, "load", lambda run_id: {"baseline": {"commit": commit}})
+    monkeypatch.setattr(store, "repository_identity", lambda: {"commit": commit})
+    monkeypatch.setattr(art, "run_command", lambda *args: "")
+    for name, module in list(sys.modules.items()):
+        if name != "each" and not name.startswith("each."):
+            continue
+        expected = repo.joinpath(*name.split("."))
+        expected = expected / "__init__.py" if hasattr(module, "__path__") else expected.with_suffix(".py")
+        monkeypatch.setattr(module, "__file__", str(expected))
+        if hasattr(module, "__path__"):
+            monkeypatch.setattr(module, "__path__", [str(expected.parent)])
+    if foreign_module:
+        module = ModuleType(foreign_module)
+        module.__file__ = str(tmp_path / "foreign" / "implementation.py")
+        monkeypatch.setitem(sys.modules, foreign_module, module)
+        with pytest.raises(art.RuntimeFailure, match="not the current repository"):
+            store._verify_clean_current_execution_identity("test-run")
+    else:
+        assert store._verify_clean_current_execution_identity("test-run") == commit
 
 
 def _git(repo: Path, *args: str) -> None:
@@ -725,4 +753,3 @@ def test_record_target_replay_receipt_allows_legacy_unknown_producer_and_subject
     state = store._record_target_replay_receipt("test-run", artifact_id="m8-replay", receipt_path=str(replay_path), evidence_refs=[])
     artifact = next(item for item in state["artifacts"] if item["id"] == "m8-replay")
     assert artifact["kind"] == "target-replay-receipt"
-

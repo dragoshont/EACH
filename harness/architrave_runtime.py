@@ -1735,14 +1735,25 @@ class RunStore:
         if each_pkg_init.is_file():
             import each as _each_module
 
-            loaded_each_path = Path(_each_module.__file__).resolve()
-            try:
-                loaded_each_path.relative_to(self.repository.resolve())
-            except ValueError as exc:
-                raise RuntimeFailure(
-                    "TARGET_REPLAY_RECEIPT",
-                    "the `each` package actually loaded in this process is not the current repository checkout",
-                ) from exc
+            package_root = each_pkg_init.parent.resolve()
+            for name, module in list(sys.modules.items()):
+                if name != "each" and not name.startswith("each."):
+                    continue
+                filename = getattr(module, "__file__", None)
+                if not filename:
+                    raise RuntimeFailure("TARGET_REPLAY_RECEIPT", "loaded EACH module has no verifiable source origin")
+                expected = self.repository.joinpath(*name.split("."))
+                expected = expected / "__init__.py" if hasattr(module, "__path__") else expected.with_suffix(".py")
+                if Path(filename).resolve() != expected.resolve():
+                    raise RuntimeFailure(
+                        "TARGET_REPLAY_RECEIPT",
+                        "loaded EACH implementation is not the current repository checkout",
+                    )
+                for search_path in getattr(module, "__path__", ()):
+                    if Path(search_path).resolve() != expected.parent.resolve():
+                        raise RuntimeFailure("TARGET_REPLAY_RECEIPT", "loaded EACH package has a foreign module search path")
+            if Path(_each_module.__file__).resolve() != package_root / "__init__.py":
+                raise RuntimeFailure("TARGET_REPLAY_RECEIPT", "loaded EACH package origin does not match the checkout")
         return identity["commit"]
 
     # Decisive original outcomes eligible for current replay validation: a
