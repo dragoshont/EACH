@@ -51,6 +51,14 @@ def extract_full_source(completion: str) -> str:
         raise RawProposalRejected("completion is missing BEGIN_SOURCE/END_SOURCE markers")
     if begin_count > 1 or end_count > 1:
         raise RawProposalRejected("completion has more than one BEGIN_SOURCE/END_SOURCE marker pair")
+    # (C1, GPT-6 Astra release review) ``str.split`` alone never checks marker
+    # ORDER: if END_SOURCE happens to appear earlier in the text than
+    # BEGIN_SOURCE, splitting on BEGIN_SOURCE first then searching for
+    # END_SOURCE only in what follows it would silently find no END_SOURCE
+    # there and fall back to treating the rest of the completion as the body
+    # -- an unbounded, un-terminated extraction instead of a clear rejection.
+    if completion.index(SOURCE_END) < completion.index(SOURCE_BEGIN):
+        raise RawProposalRejected("END_SOURCE marker appears before BEGIN_SOURCE marker")
     body = completion.split(SOURCE_BEGIN, 1)[1].split(SOURCE_END, 1)[0]
     body = body.strip("\n")
     if not body.strip():

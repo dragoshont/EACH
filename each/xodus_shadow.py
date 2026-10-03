@@ -180,11 +180,18 @@ def _assemble_source_root(fetched_source: str, allowed_path: str, dest: Path) ->
         raise ValueError("shadow source destination escapes the private root")
     if dest.exists():
         raise FileExistsError(f"refusing to reuse a shadow source destination: {dest}")
-    target = (dest / allowed_path).resolve()
+    target_unresolved = dest / allowed_path
+    # (C2) Check is_symlink() on the UNRESOLVED path first, matching the
+    # established pattern elsewhere (each/receipt.py materials copy): calling
+    # resolve() first already follows any symlink, so checking is_symlink()
+    # only AFTER resolve() is checking whether the final target is itself a
+    # (chained) symlink and would never actually catch a symlink anywhere
+    # along the path.
+    if target_unresolved.is_symlink():
+        raise ValueError(f"refusing to write through symlink: {allowed_path}")
+    target = target_unresolved.resolve()
     if target != dest_resolved and dest_resolved not in target.parents:
         raise ValueError(f"resolved write target escapes destination root: {allowed_path}")
-    if target.is_symlink():
-        raise ValueError(f"refusing to write through symlink: {allowed_path}")
     dest.mkdir(parents=True, exist_ok=False)
     target.parent.mkdir(parents=True, exist_ok=True)
     target.write_text(fetched_source, encoding="utf-8")

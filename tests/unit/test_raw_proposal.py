@@ -38,6 +38,15 @@ def test_extract_full_source_rejects_empty_body() -> None:
         extract_full_source("BEGIN_SOURCE\n\n   \n\nEND_SOURCE")
 
 
+def test_extract_full_source_rejects_end_marker_before_begin_marker() -> None:
+    # (C1) An END_SOURCE marker that appears before BEGIN_SOURCE in the raw
+    # completion must be rejected explicitly, not silently treated as "no
+    # END_SOURCE found after BEGIN_SOURCE" and fall back to an unbounded body.
+    completion = "noise END_SOURCE more noise BEGIN_SOURCE\ndef f():\n    return 1\n"
+    with pytest.raises(RawProposalRejected, match="before BEGIN_SOURCE"):
+        extract_full_source(completion)
+
+
 def test_extract_full_source_rejects_whitespace_only_body() -> None:
     with pytest.raises(RawProposalRejected, match="empty"):
         extract_full_source("BEGIN_SOURCE\nEND_SOURCE")
