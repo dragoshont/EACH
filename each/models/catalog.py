@@ -62,6 +62,37 @@ def _granite_3b_code_base_mlx() -> RepairModel:
     return MLXRepairModel(snapshot_dir, manifest)
 
 
+def _granite_3_3_8b_instruct_mlx(*, max_tokens: int = 2048) -> RepairModel:
+    snapshot_dir = (
+        HF_CACHE_DIR
+        / "models--ibm-granite--granite-3.3-8b-instruct"
+        / "snapshots"
+        / "51dd4bc2ade4059a6bd87649d68aa11e4fb2529b"
+    )
+    if not snapshot_dir.exists():
+        raise UnavailableModelError(f"snapshot not downloaded: {snapshot_dir}")
+    manifest = build_manifest_from_snapshot(
+        snapshot_dir,
+        repo_id="ibm-granite/granite-3.3-8b-instruct",
+        license="Apache-2.0",
+        runtime_name="mlx-lm",
+        runtime_version=_mlx_runtime_version(),
+        # ORIGINAL publisher weights (ibm-granite's own repo, bf16
+        # safetensors), not a third-party community re-conversion: no
+        # conversion chain applies. config.json declares
+        # architectures=["GraniteForCausalLM"]/model_type="granite" (a
+        # modern, non-deprecated Granite generation, distinct from the
+        # gpt_bigcode-family 8B/20B/34B code-instruct checkpoints already
+        # catalogued); mlx_lm.utils._get_classes(config) was verified to
+        # resolve this to mlx_lm.models.granite.{Model,ModelArgs} before
+        # this snapshot was loaded.
+        conversion_chain="none; original ibm-granite publisher bf16 safetensors loaded directly via mlx_lm",
+    )
+    from each.models.mlx_model import MLXRepairModel
+
+    return MLXRepairModel(snapshot_dir, manifest, max_tokens=max_tokens)
+
+
 def _granite_8b_code_instruct_128k_mlx(*, max_tokens: int = 512) -> RepairModel:
     snapshot_dir = (
         HF_CACHE_DIR
@@ -212,6 +243,7 @@ _CATALOG: dict[str, Callable[..., RepairModel]] = {
     "granite-3b-code-base-mlx": _granite_3b_code_base_mlx,
     "granite-3b-code-instruct-mlx": _granite_3b_code_instruct_mlx,
     "granite-8b-code-instruct-128k-mlx": _granite_8b_code_instruct_128k_mlx,
+    "granite-3.3-8b-instruct-mlx": _granite_3_3_8b_instruct_mlx,
     "granite-20b-code-instruct-mlx": _granite_20b_code_instruct_mlx,
     "granite-34b-code-instruct-mlx": _granite_34b_code_instruct_mlx,
     "octocoder-transformers-mps": _octocoder_transformers_mps,
