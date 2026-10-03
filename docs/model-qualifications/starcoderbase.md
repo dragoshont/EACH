@@ -29,7 +29,7 @@ every item's copyright status, or checked every record in the corpus.
 | Base pretraining | The original paper identifies StarCoderBase as trained on 1T tokens from The Stack v1.2-derived code in 80+ languages, GitHub issues/commits and Jupyter notebooks. The released `starcoderdata` card explicitly identifies it as the dataset for StarCoderBase and StarCoder. | Documented and inspectable. |
 | Additional Python continuation | The paper distinguishes **StarCoder**, trained from StarCoderBase on another **35B Python tokens**, from the base checkpoint. | Not a stage of this selected StarCoderBase artifact. Required if assessing StarCoder/OctoCoder ancestry later. |
 | Instruction, preference or RLHF training | The selected publisher artifact is the original base model; its card and the paper's stage distinction identify no such adaptation for it. Instruction-tuned variants are separate models, not silently included. | No applicable post-training stage in the documented selected base release. A later adapter/fine-tune requires a new assessment. |
-| Format/runtime conversion | Not yet performed. Installed MLX-LM resolves the downloaded configuration to its built-in `gpt_bigcode` classes without loading weights. | Runtime loading, original-byte hashing and any conversion remain separate prerequisites. |
+| Format/runtime conversion | Original FP32 publisher shards were hash-verified, converted to FP16 safetensors and checked tensor-by-tensor. MLX loaded the result using its built-in `gpt_bigcode` classes and recorded explicit-head configuration. | Completed for the first wiring run below; precision conversion is not training or a new dataset stage. |
 
 Primary stage evidence:
 [original paper](https://arxiv.org/html/2305.06161v2),
@@ -116,6 +116,29 @@ were compared and are equal (both shapes 49152 by 6144). The adapter loads the
 explicit output head with `tie_word_embeddings=False`, recording this runtime
 configuration in identity. No weight is silently discarded or rewritten; the
 failed load is retained separately, not counted as a successful generation.
+
+## First actual EACH wiring result
+
+The subsequent invocation used the official `starcoderbase-mlx` loader and
+the existing `run_model_bakeoff` harness on the Mac at source
+`9fc298bdd828ef64fb04184a6d6d70ed2f08759d`.
+
+- Run: `starcoderbase-qualified-wiring-70e10a921950`.
+- One actual nonempty model response; baseline test exit 1.
+- Outcome: **PATCH_REJECTED**. No candidate validation ran and no repair
+  success is claimed.
+- Receipt SHA-256:
+  `e4af7aa8eaffa5d441979a9b47bc0862a4baff4740a68c29b04ba58d6131bd10`.
+- Signature and both original input files verified against a separately
+  retained recovery root; the signed receipt remained unchanged.
+- Measured total loader/harness time: 31.863 seconds. This is not pure token
+  generation throughput or a benchmark against the other models.
+
+This establishes actual local loading, inference, harness invocation and
+retained evidence for the qualified artifact. It does not establish Xodus
+capability. The legacy fixture prompt asks for a diff; a base completion/FIM
+model must next be exercised with an appropriate declared prompt contract,
+not judged as an instruction model or tuned against hidden expected patches.
 
 An independent read-only Adversarial Judge reviewed this dossier and retained
 inspection evidence and returned PASS/ELIGIBLE for the exact base checkpoint.

@@ -1,7 +1,9 @@
 # Provenance-first evaluation plan
 
-Status: StarCoderBase training-lineage dossier accepted for a bounded research
-trial; artifact provisioning is next. **No qualified neural-model trial yet.**
+Status: StarCoderBase's bounded training-lineage dossier is accepted, the
+original artifact is provisioned, and one actual EACH wiring attempt has run.
+It produced **PATCH_REJECTED**, not a successful repair. **The Xodus task trial
+has not run.** OctoCoder and StarCoder2 remain separate lineage assessments.
 User-directed reset: 2026-10-03. Access prerequisites come before model loading,
 adapter work, repair trials or production qualification.
 
@@ -191,9 +193,14 @@ checks (597 tests, zero skips) and Ruff. Independent bounded correction review
 accepted the fail-closed behavior and documentation; it did **not** qualify
 a model or complete a repair trial.
 
-**Next work for StarCoderBase is exact artifact provisioning and local runtime
-verification.** Continue separate dataset-stage assessment for OctoCoder and
-StarCoder2; do not substitute an unqualified model.
+Artifact provisioning, recorded conversion and local
+loading completed; the [StarCoderBase dossier](model-qualifications/starcoderbase.md)
+now records its first actual EACH wiring response and verified retained
+inputs. The next task step is a declared base-model completion/FIM contract
+and the origin-reviewed Xodus behavioral packet, not another unrelated
+instruction-prompt benchmark.
+Continue separate dataset-stage assessment for OctoCoder and StarCoder2;
+do not substitute an unqualified model.
 See [model provenance](model-provenance.md) for primary sources and
 [the production ledger](production-readiness-ledger.md) for later release gates.
 
