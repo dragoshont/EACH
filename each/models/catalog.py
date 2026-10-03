@@ -123,6 +123,35 @@ def _granite_20b_code_instruct_mlx(*, max_tokens: int = 2048) -> RepairModel:
     return MLXRepairModel(snapshot_dir, manifest, max_tokens=max_tokens)
 
 
+def _granite_34b_code_instruct_mlx(*, max_tokens: int = 2048) -> RepairModel:
+    snapshot_dir = (
+        HF_CACHE_DIR
+        / "models--ibm-granite--granite-34b-code-instruct"
+        / "snapshots"
+        / "4bdfb589ebd261be0942a00dd239175d9d65bc47"
+    )
+    if not snapshot_dir.exists():
+        raise UnavailableModelError(f"snapshot not downloaded: {snapshot_dir}")
+    manifest = build_manifest_from_snapshot(
+        snapshot_dir,
+        repo_id="ibm-granite/granite-34b-code-instruct",
+        license="Apache-2.0",
+        runtime_name="mlx-lm",
+        runtime_version=_mlx_runtime_version(),
+        # ORIGINAL publisher weights (ibm-granite's own repo, bf16
+        # safetensors), not a third-party community re-conversion: no
+        # conversion chain applies. config.json declares
+        # architectures=["GPTBigCodeForCausalLM"]/model_type="gpt_bigcode"
+        # (same family as the 20B sibling); mlx_lm.utils._get_classes(config)
+        # was verified to resolve this to mlx_lm.models.gpt_bigcode.{Model,
+        # ModelArgs} before this snapshot was loaded.
+        conversion_chain="none; original ibm-granite publisher bf16 safetensors loaded directly via mlx_lm",
+    )
+    from each.models.mlx_model import MLXRepairModel
+
+    return MLXRepairModel(snapshot_dir, manifest, max_tokens=max_tokens)
+
+
 def _granite_3b_code_instruct_mlx() -> RepairModel:
     snapshot_dir = (
         HF_CACHE_DIR
@@ -184,6 +213,7 @@ _CATALOG: dict[str, Callable[..., RepairModel]] = {
     "granite-3b-code-instruct-mlx": _granite_3b_code_instruct_mlx,
     "granite-8b-code-instruct-128k-mlx": _granite_8b_code_instruct_128k_mlx,
     "granite-20b-code-instruct-mlx": _granite_20b_code_instruct_mlx,
+    "granite-34b-code-instruct-mlx": _granite_34b_code_instruct_mlx,
     "octocoder-transformers-mps": _octocoder_transformers_mps,
     "granite-gguf-llamacpp": _granite_gguf_llamacpp,
 }
