@@ -26,6 +26,19 @@ _PATCH = """--- a/xsystem.c
 """
 _ORIGINAL_SOURCE = "int sandbox_id(void) { return 0; }\nint keep(void) { return 7; }\n"
 _REPAIRED_SOURCE = "int sandbox_id(void) { return 1; }\nint keep(void) { return 7; }\n"
+# A genuinely classified-negative candidate: the patch touches the file but
+# never fixes the actual bug (sandbox_id still returns 0), so the fake
+# replay executor's acceptance command still fails after the patch -- the
+# same decisive, non-contradictory negative the original honestly recorded.
+_NEGATIVE_PATCH = """--- a/xsystem.c
++++ b/xsystem.c
+@@ -1,2 +1,2 @@
+ int sandbox_id(void) { return 0; }
+-int keep(void) { return 7; }
++int keep(void) { return 8; }
+"""
+_NEGATIVE_REPAIRED_SOURCE = "int sandbox_id(void) { return 0; }\nint keep(void) { return 8; }\n"
+
 
 
 def _git(repo: Path, *args: str) -> None:
@@ -66,25 +79,48 @@ def _rewrite_signed_receipt(receipt_path: Path, mutate) -> None:
     receipt_path.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8")
 
 
-def _write_original_receipt(each_home: Path, run_id: str, *, spec_hash: str = _M8_SPEC_HASH) -> Path:
+def _write_original_receipt(
+    each_home: Path,
+    run_id: str,
+    *,
+    spec_hash: str = _M8_SPEC_HASH,
+    outcome: str = "REPAIR_VERIFIED",
+    patch_text: str = _PATCH,
+    repaired_source: str = _REPAIRED_SOURCE,
+) -> Path:
     import os
+
+    from each.spec import ApprovedSpec, make_spec_packet
 
     os.environ["EACH_HOME"] = str(each_home)
     source_root = each_home / "sources" / run_id
     source_root.mkdir(parents=True, exist_ok=True)
     (source_root / "xsystem.c").write_text(_ORIGINAL_SOURCE, encoding="utf-8")
+    # Regression requirement: the real production spec contract -- never a
+    # handmade camelCase JSON object -- so the replay path's snake_case
+    # build_commands/acceptance_commands decoding is exercised against the
+    # actual canonical shape SpecPacket.content() emits.
+    approved_spec = ApprovedSpec.approve(
+        make_spec_packet(
+            task_id="each-m8-xsystem-sandboxid-opt",
+            target_repo="local-fixture",
+            target_ref="HEAD",
+            problem_statement="repair sandbox_id",
+            allowed_paths=["xsystem.c"],
+            build_commands=[["python", "-c", "print('build')"]],
+            acceptance_commands=[["python", "-c", "print('test')"]],
+            forbidden_sources=[],
+            approved_by="test-human",
+        )
+    )
     receipt = Receipt(
         run_id=run_id,
-        spec={
-            "taskId": "each-m8-xsystem-sandboxid-opt",
-            "buildCommands": [["python", "-c", "print('build')"]],
-            "acceptanceCommands": [["python", "-c", "print('test')"]],
-        },
+        spec=approved_spec.to_dict()["packet"],
         spec_hash=spec_hash,
         model_identity=_real_model_identity(),
         prompt="repair this function",
-        raw_completion=_PATCH,
-        patch_text=_PATCH,
+        raw_completion=patch_text,
+        patch_text=patch_text,
         touched_paths=["xsystem.c"],
         materials={"xsystem.c": sha256_bytes(_ORIGINAL_SOURCE.encode("utf-8"))},
         executor_identity={
@@ -97,18 +133,18 @@ def _write_original_receipt(each_home: Path, run_id: str, *, spec_hash: str = _M
         },
         isolation_evidence={"command": ["docker", "run", "--network", "none"], "exit_code": 1, "stdout": ""},
         baseline_result={"exit_code": 1},
-        repaired_result={"exit_code": 0},
+        repaired_result={"exit_code": 0 if outcome == "REPAIR_VERIFIED" else 1},
         audit={
             "checks": {"exact-substring": {"status": "UNAVAILABLE", "detail": "no corpus"}},
             "toolVersions": {"each-audit": "v0.1-mvp"},
             "corpusRevision": "none",
         },
         assurance_level="EACH-P2",
-        outcome="REPAIR_VERIFIED",
+        outcome=outcome,
         network_isolation_verified=True,
-        attempts=[{"attempt": 1, "proposal_format": "diff", "outcome": "REPAIR_VERIFIED"}],
+        attempts=[{"attempt": 1, "proposal_format": "diff", "outcome": outcome}],
         selected_attempt=1,
-        audit_subject_sha256=_candidate_subject_sha(),
+        audit_subject_sha256=sha256_bytes(repaired_source.encode("utf-8")),
     )
     run_dir = each_home / "runs" / run_id
     json_path, _ = receipt.write(run_dir, materials_source=source_root)
@@ -124,6 +160,8 @@ def _write_replay_request(each_home: Path, name: str, payload: dict[str, object]
 
 
 def _expected_original_fields(receipt_path: Path) -> dict[str, object]:
+    from each.outcome import sanitize_outcome_class
+
     receipt = json.loads(receipt_path.read_text(encoding="utf-8"))
     return {
         "specHash": receipt["specHash"],
@@ -132,7 +170,7 @@ def _expected_original_fields(receipt_path: Path) -> dict[str, object]:
         "modelId": receipt["modelIdentity"]["modelId"],
         "adapterClassPath": receipt["modelIdentity"]["adapterClassPath"],
         "selectedAttempt": receipt["selectedAttempt"],
-        "outcome": "REPAIR_VERIFIED",
+        "outcome": sanitize_outcome_class(str(receipt["outcome"])),
         "targetRunId": receipt["runId"],
         "auditSubjectSha256": receipt["auditSubjectSha256"],
         "producerCommit": receipt["producerCommit"],
@@ -358,12 +396,17 @@ class _FakeReplayExecutor:
     def __init__(self, *args, **kwargs) -> None:
         del args, kwargs
 
-    def run(self, command: list[str], worktree: Path) -> ExecutionResult:
-        del command
+    def run(self, command: list[str], worktree: Path, *, protected_paths: tuple[str, ...] = ()) -> ExecutionResult:
+        del protected_paths
+        if any("build" in part for part in command):
+            # The fake build step always succeeds; only acceptance is
+            # driven by the (candidate-controlled) source content below.
+            return ExecutionResult(tuple(command), 0, "build ok\n", "")
         source = (worktree / "xsystem.c").read_text(encoding="utf-8")
         if "return 1" in source:
             return ExecutionResult(("python",), 0, "1 passed in 0.01s\n", "")
         return ExecutionResult(("python",), 1, "1 failed in 0.01s\n", "")
+
 
 
 def _replay_payload(store: art.RunStore, receipt_path: Path) -> dict[str, object]:
@@ -541,3 +584,145 @@ def test_target_replay_summary_and_rejection_paths_do_not_leak_private_details(h
     with pytest.raises(art.RuntimeFailure) as excinfo:
         store._record_target_replay_receipt("test-run", artifact_id="m8-reject", receipt_path=str(replay_path), evidence_refs=[])
     assert "/private/raw-detail" not in str(excinfo.value)
+
+
+def test_record_target_replay_receipt_rejects_dirty_checkout(harness, monkeypatch):
+    monkeypatch.setattr("each.executor.container.ContainerExecutor", _FakeReplayExecutor)
+    store, repo, each_home = harness
+    original_receipt = _write_original_receipt(each_home, "m8-real-run", spec_hash=_M8_SPEC_HASH)
+    replay_path = _write_replay_request(each_home, "m8-replay", _replay_payload(store, original_receipt))
+    # A real, tracked-file modification (not the Run's own private
+    # .architrave/ bookkeeping) makes the checkout genuinely dirty.
+    (repo / "README.md").write_text("tampered\n", encoding="utf-8")
+    with pytest.raises(art.RuntimeFailure) as excinfo:
+        store._record_target_replay_receipt("test-run", artifact_id="m8-replay", receipt_path=str(replay_path), evidence_refs=[])
+    assert excinfo.value.code == "TARGET_REPLAY_RECEIPT"
+    assert "dirty" in str(excinfo.value)
+
+
+def test_record_target_replay_receipt_rejects_execution_commit_mismatching_run_baseline(harness, monkeypatch):
+    monkeypatch.setattr("each.executor.container.ContainerExecutor", _FakeReplayExecutor)
+    store, repo, each_home = harness
+    original_receipt = _write_original_receipt(each_home, "m8-real-run", spec_hash=_M8_SPEC_HASH)
+    replay_path = _write_replay_request(each_home, "m8-replay", _replay_payload(store, original_receipt))
+    _git(repo, "commit", "--allow-empty", "-q", "-m", "second")
+    with pytest.raises(art.RuntimeFailure) as excinfo:
+        store._record_target_replay_receipt("test-run", artifact_id="m8-replay", receipt_path=str(replay_path), evidence_refs=[])
+    assert excinfo.value.code == "TARGET_REPLAY_RECEIPT"
+    assert "baseline" in str(excinfo.value)
+
+
+def test_record_target_replay_receipt_rejects_malformed_spec_commands(harness, monkeypatch):
+    monkeypatch.setattr("each.executor.container.ContainerExecutor", _FakeReplayExecutor)
+    store, _repo, each_home = harness
+    original_receipt = _write_original_receipt(each_home, "m8-real-run", spec_hash=_M8_SPEC_HASH)
+    _rewrite_signed_receipt(
+        original_receipt,
+        lambda payload: {**payload, "spec": {**payload["spec"], "acceptance_commands": [["python", ""]]}},
+    )
+    replay_path = _write_replay_request(each_home, "m8-replay", _replay_payload(store, original_receipt))
+    with pytest.raises(art.RuntimeFailure) as excinfo:
+        store._record_target_replay_receipt("test-run", artifact_id="m8-replay", receipt_path=str(replay_path), evidence_refs=[])
+    assert excinfo.value.code == "TARGET_REPLAY_RECEIPT"
+    assert "malformed" in str(excinfo.value)
+
+
+def test_record_target_replay_receipt_rejects_non_dict_model_manifest(harness, monkeypatch):
+    monkeypatch.setattr("each.executor.container.ContainerExecutor", _FakeReplayExecutor)
+    store, _repo, each_home = harness
+    original_receipt = _write_original_receipt(each_home, "m8-real-run", spec_hash=_M8_SPEC_HASH)
+    _rewrite_signed_receipt(
+        original_receipt,
+        lambda payload: {
+            **payload,
+            "modelIdentity": {**payload["modelIdentity"], "modelManifest": "not-a-dict"},
+        },
+    )
+    replay_path = _write_replay_request(each_home, "m8-replay", _replay_payload(store, original_receipt))
+    with pytest.raises(art.RuntimeFailure) as excinfo:
+        store._record_target_replay_receipt("test-run", artifact_id="m8-replay", receipt_path=str(replay_path), evidence_refs=[])
+    assert excinfo.value.code == "TARGET_REPLAY_RECEIPT"
+    assert "not-a-dict" not in str(excinfo.value)
+
+
+def test_record_target_replay_receipt_accepts_classified_negative_original(harness, monkeypatch):
+    """A genuinely classified REPAIR_NOT_VERIFIED original is replayable:
+    the candidate replays decisively and still fails, exactly matching the
+    historical negative -- never contradicting it with an unexpected pass."""
+    monkeypatch.setattr("each.executor.container.ContainerExecutor", _FakeReplayExecutor)
+    store, repo, each_home = harness
+    original_receipt = _write_original_receipt(
+        each_home,
+        "m8-negative-run",
+        spec_hash=_M8_SPEC_HASH,
+        outcome="REPAIR_NOT_VERIFIED",
+        patch_text=_NEGATIVE_PATCH,
+        repaired_source=_NEGATIVE_REPAIRED_SOURCE,
+    )
+    replay_path = _write_replay_request(each_home, "m8-negative-replay", _replay_payload(store, original_receipt))
+    state = store._record_target_replay_receipt(
+        "test-run", artifact_id="m8-negative-replay", receipt_path=str(replay_path), evidence_refs=[]
+    )
+    artifact = next(item for item in state["artifacts"] if item["id"] == "m8-negative-replay")
+    summary = json.loads((repo / artifact["path"]).read_text(encoding="utf-8"))
+    assert summary["originalOutcome"] == "REPAIR_NOT_VERIFIED"
+    assert summary["candidatePassed"] is False
+    assert summary["baselineExecution"]["acceptance"][0]["exitCode"] == 1
+    assert summary["replayExecution"]["acceptance"][0]["exitCode"] == 1
+
+
+def test_record_target_replay_receipt_rejects_contradictory_negative_replay(harness, monkeypatch):
+    """A classified-negative original whose candidate now genuinely passes
+    on replay must never be silently accepted as negative evidence --
+    registering it would contradict the historical claim it is replaying."""
+    monkeypatch.setattr("each.executor.container.ContainerExecutor", _FakeReplayExecutor)
+    store, _repo, each_home = harness
+    original_receipt = _write_original_receipt(
+        each_home,
+        "m8-negative-run",
+        spec_hash=_M8_SPEC_HASH,
+        outcome="REPAIR_NOT_VERIFIED",
+        patch_text=_PATCH,
+        repaired_source=_REPAIRED_SOURCE,
+    )
+    replay_path = _write_replay_request(each_home, "m8-negative-replay", _replay_payload(store, original_receipt))
+    with pytest.raises(art.RuntimeFailure) as excinfo:
+        store._record_target_replay_receipt(
+            "test-run", artifact_id="m8-negative-replay", receipt_path=str(replay_path), evidence_refs=[]
+        )
+    assert excinfo.value.code == "TARGET_REPLAY_RECEIPT"
+    assert "contradictory" in str(excinfo.value)
+
+
+def test_record_target_replay_receipt_rejects_non_decisive_original_outcome(harness, monkeypatch):
+    monkeypatch.setattr("each.executor.container.ContainerExecutor", _FakeReplayExecutor)
+    store, _repo, each_home = harness
+    original_receipt = _write_original_receipt(
+        each_home, "m8-real-run", spec_hash=_M8_SPEC_HASH, outcome="BASELINE_INCONCLUSIVE"
+    )
+    replay_path = _write_replay_request(each_home, "m8-replay", _replay_payload(store, original_receipt))
+    with pytest.raises(art.RuntimeFailure) as excinfo:
+        store._record_target_replay_receipt("test-run", artifact_id="m8-replay", receipt_path=str(replay_path), evidence_refs=[])
+    assert excinfo.value.code == "TARGET_REPLAY_RECEIPT"
+
+
+def test_record_target_replay_receipt_allows_legacy_unknown_producer_and_subject(harness, monkeypatch):
+    """A genuinely legacy signed original that never recorded a producer
+    commit or audit subject hash (exported source tree, no git metadata at
+    write time) is still honestly replayable -- UNKNOWN is labelled, not
+    hard-rejected -- as long as the CURRENT execution is a clean, fully
+    attributable checkout and the candidate still reconstructs/replays."""
+    monkeypatch.setattr("each.executor.container.ContainerExecutor", _FakeReplayExecutor)
+    store, _repo, each_home = harness
+    original_receipt = _write_original_receipt(each_home, "m8-real-run", spec_hash=_M8_SPEC_HASH)
+    _rewrite_signed_receipt(
+        original_receipt,
+        lambda payload: {**payload, "producerCommit": "UNKNOWN", "producerDirty": "UNKNOWN", "auditSubjectSha256": None},
+    )
+    payload = _replay_payload(store, original_receipt)
+    payload["original"] = {**payload["original"], "producerCommit": "UNKNOWN", "auditSubjectSha256": None}
+    replay_path = _write_replay_request(each_home, "m8-replay", payload)
+    state = store._record_target_replay_receipt("test-run", artifact_id="m8-replay", receipt_path=str(replay_path), evidence_refs=[])
+    artifact = next(item for item in state["artifacts"] if item["id"] == "m8-replay")
+    assert artifact["kind"] == "target-replay-receipt"
+

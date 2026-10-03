@@ -39,7 +39,7 @@ class _FakeBakeoffExecutor:
     def verify_isolation(self, worktree: Path) -> ExecutionResult:
         return ExecutionResult(("python",), 1, f"{NETWORK_PROBE_DENIAL_MARKER}\n", "")
 
-    def run(self, command: list[str], worktree: Path) -> ExecutionResult:
+    def run(self, command: list[str], worktree: Path, *, protected_paths: tuple[str, ...] = ()) -> ExecutionResult:
         self._calls += 1
         if self._calls == 1:
             return ExecutionResult(
@@ -61,7 +61,7 @@ class _FakeBenchmarkExecutor:
     def verify_isolation(self, worktree: Path) -> ExecutionResult:
         return ExecutionResult(("python",), 1, f"{NETWORK_PROBE_DENIAL_MARKER}\n", "")
 
-    def run(self, command: list[str], worktree: Path) -> ExecutionResult:
+    def run(self, command: list[str], worktree: Path, *, protected_paths: tuple[str, ...] = ()) -> ExecutionResult:
         self._calls += 1
         if self._calls == 1:
             return ExecutionResult(tuple(command), 1, "1 failed in 0.01s\n", "")

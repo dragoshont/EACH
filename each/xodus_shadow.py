@@ -358,10 +358,14 @@ def run_xodus_shadow_build(
 
     # Baseline: the real, unmodified public source must build but genuinely
     # fail the acceptance run (proving this harness actually exercises the
-    # reported bug, not a vacuous always-pass check).
+    # reported bug, not a vacuous always-pass check). No patch has been
+    # applied yet, so the ENTIRE declared material set is protected here
+    # (unlike the candidate run below, where only the harness scaffold
+    # minus the one editable allowed_path stays protected).
     baseline_worktree, baseline_manifest = build_worktree(materialize_root, include_paths)
-    baseline_build = executor.run(build_command, baseline_worktree)
-    baseline_run = executor.run(acceptance_command, baseline_worktree)
+    baseline_protected_paths = tuple(include_paths)
+    baseline_build = executor.run(build_command, baseline_worktree, protected_paths=baseline_protected_paths)
+    baseline_run = executor.run(acceptance_command, baseline_worktree, protected_paths=baseline_protected_paths)
     baseline_verdict = _interpret_native_run(baseline_build, baseline_run)
     if baseline_verdict != "failed":
         raise BenchmarkExecutionError(

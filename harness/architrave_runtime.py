@@ -1394,7 +1394,14 @@ class RunStore:
             raise RuntimeFailure(error_code, "private receipt does not declare a structured model identity")
         try:
             model_id, adapter_class_path = validate_recorded_real_model_identity(model_identity)
-        except ValueError as exc:
+        except (TypeError, ValueError) as exc:
+            # (B-series fix) ``validate_recorded_real_model_identity`` raises
+            # TypeError (not ValueError) when ``modelManifest`` itself is not
+            # a dict -- a non-dict manifest is an INPUT shape error from an
+            # untrusted private receipt, not a programming bug in this
+            # runtime module, and must be rejected the same honest,
+            # source-free way as every other malformed-identity case rather
+            # than propagating an unguarded TypeError out of this boundary.
             raise RuntimeFailure(
                 error_code,
                 "private receipt does not declare an allowlisted real local-model identity with full provenance",
@@ -1691,6 +1698,62 @@ class RunStore:
             producer="target-repair",
         )
 
+    def _verify_clean_current_execution_identity(self, run_id: str) -> str:
+        """Prove the CURRENT process is genuinely executing a clean checkout
+        of the exact commit this Run's own canonical baseline records --
+        not merely that ``git rev-parse HEAD`` happens to print a matching
+        string while the working tree is dirty, or while some OTHER
+        (stale/foreign) copy of the ``each`` package was already imported
+        into this process from a different location on disk.
+
+        Returns the verified commit sha. Only enforces the loaded-module
+        origin check when ``self.repository`` is itself a checkout that
+        declares an ``each`` package (the real EACH release checkout) --
+        a synthetic target-repair fixture repository used by tests for a
+        DIFFERENT repaired target naturally has no ``each/__init__.py`` and
+        is unaffected.
+        """
+        state = self.load(run_id)
+        identity = self.repository_identity()
+        baseline_commit = state.get("baseline", {}).get("commit")
+        if not baseline_commit or identity["commit"] != baseline_commit:
+            raise RuntimeFailure(
+                "TARGET_REPLAY_RECEIPT",
+                "current repository HEAD does not match this Run's own recorded baseline commit",
+            )
+        # Exclude the Run's own private, gitignored `.architrave/` state
+        # directory: durable Run bookkeeping writes there as a normal part
+        # of EVERY run and is not a foreign/untracked source modification
+        # that would make a replay non-reproducible.
+        status = run_command(["git", "status", "--porcelain", "--", ".", ":(exclude).architrave"], self.repository)
+        if status.strip():
+            raise RuntimeFailure(
+                "TARGET_REPLAY_RECEIPT",
+                "current checkout is dirty; replay against an unclean working tree is not reproducible evidence",
+            )
+        each_pkg_init = self.repository / "each" / "__init__.py"
+        if each_pkg_init.is_file():
+            import each as _each_module
+
+            loaded_each_path = Path(_each_module.__file__).resolve()
+            try:
+                loaded_each_path.relative_to(self.repository.resolve())
+            except ValueError as exc:
+                raise RuntimeFailure(
+                    "TARGET_REPLAY_RECEIPT",
+                    "the `each` package actually loaded in this process is not the current repository checkout",
+                ) from exc
+        return identity["commit"]
+
+    # Decisive original outcomes eligible for current replay validation: a
+    # genuinely verified repair, or a genuinely classified negative (patch
+    # applied, build/test ran to a decisive answer, candidate did not
+    # verify). Non-decisive outcomes (patch rejected before execution, an
+    # execution/infra error, context budget exhaustion, or an inconclusive
+    # baseline/repaired run that never reached a decisive pass/fail) are
+    # never eligible -- there is no decisive historical claim to replay.
+    _REPLAY_ELIGIBLE_OUTCOMES = frozenset({"REPAIR_VERIFIED", "REPAIR_NOT_VERIFIED"})
+
     def _record_target_replay_receipt(
         self,
         run_id: str,
@@ -1709,7 +1772,7 @@ class RunStore:
         from each.outcome import sanitize_outcome_class
         from each.patch import PatchRejected, apply_patch, parse_patch
         from each.signing import public_key_path
-        from each.worktree import build_worktree
+        from each.worktree import build_worktree, verify_unchanged
 
         resolved = self._resolve_private_each_run_file(receipt_path, code="TARGET_REPLAY_RECEIPT")
         try:
@@ -1747,21 +1810,44 @@ class RunStore:
         if materials_result.get("status") != "PASS":
             raise RuntimeFailure("TARGET_REPLAY_RECEIPT", "original retained materials failed verification")
 
-        if sanitize_outcome_class(str(original.get("outcome", ""))) != "REPAIR_VERIFIED":
-            raise RuntimeFailure("TARGET_REPLAY_RECEIPT", "original receipt is not a verified repair")
+        # Item 7b: a genuinely classified negative is also eligible for
+        # replay, not just a verified positive -- but its own terminal
+        # audit (for a claimed-verified original) must not itself have
+        # been rejected, and the raw (possibly candidate-influenced) text
+        # is never retained past this sanitized classification.
+        original_outcome_class = sanitize_outcome_class(str(original.get("outcome", "")))
+        if original_outcome_class not in self._REPLAY_ELIGIBLE_OUTCOMES:
+            raise RuntimeFailure(
+                "TARGET_REPLAY_RECEIPT", "original receipt is not a decisively classified repair outcome eligible for replay"
+            )
+        if original_outcome_class == "REPAIR_VERIFIED" and reject_on_audit_flag(original.get("audit") or {}):
+            raise RuntimeFailure(
+                "TARGET_REPLAY_RECEIPT", "original receipt claims a verified repair but its own terminal audit was rejected"
+            )
         try:
             model_id, adapter_class_path = validate_recorded_real_model_identity(original.get("modelIdentity") or {})
-        except ValueError as exc:
+        except (TypeError, ValueError) as exc:
+            # A non-dict modelManifest on an untrusted private receipt is
+            # an input-shape error, not a programming bug -- it must reach
+            # this boundary the same way any other malformed identity does.
             raise RuntimeFailure("TARGET_REPLAY_RECEIPT", "original receipt does not declare a replayable real-model identity") from exc
         selected_attempt = original.get("selectedAttempt")
         if not isinstance(selected_attempt, int):
             raise RuntimeFailure("TARGET_REPLAY_RECEIPT", "original receipt is missing selectedAttempt")
+        # Item 2/3: a genuinely legacy signed original may honestly have
+        # never recorded a producer commit (exported source tree, no git
+        # metadata at write time) -- this is labelled UNKNOWN, not
+        # hard-rejected. What IS always required, below, is that the
+        # CURRENT replay execution itself is clean and fully attributable.
         original_producer_sha = self._extract_original_producer_sha(original)
-        if original_producer_sha == "UNKNOWN":
-            raise RuntimeFailure("TARGET_REPLAY_RECEIPT", "original receipt does not declare a producer commit")
+        # Item 3: likewise a genuinely legacy original may never have
+        # recorded auditSubjectSha256 at all. When present it must still
+        # be a non-empty string; when absent, the CURRENT reconstructed
+        # subject hash (computed below) stands on its own as the current
+        # proof and is never backfilled onto the historic field.
         recorded_subject_sha = original.get("auditSubjectSha256")
-        if not isinstance(recorded_subject_sha, str) or not recorded_subject_sha:
-            raise RuntimeFailure("TARGET_REPLAY_RECEIPT", "original receipt is missing auditSubjectSha256")
+        if recorded_subject_sha is not None and (not isinstance(recorded_subject_sha, str) or not recorded_subject_sha):
+            raise RuntimeFailure("TARGET_REPLAY_RECEIPT", "original receipt declares a malformed auditSubjectSha256")
         expected_map = {
             "specHash": original.get("specHash"),
             "patchHash": original.get("patchHash"),
@@ -1769,7 +1855,7 @@ class RunStore:
             "modelId": model_id,
             "adapterClassPath": adapter_class_path,
             "selectedAttempt": selected_attempt,
-            "outcome": "REPAIR_VERIFIED",
+            "outcome": original_outcome_class,
             "targetRunId": original.get("runId"),
             "auditSubjectSha256": recorded_subject_sha,
             "producerCommit": original_producer_sha,
@@ -1778,8 +1864,12 @@ class RunStore:
             if expected_original.get(key) != actual_value:
                 raise RuntimeFailure("TARGET_REPLAY_RECEIPT", "replay receipt original lineage does not match the signed original")
 
+        # Item 2: the claimed execution commit must match BOTH the current
+        # actual git HEAD and this Run's own recorded baseline -- on a
+        # clean checkout, with the loaded `each` package itself originating
+        # from this same checkout (never a stale/foreign import).
+        actual_execution_commit = self._verify_clean_current_execution_identity(run_id)
         execution_commit = replay.get("executionCommit")
-        actual_execution_commit = self.repository_identity()["commit"]
         if execution_commit != actual_execution_commit:
             raise RuntimeFailure("TARGET_REPLAY_RECEIPT", "replay execution commit does not match the current repository baseline")
 
@@ -1797,20 +1887,37 @@ class RunStore:
         include_paths = sorted((original.get("materials") or {}).keys())
         if not include_paths:
             raise RuntimeFailure("TARGET_REPLAY_RECEIPT", "original receipt declares no retained materials")
+
+        # Item 1: the production spec contract (each.spec.SpecPacket.content())
+        # always serializes snake_case build_commands/acceptance_commands --
+        # never camelCase. A malformed command entry is strictly rejected,
+        # never silently filtered away.
+        def _validated_commands(value: Any, *, label: str) -> list[list[str]]:
+            if value is None:
+                return []
+            if not isinstance(value, list):
+                raise RuntimeFailure("TARGET_REPLAY_RECEIPT", f"original spec declares a malformed {label} list")
+            validated: list[list[str]] = []
+            for command in value:
+                if not isinstance(command, list) or not command or not all(isinstance(part, str) and part for part in command):
+                    raise RuntimeFailure("TARGET_REPLAY_RECEIPT", f"original spec declares a malformed {label} entry")
+                validated.append(command)
+            return validated
+
         spec = original.get("spec") or {}
-        build_commands = [command for command in spec.get("buildCommands") or [] if isinstance(command, list) and command]
-        acceptance_commands = [
-            command for command in spec.get("acceptanceCommands") or [] if isinstance(command, list) and command
-        ]
+        build_commands = _validated_commands(spec.get("build_commands"), label="build command")
+        acceptance_commands = _validated_commands(spec.get("acceptance_commands"), label="acceptance command")
         if not acceptance_commands:
             raise RuntimeFailure("TARGET_REPLAY_RECEIPT", "original receipt does not declare acceptance commands")
 
-        def replay_results_for(worktree: Path) -> dict[str, list[dict[str, Any]]]:
+        def replay_results_for(
+            worktree: Path, manifest: dict[str, str], protected_paths: tuple[str, ...]
+        ) -> dict[str, list[dict[str, Any]]]:
             build_results: list[dict[str, Any]] = []
             acceptance_results: list[dict[str, Any]] = []
             try:
                 for command in build_commands:
-                    result = executor.run(list(command), worktree)
+                    result = executor.run(list(command), worktree, protected_paths=protected_paths)
                     build_results.append(
                         {
                             "exitCode": result.exit_code,
@@ -1819,7 +1926,7 @@ class RunStore:
                         }
                     )
                 for command in acceptance_commands:
-                    result = executor.run(list(command), worktree)
+                    result = executor.run(list(command), worktree, protected_paths=protected_paths)
                     acceptance_results.append(
                         {
                             "exitCode": result.exit_code,
@@ -1829,31 +1936,69 @@ class RunStore:
                     )
             except ContainerExecutorError as exc:
                 raise RuntimeFailure("TARGET_REPLAY_RECEIPT", "replay execution failed to produce a trusted execution record") from exc
+            # Item 4: re-hash the protected (never-editable) retained inputs
+            # immediately after every build/acceptance call -- a candidate
+            # run that mutated harness/validator scaffold mid-execution must
+            # never be reported as a trusted replay result.
+            drift = verify_unchanged(worktree, manifest, list(protected_paths))
+            if drift:
+                raise RuntimeFailure(
+                    "TARGET_REPLAY_RECEIPT", "protected retained inputs drifted during replay execution", details={"paths": drift}
+                )
             return {"build": build_results, "acceptance": acceptance_results}
 
-        baseline_worktree, _baseline_manifest = build_worktree(materials_root, include_paths)
-        baseline_results = replay_results_for(baseline_worktree)
+        def _decisive_exit_codes(results: list[dict[str, Any]], *, label: str) -> list[int]:
+            codes = [int(entry["exitCode"]) for entry in results]
+            if any(code not in (0, 1) for code in codes):
+                raise RuntimeFailure("TARGET_REPLAY_RECEIPT", f"{label} produced an ambiguous, non-decisive exit code")
+            return codes
+
+        # Baseline must never be touched at all -- every retained path is
+        # protected for the baseline execution.
+        baseline_worktree, baseline_manifest = build_worktree(materials_root, include_paths)
+        baseline_results = replay_results_for(baseline_worktree, baseline_manifest, tuple(include_paths))
+        if baseline_results["build"] and any(entry["exitCode"] != 0 for entry in baseline_results["build"]):
+            raise RuntimeFailure("TARGET_REPLAY_RECEIPT", "baseline build failed during replay; not a usable replay artifact")
+        baseline_codes = _decisive_exit_codes(baseline_results["acceptance"], label="baseline acceptance")
+        if all(code == 0 for code in baseline_codes):
+            raise RuntimeFailure(
+                "TARGET_REPLAY_RECEIPT", "baseline unexpectedly passed acceptance during replay; original bug did not reproduce"
+            )
 
         touched_paths = original.get("touchedPaths") or []
         patch_text = str(original.get("patchText") or "")
         if not touched_paths or not patch_text:
             raise RuntimeFailure("TARGET_REPLAY_RECEIPT", "original receipt is missing its selected patch or touched paths")
-        candidate_worktree, _candidate_manifest = build_worktree(materials_root, include_paths)
+        candidate_worktree, candidate_manifest = build_worktree(materials_root, include_paths)
         try:
             patch = parse_patch(patch_text)
             apply_patch(patch, candidate_worktree, set(touched_paths))
         except PatchRejected as exc:
             raise RuntimeFailure("TARGET_REPLAY_RECEIPT", "original selected patch does not replay against retained materials") from exc
+        # Capture the candidate bytes BEFORE any build/run -- the same
+        # bytes are hashed for the current reconstructed subject proof and
+        # decoded for the terminal audit below, never a post-exec reread.
         candidate_bytes = b"\n".join((candidate_worktree / path).read_bytes() for path in touched_paths)
         candidate_sha = sha256_bytes(candidate_bytes)
-        if candidate_sha != recorded_subject_sha:
+        if recorded_subject_sha is not None and candidate_sha != recorded_subject_sha:
             raise RuntimeFailure("TARGET_REPLAY_RECEIPT", "reconstructed candidate does not match the original trusted audit subject")
-        replay_results = replay_results_for(candidate_worktree)
+        touched_set = set(touched_paths)
+        protected_candidate_paths = tuple(p for p in include_paths if p not in touched_set)
+        replay_results = replay_results_for(candidate_worktree, candidate_manifest, protected_candidate_paths)
+        if replay_results["build"] and any(entry["exitCode"] != 0 for entry in replay_results["build"]):
+            raise RuntimeFailure("TARGET_REPLAY_RECEIPT", "candidate build failed during replay; not a usable replay artifact")
+        candidate_codes = _decisive_exit_codes(replay_results["acceptance"], label="candidate acceptance")
+        candidate_passed = all(code == 0 for code in candidate_codes)
+
         try:
             candidate_text = candidate_bytes.decode("utf-8")
         except UnicodeDecodeError as exc:
             raise RuntimeFailure("TARGET_REPLAY_RECEIPT", "reconstructed candidate source is not valid UTF-8") from exc
+        # Terminal audit runs only against this trusted, already-validated
+        # candidate capture -- never fed back to a Builder, never used to
+        # pick a different attempt.
         audit_result = run_audit(candidate_text, corpus_revision=str((original.get("audit") or {}).get("corpusRevision") or "none"))
+        current_audit_rejected = reject_on_audit_flag(audit_result)
         audit_statuses = {
             name: (
                 check.get("status")
@@ -1863,6 +2008,22 @@ class RunStore:
             for name, check in (audit_result.get("checks") or {}).items()
         }
 
+        if original_outcome_class == "REPAIR_VERIFIED":
+            if not candidate_passed:
+                raise RuntimeFailure(
+                    "TARGET_REPLAY_RECEIPT", "replay candidate failed to reproduce the originally verified repair"
+                )
+            if current_audit_rejected:
+                raise RuntimeFailure(
+                    "TARGET_REPLAY_RECEIPT", "current terminal audit rejected the replayed candidate; refusing positive registration"
+                )
+        else:  # REPAIR_NOT_VERIFIED
+            if candidate_passed:
+                raise RuntimeFailure(
+                    "TARGET_REPLAY_RECEIPT",
+                    "replay candidate unexpectedly passed acceptance for a classified-negative original; refusing contradictory registration",
+                )
+
         sanitized_summary = {
             "purpose": "replay-validation",
             "originalRunId": original.get("runId"),
@@ -1871,7 +2032,7 @@ class RunStore:
             "originalPatchHash": original.get("patchHash"),
             "originalTrajectoryHash": original.get("trajectoryHash"),
             "originalProducerSha": original_producer_sha,
-            "originalOutcome": "REPAIR_VERIFIED",
+            "originalOutcome": original_outcome_class,
             "originalModelId": model_id,
             "originalAdapterClassPath": adapter_class_path,
             "selectedAttempt": selected_attempt,
@@ -1879,7 +2040,8 @@ class RunStore:
             "replayExecutionCommit": actual_execution_commit,
             "baselineExecution": baseline_results,
             "replayExecution": replay_results,
-            "currentAuditorRejected": reject_on_audit_flag(audit_result),
+            "candidatePassed": candidate_passed,
+            "currentAuditorRejected": current_audit_rejected,
             "currentAuditorCheckStatuses": audit_statuses,
             "currentAuditorToolVersionKeys": sorted((audit_result.get("toolVersions") or {}).keys()),
             "currentAuditorToolVersionsSha256": sha256_bytes(

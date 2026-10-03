@@ -122,6 +122,15 @@ class BenchmarkTask:
     # description) -- never the private historical fix diff or its own
     # regression-test file contents.
     validator_files: tuple[tuple[str, str], ...] = ()
+    # Non-Python (C/C++/Rust) tasks only: a SEPARATE compile-only shell
+    # pipeline, distinct from ``test_command`` (the compiled validator's
+    # run step only, e.g. ``("./validate",)``). An ordinary compiler
+    # diagnostic (syntax error in a candidate's bad patch) exits 1 through
+    # this phase alone and must never be conflated with the validator
+    # binary's own exit-1 "declared behavior does not hold" result -- see
+    # ``_classify_native_execution``'s historical ``validator_exit_one``
+    # bug this field exists to make structurally impossible.
+    build_command: tuple[str, ...] = ()
 
 
 def _raw_url(repo: str, sha: str, path: str) -> str:
@@ -360,6 +369,18 @@ def _wrapped_test_command(task: BenchmarkTask) -> list[str]:
         return ["sh", "-c", shlex.join(task.test_command)]
     inner = shlex.join(task.test_command)
     return ["sh", "-c", f"PYTHONPATH={pythonpath_for(task)} {inner}"]
+
+
+def _wrapped_build_command(task: BenchmarkTask) -> list[str] | None:
+    """Mirror of :func:`_wrapped_test_command` for ``task.build_command``
+    (compile-only, non-Python tasks). Returns ``None`` when the task
+    declares no separate build step (nothing to run before the acceptance
+    command)."""
+    if not task.build_command:
+        return None
+    if len(task.build_command) == 1:
+        return ["sh", "-c", task.build_command[0]]
+    return ["sh", "-c", shlex.join(task.build_command)]
 
 
 def materialize_known_fix(task: BenchmarkTask) -> str:
@@ -815,7 +836,7 @@ def run_benchmark_task(
         target_ref=task.pre_fix_sha,
         problem_statement=task.problem_statement,
         allowed_paths=[task.bug_path],
-        build_commands=[],
+        build_commands=[list(task.build_command)] if task.build_command else [],
         acceptance_commands=[list(task.test_command)],
         forbidden_sources=["network", "host-secrets", "host-home-mount", "known-fix-disclosure"],
         approved_by="local-benchmark-operator",
@@ -924,8 +945,36 @@ def run_benchmark_task(
                 )
                 break
         worktree, manifest = build_worktree(source_root, include_paths)
+        protected_paths = tuple(include_paths)
         try:
-            baseline = executor.run(_wrapped_test_command(task), worktree)
+            build_result = None
+            build_command = _wrapped_build_command(task)
+            if build_command is not None:
+                build_result = executor.run(build_command, worktree, protected_paths=protected_paths)
+            if build_result is not None and build_result.exit_code != 0:
+                attempts.append(
+                    {
+                        "attempt": attempt_num,
+                        "prompt": prompt,
+                        "raw_completion": "",
+                        "materials": {**manifest, excerpt_material_key: excerpt_sha256},
+                        "baseline_result": _result_to_dict(build_result),
+                        "baseline_classification": {
+                            "classification": "build_failed",
+                            "reason": "compile_failed",
+                            "exit_code": build_result.exit_code,
+                        },
+                        "patch_text": "",
+                        "touched_paths": [],
+                        "repaired_result": {},
+                        "repaired_classification": {"classification": "unavailable", "reason": "not_run"},
+                        "audit": _no_audit_yet,
+                        "outcome": f"BUILD_FAILED: baseline compile failed (exit {build_result.exit_code})",
+                        "generation_attempted": False,
+                    }
+                )
+                break
+            baseline = executor.run(_wrapped_test_command(task), worktree, protected_paths=protected_paths)
         except ContainerExecutorError as exc:
             attempts.append(
                 {
@@ -1031,9 +1080,31 @@ def run_benchmark_task(
         attempt_record["touched_paths"] = touched
         candidate_source_bytes = _read_candidate_bytes_for_audit(worktree, touched)
         attempt_record["audit_subject_sha256"] = sha256_bytes(candidate_source_bytes)
+        candidate_protected_paths = tuple(p for p in include_paths if p not in set(touched))
 
         try:
-            repaired = executor.run(_wrapped_test_command(task), worktree)
+            candidate_build_result = None
+            candidate_build_command = _wrapped_build_command(task)
+            if candidate_build_command is not None:
+                candidate_build_result = executor.run(
+                    candidate_build_command, worktree, protected_paths=candidate_protected_paths
+                )
+            if candidate_build_result is not None and candidate_build_result.exit_code != 0:
+                # An ordinary compiler diagnostic on the candidate's own
+                # (possibly malformed) patch, structurally distinct from
+                # the validator binary's own exit-1 result -- never
+                # reclassified as validator_exit_one/REPAIR_NOT_VERIFIED.
+                attempt_record["repaired_result"] = _result_to_dict(candidate_build_result)
+                attempt_record["repaired_classification"] = {
+                    "classification": "build_failed",
+                    "reason": "compile_failed",
+                    "exit_code": candidate_build_result.exit_code,
+                }
+                attempt_record["outcome"] = f"BUILD_FAILED: candidate compile failed (exit {candidate_build_result.exit_code})"
+                attempts.append(attempt_record)
+                prompt = base_prompt + _RETRY_SUFFIX.format(reason="the candidate did not compile; try again")
+                continue
+            repaired = executor.run(_wrapped_test_command(task), worktree, protected_paths=candidate_protected_paths)
         except ContainerExecutorError as exc:
             attempt_record["outcome"] = f"EXECUTION_ERROR: {exc}"
             attempts.append(attempt_record)

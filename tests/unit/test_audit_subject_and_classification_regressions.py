@@ -114,7 +114,7 @@ def test_bakeoff_audit_uses_precaptured_candidate_bytes_even_if_execution_mutate
             del worktree
             return ExecutionResult(("python",), 1, f"{NETWORK_PROBE_DENIAL_MARKER}\n", "")
 
-        def run(self, command: list[str], worktree: Path) -> ExecutionResult:
+        def run(self, command: list[str], worktree: Path, *, protected_paths: tuple[str, ...] = ()) -> ExecutionResult:
             del command
             if not hasattr(self, "_calls"):
                 self._calls = 0
@@ -153,7 +153,7 @@ def test_benchmark_audit_uses_precaptured_candidate_bytes_even_if_execution_muta
             del worktree
             return ExecutionResult(("python",), 1, f"{NETWORK_PROBE_DENIAL_MARKER}\n", "")
 
-        def run(self, command: list[str], worktree: Path) -> ExecutionResult:
+        def run(self, command: list[str], worktree: Path, *, protected_paths: tuple[str, ...] = ()) -> ExecutionResult:
             del command
             if not hasattr(self, "_calls"):
                 self._calls = 0
@@ -194,7 +194,7 @@ def test_bakeoff_preserves_earlier_attempt_data_when_a_later_baseline_is_inconcl
             del worktree
             return ExecutionResult(("python",), 1, f"{NETWORK_PROBE_DENIAL_MARKER}\n", "")
 
-        def run(self, command: list[str], worktree: Path) -> ExecutionResult:
+        def run(self, command: list[str], worktree: Path, *, protected_paths: tuple[str, ...] = ()) -> ExecutionResult:
             del command, worktree
             if not hasattr(self, "_calls"):
                 self._calls = 0
@@ -237,7 +237,7 @@ def test_benchmark_records_structured_baseline_inconclusive_results_instead_of_e
             del worktree
             return ExecutionResult(("python",), 1, f"{NETWORK_PROBE_DENIAL_MARKER}\n", "")
 
-        def run(self, command: list[str], worktree: Path) -> ExecutionResult:
+        def run(self, command: list[str], worktree: Path, *, protected_paths: tuple[str, ...] = ()) -> ExecutionResult:
             del command, worktree
             return ExecutionResult(("pytest",), 2, "no tests ran in 0.01s\n", "")
 
@@ -275,7 +275,7 @@ def test_benchmark_preserves_completed_repaired_execution_results_when_classific
             del worktree
             return ExecutionResult(("python",), 1, f"{NETWORK_PROBE_DENIAL_MARKER}\n", "")
 
-        def run(self, command: list[str], worktree: Path) -> ExecutionResult:
+        def run(self, command: list[str], worktree: Path, *, protected_paths: tuple[str, ...] = ()) -> ExecutionResult:
             del command, worktree
             if not hasattr(self, "_calls"):
                 self._calls = 0

@@ -406,7 +406,8 @@ NATIVE_TASKS: list[BenchmarkTask] = [
         bug_path="jsmn.c",
         test_paths=(),
         source_paths=("jsmn.h", "LICENSE"),
-        test_command=("cc -std=c99 -Wall -Wextra jsmn.c validation.c -o validate && ./validate",),
+        test_command=("./validate",),
+        build_command=("cc -std=c99 -Wall -Wextra jsmn.c validation.c -o validate",),
         problem_statement=(
             "A minimal JSON parser accepts malformed input containing unmatched closing "
             "brackets (extra '}' or ']' with no matching opening bracket) instead of "
@@ -455,7 +456,8 @@ NATIVE_TASKS: list[BenchmarkTask] = [
             "include/fmt/os.h",
             "LICENSE",
         ),
-        test_command=("c++ -std=c++20 -I include validation.cc -o validate && ./validate",),
+        test_command=("./validate",),
+        build_command=("c++ -std=c++20 -I include validation.cc -o validate",),
         problem_statement=(
             "A printf-style formatting library's conversion of a zero value with an "
             "explicitly specified zero precision produces incorrect output, instead of "
@@ -501,11 +503,11 @@ NATIVE_TASKS: list[BenchmarkTask] = [
             "src/lib.rs",
             "LICENSE-APACHE",
         ),
-        test_command=(
+        test_command=("./validate",),
+        build_command=(
             (
                 "rustc --edition 2018 --crate-type lib --crate-name semver src/lib.rs -o libsemver.rlib "
-                "&& rustc --edition 2018 --extern semver=libsemver.rlib validate.rs -o validate "
-                "&& ./validate"
+                "&& rustc --edition 2018 --extern semver=libsemver.rlib validate.rs -o validate"
             ),
         ),
         problem_statement=(
