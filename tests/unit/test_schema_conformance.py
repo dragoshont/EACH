@@ -29,6 +29,7 @@ import pytest
 sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "harness"))
 import architrave_runtime as art
 
+SPEC_HASH = "a" * 64
 SCHEMA = json.loads(
     (Path(__file__).resolve().parents[2] / "harness" / "schemas" / "run-v2.schema.json").read_text(encoding="utf-8")
 )
@@ -69,7 +70,20 @@ def store_with_run(tmp_path, monkeypatch):
                 "targetEvidence": {
                     "kind": "target-repair-receipt",
                     "purpose": "target-repair-verified",
-                    "targetSpecHash": "schema-test-spec-hash",
+                    "targetSpecHash": SPEC_HASH,
+                },
+            },
+            {
+                "id": "C4",
+                "description": "negative target experiment criterion",
+                "verificationType": "reality",
+                "blocking": False,
+                "risk": "R3",
+                "surface": "runtime",
+                "targetEvidence": {
+                    "kind": "target-experiment-receipt",
+                    "purpose": "target-experiment-complete",
+                    "targetSpecHash": SPEC_HASH,
                 },
             },
         ],
@@ -117,7 +131,7 @@ def test_a_run_exercising_retryNotBefore_target_repair_and_checkpoint_reissue_fi
         json.dumps(
             {
                 "purpose": "target-repair-verified",
-                "specHash": "schema-test-spec-hash",
+                "specHash": SPEC_HASH,
                 "outcome": "REPAIR_VERIFIED",
             }
         ),
@@ -148,6 +162,41 @@ def test_a_run_exercising_retryNotBefore_target_repair_and_checkpoint_reissue_fi
     assert artifact["sourceCommit"]
     gate = next(item for item in state["gateResults"] if item["id"] == "gate-reality-1")
     assert gate["sourceCommit"]
+    jsonschema.validate(instance=state, schema=SCHEMA)
+
+    experiment_path = evidence_dir / "negative-target.target-experiment-summary.json"
+    experiment_path.write_text(
+        json.dumps(
+            {
+                "purpose": "target-experiment-complete",
+                "specHash": SPEC_HASH,
+                "outcome": "PATCH_REJECTED",
+            }
+        ),
+        encoding="utf-8",
+    )
+    store._record_artifact(
+        "test-run",
+        artifact_id="negative-target",
+        kind="target-experiment-receipt",
+        producer="target-experiment",
+        actor="coordinator",
+        path=str(experiment_path.relative_to(repo)),
+        evidence_refs=[],
+    )
+    store.record_gate(
+        "test-run",
+        gate_id="gate-reality-negative",
+        task_id=None,
+        gate_type="reality",
+        status="PASS",
+        evidence_refs=["artifact:negative-target"],
+        criteria=["C4"],
+        surface="runtime",
+    )
+    state = store.load("test-run")
+    experiment = next(item for item in state["artifacts"] if item["id"] == "negative-target")
+    assert experiment["producer"] == "target-experiment"
     jsonschema.validate(instance=state, schema=SCHEMA)
 
     # challengeReissuedAt/challengeReissueCount: a second task waits

@@ -222,7 +222,7 @@
           ]
         },
         "targetEvidence": {
-          "description": "Explicit criterion-owned target-evidence binding. Required when a criterion is satisfied by target-repair producer evidence; absent/null for unrelated criteria and historical runs predating this field.",
+          "description": "Explicit criterion-owned target-evidence binding. Required when a criterion is satisfied by target-repair or target-experiment producer evidence; absent/null for unrelated criteria and historical runs predating this field.",
           "oneOf": [
             { "type": "null" },
             {
@@ -232,13 +232,13 @@
               "properties": {
                 "kind": {
                   "type": "string",
-                  "enum": ["target-repair-receipt", "clean-room-experiment-receipt", "target-replay-receipt"]
+                  "enum": ["target-repair-receipt", "clean-room-experiment-receipt", "target-replay-receipt", "target-experiment-receipt"]
                 },
                 "purpose": {
                   "type": "string",
-                  "enum": ["target-repair-verified", "clean-room-experiment-complete", "replay-validation"]
+                  "enum": ["target-repair-verified", "clean-room-experiment-complete", "replay-validation", "target-experiment-complete"]
                 },
-                "targetSpecHash": { "type": "string", "minLength": 1 }
+                "targetSpecHash": { "type": "string", "pattern": "^[0-9a-f]{64}$" }
               }
             }
           ]
@@ -573,7 +573,7 @@
         "kind": { "type": "string", "minLength": 1 },
         "producer": {
           "type": "string",
-          "enum": ["coordinator", "deterministic", "invariant", "workspace", "worker", "legibility", "mutation", "reconciliation", "semantic-judge", "security-review", "policy-engine", "external-proof", "target-repair"]
+          "enum": ["coordinator", "deterministic", "invariant", "workspace", "worker", "legibility", "mutation", "reconciliation", "semantic-judge", "security-review", "policy-engine", "external-proof", "target-repair", "target-experiment"]
         },
         "path": { "type": "string", "minLength": 1 },
         "createdAt": { "$ref": "#/definitions/timestamp" },
