@@ -7,6 +7,7 @@ import each.bakeoff as bakeoff_module
 import each.benchmark as benchmark_module
 from each.executor.base import ExecutionResult
 from each.executor.container import NETWORK_PROBE_DENIAL_MARKER
+from each.hashing import sha256_file
 from each.models.fixture import FixtureModel
 
 _BAKEOFF_PATCH = """BEGIN_PATCH
@@ -69,7 +70,7 @@ def _copy_worktree_factory(tmp_path: Path):
             target = worktree / rel
             target.parent.mkdir(parents=True, exist_ok=True)
             target.write_bytes(src.read_bytes())
-        return worktree, {rel: "hash" for rel in include_paths}
+        return worktree, {rel: sha256_file(worktree / rel) for rel in include_paths}
 
     return _copy_worktree
 

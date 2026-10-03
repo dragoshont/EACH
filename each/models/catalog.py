@@ -201,12 +201,18 @@ def _qualified_mlx(name: str, *, max_tokens: int) -> RepairModel:
         index = json.loads((snapshot_dir / "model.safetensors.index.json").read_text())
         weight_map = index["weight_map"]
         model_config = {"tie_word_embeddings": "lm_head.weight" not in weight_map}
+        aliases = conversion.get("sourceIndexOmittedAliases", {})
         if (
             set(weight_map.values()) != expected_weights
             or conversion.get("tensorCount") != len(weight_map)
             or conversion.get("sourceIndexVerified") is not True
             or conversion.get("runtimeModelConfig") != model_config
             or any(conversion.get("sourceFilesSha256", {}).get(k) != v for k, v in profile["weights"].items())
+            or aliases not in ({}, {"lm_head.weight": "transformer.wte.weight"})
+            or (aliases and (
+                not model_config["tie_word_embeddings"] or "transformer.wte.weight" not in weight_map
+                or conversion.get("sourceIndexTensorCount") != len(weight_map) + 1
+            ))
         ):
             raise UnavailableModelError("OctoCoder conversion does not match its complete source tensor map")
     manifest = replace(manifest, training_data_provenance=dict(profile["lineage"]))

@@ -62,6 +62,35 @@ def provision(name: str = "starcoderbase") -> Path:
         source_map = json.loads((snapshot / source_index_name).read_text())["weight_map"]
         if set(source_map.values()) != set(profile["weights"]):
             raise ValueError("Original tensor index does not cover exactly the qualified shards")
+        omitted_aliases = {}
+        original_index_count = len(source_map)
+        if profile["source_format"] == "safetensors":
+            actual_map = {}
+            for shard_name in profile["weights"]:
+                with safe_open(snapshot / shard_name, framework="pt", device="cpu") as shard:
+                    for key in shard.keys():  # noqa: SIM118 - safe_open is not an iterable dict
+                        if key in actual_map:
+                            raise ValueError("Duplicate tensor name across original shards")
+                        actual_map[key] = shard_name
+            if actual_map != source_map:
+                # The pinned OctoCoder index lists a head absent from its
+                # actual safetensors. Original GPTBigCode configuration ties
+                # that alias to the stored input embedding. Admit precisely
+                # this inspected discrepancy, never arbitrary missing weights.
+                from transformers import GPTBigCodeConfig
+
+                config = json.loads((snapshot / "config.json").read_text())
+                if (
+                    name != "octocoder"
+                    or config.get("model_type") != "gpt_bigcode"
+                    or not GPTBigCodeConfig.from_dict(config).tie_word_embeddings
+                    or "transformer.wte.weight" not in actual_map
+                    or set(source_map) - set(actual_map) != {"lm_head.weight"}
+                    or actual_map != {k: v for k, v in source_map.items() if k != "lm_head.weight"}
+                ):
+                    raise ValueError("Original shard tensors do not match the publisher index")
+                omitted_aliases = {"lm_head.weight": "transformer.wte.weight"}
+                source_map = actual_map
         destination.mkdir(parents=True, exist_ok=False, mode=0o700)
         outputs = {}
         weight_map = {}
@@ -130,11 +159,14 @@ def provision(name: str = "starcoderbase") -> Path:
             "torchVersion": version("torch"),
             "safetensorsVersion": version("safetensors"),
             "mlxLmVersion": version("mlx-lm"),
+            "transformersVersion": version("transformers"),
             "sourceDtype": "float32",
             "outputDtype": "float16",
             "tensorCount": tensor_count,
             "tensorRoundTripVerified": True,
             "sourceIndexVerified": True,
+            "sourceIndexTensorCount": original_index_count,
+            "sourceIndexOmittedAliases": omitted_aliases,
             "runtimeModelConfig": {"tie_word_embeddings": "lm_head.weight" not in source_map},
             "precisionChange": "FP32 to FP16; explicit rounding, not byte-identical weights",
             "trainingPerformed": False,

@@ -38,7 +38,7 @@ def source(tmp_path, monkeypatch):
     info = SimpleNamespace(sha=profile["revision"], siblings=[
         SimpleNamespace(rfilename=k, lfs=SimpleNamespace(sha256=v)) for k, v in weights.items()
     ])
-    monkeypatch.setattr(hub, "HfApi", lambda: SimpleNamespace(model_info=lambda *a, **k: info))
+    monkeypatch.setattr(hub.HfApi, "model_info", lambda *a, **k: info)
     requests = []
     monkeypatch.setattr(hub, "snapshot_download", lambda *a, **k: requests.append(k) or str(snapshot))
     return snapshot, root, profile, requests, info
@@ -84,3 +84,37 @@ def test_provision_fails_closed_and_preserves_originals(source, monkeypatch, fai
         assert requests == []
     if failure == "partial":
         assert (destination / "preserve").read_bytes() == b"partial"
+
+
+@pytest.mark.parametrize("tied", [True, False])
+def test_only_declared_tied_head_index_alias_can_be_omitted(source, tied):
+    torch = pytest.importorskip("torch")
+    safetensors = pytest.importorskip("safetensors.torch")
+    pytest.importorskip("transformers")
+    snapshot, _root, profile, _requests, info = source
+    last = list(profile["weights"])[-1]
+    safetensors.save_file(
+        {"transformer.wte.weight": torch.tensor([1.25], dtype=torch.float32)}, snapshot / last,
+    )
+    profile["weights"][last] = sha256_file(snapshot / last)
+    info.siblings[-1].lfs.sha256 = profile["weights"][last]
+    index_path = snapshot / "model.safetensors.index.json"
+    index = json.loads(index_path.read_text())
+    index["weight_map"]["transformer.wte.weight"] = last
+    index_path.write_text(json.dumps(index))
+    (snapshot / "config.json").write_text(json.dumps({
+        "model_type": "gpt_bigcode", "torch_dtype": "float32", "tie_word_embeddings": tied,
+    }))
+    if not tied:
+        with pytest.raises(ValueError, match="publisher index"):
+            provisioning.provision("octocoder")
+        return
+    destination = provisioning.provision("octocoder")
+    record = json.loads((destination / "conversion.json").read_text())
+    assert record["sourceIndexTensorCount"] == 8
+    assert record["tensorCount"] == 7
+    assert record["sourceIndexOmittedAliases"] == {"lm_head.weight": "transformer.wte.weight"}
+    assert record["runtimeModelConfig"] == {"tie_word_embeddings": True}
+    output_map = json.loads((destination / "model.safetensors.index.json").read_text())["weight_map"]
+    assert "lm_head.weight" not in output_map
+    assert "transformer.wte.weight" in output_map
