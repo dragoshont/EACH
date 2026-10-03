@@ -9,8 +9,10 @@ That grant does not authorize target publication, changed sensitive specs,
 gated-model terms or certification claims.
 
 **User-directed correction, 2026-10-03:** clear training-data provenance is
-a hard prerequisite for model eligibility. No current catalog entry is
-qualified; new model loading/generation is blocked. Qwen trials are historical
+a hard prerequisite for model eligibility. The exact StarCoderBase checkpoint
+has subsequently passed a bounded training-lineage dossier review; it still
+requires verified local artifact provisioning. Other catalog entries remain
+blocked until independently qualified. Qwen trials are historical
 capability comparisons, excluded from this program's provenance qualification.
 P1 must assess base and every post-training dataset stage using
 [the model eligibility contract](model-provenance.md), before calibration or

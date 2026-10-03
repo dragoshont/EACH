@@ -42,9 +42,10 @@ class ModelManifest:
     conversion_chain: str
     files_sha256: dict[str, str]
     max_position_embeddings: int | None
+    training_data_provenance: dict[str, Any] | None = None
 
     def to_dict(self) -> dict[str, Any]:
-        return {
+        result = {
             "schemaVersion": "0.1",
             "repoId": self.repo_id,
             "revision": self.revision,
@@ -58,6 +59,9 @@ class ModelManifest:
             "conversionChain": self.conversion_chain,
             "maxPositionEmbeddings": self.max_position_embeddings,
         }
+        if self.training_data_provenance is not None:
+            result["trainingDataProvenance"] = self.training_data_provenance
+        return result
 
     @property
     def model_id(self) -> str:

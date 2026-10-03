@@ -10,13 +10,43 @@ adapter) rather than silently omitted.
 from __future__ import annotations
 
 from collections.abc import Callable
+from dataclasses import replace
 from importlib.metadata import PackageNotFoundError, version
 
 from each.model_manifest import build_manifest_from_snapshot
 from each.models.base import RepairModel
-from each.paths import models_dir
+from each.paths import assert_no_symlink_escape, models_dir
 
 HF_CACHE_DIR = models_dir() / ".hf_cache"
+STARCODERBASE_REVISION = "88ec5781ad071a9d9e925cd28f327dea22eb5188"
+STARCODERBASE_SOURCE_WEIGHTS = {
+    "pytorch_model-00001-of-00007.bin": "dfde5c06da1a9b64727a04b1dd6b2414ead32b8513cef9b54eb12c6ba82b6c86",
+    "pytorch_model-00002-of-00007.bin": "437479f655b31775554991fdabec6472244d334354ee03aea3a4c20b5d0b819b",
+    "pytorch_model-00003-of-00007.bin": "a27c41541d9584e63f8bf5da6d493c053157b75e69d10928dff5ded809b16604",
+    "pytorch_model-00004-of-00007.bin": "f4c16714179039c91190a9bec5935d7c25f7053d0423e3173257163fce16346f",
+    "pytorch_model-00005-of-00007.bin": "fdaf103942e2a0757e576c2d64811b7a9f9c093f77bbfb7635235eeca7ece52b",
+    "pytorch_model-00006-of-00007.bin": "aa2f8410b362aad53a0dea6511fac7460fd2e64a3c0bbe2c142324ed15587f1a",
+    "pytorch_model-00007-of-00007.bin": "a0a6a38cfae8b0418e8b79ec30b6e14a0dfdd24a8237c238e98c80da6f3f5d1c",
+}
+STARCODERBASE_LINEAGE = {
+    "status": "ELIGIBLE",
+    "scope": "documented-inspectable-training-dataset-lineage",
+    "modelRepo": "bigcode/starcoderbase",
+    "modelRevision": STARCODERBASE_REVISION,
+    "datasetRepo": "bigcode/starcoderdata",
+    "datasetRevision": "9fc30b578cedaec69e47302df72cf00feed7c8c4",
+    "releaseDatasetRevision": "771a4a11d98f975ff1a8d5f29206f4ef57fd25d3",
+    "datasetManifestSha256": "3636743c1f4356db564aa82f6379e0e9b59fed59f0e53faf9edac6c1fece7a34",
+    "inspectionEvidenceSha256": "45e9fee3103c406069c0d2f752082c5d7b0fce102b904eae0a745c417a004cbd",
+    "postTraining": "NONE_FOR_SELECTED_BASE_RELEASE",
+    "postTrainingEvidence": "https://arxiv.org/html/2305.06161v2",
+    "dossier": "docs/model-qualifications/starcoderbase.md",
+    "limitations": [
+        "Dataset lineage, not exhaustive per-record original-source attribution.",
+        "Processed issue/commit records omit separate repository/license columns.",
+        "No legal, originality, memorization or repair-correctness guarantee.",
+    ],
+}
 
 
 class UnavailableModelError(RuntimeError):
@@ -28,6 +58,54 @@ def _mlx_runtime_version() -> str:
         return version("mlx-lm")
     except PackageNotFoundError as exc:
         raise UnavailableModelError("MLX-LM is not installed; run uv sync --extra models") from exc
+
+
+def _starcoderbase_mlx(*, max_tokens: int = 512) -> RepairModel:
+    snapshot_dir = models_dir() / "qualified" / "starcoderbase-fp16" / STARCODERBASE_REVISION
+    assert_no_symlink_escape(snapshot_dir, label="qualified model artifact")
+    conversion_path = snapshot_dir / "conversion.json"
+    if not conversion_path.is_file():
+        raise UnavailableModelError("qualified StarCoderBase artifact is not provisioned; conversion provenance required")
+    import json
+
+    try:
+        conversion = json.loads(conversion_path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as exc:
+        raise UnavailableModelError("StarCoderBase conversion record is unreadable") from exc
+    if (
+        not isinstance(conversion, dict)
+        or conversion.get("sourceRepo") != "bigcode/starcoderbase"
+        or conversion.get("sourceRevision") != STARCODERBASE_REVISION
+        or conversion.get("operation") != "pytorch-fp32-to-safetensors-fp16"
+        or conversion.get("sourceWeightsSha256") != STARCODERBASE_SOURCE_WEIGHTS
+        or not isinstance(conversion.get("outputFilesSha256"), dict)
+        or conversion.get("tensorRoundTripVerified") is not True
+        or conversion.get("trainingPerformed") is not False
+    ):
+        raise UnavailableModelError("StarCoderBase conversion does not match its qualified source artifact")
+    manifest = build_manifest_from_snapshot(
+        snapshot_dir,
+        repo_id="bigcode/starcoderbase",
+        license="bigcode-openrail-m",
+        runtime_name="mlx-lm",
+        runtime_version=_mlx_runtime_version(),
+        conversion_chain="original publisher FP32 PyTorch -> local FP16 safetensors; retained conversion.json",
+    )
+    for name, expected in conversion["outputFilesSha256"].items():
+        if manifest.files_sha256.get(name) != expected:
+            raise UnavailableModelError("qualified StarCoderBase converted artifact has changed")
+    if set(manifest.files_sha256) - {"conversion.json"} != set(conversion["outputFilesSha256"]):
+        raise UnavailableModelError("qualified StarCoderBase conversion does not cover every output artifact")
+    expected_weights = {
+        f"model-{index:05d}-of-00007.safetensors"
+        for index in range(1, 8)
+    }
+    if set(manifest.weights_sha256) != expected_weights or not expected_weights.issubset(conversion["outputFilesSha256"]):
+        raise UnavailableModelError("qualified StarCoderBase conversion must bind all seven output weight shards")
+    manifest = replace(manifest, training_data_provenance=dict(STARCODERBASE_LINEAGE))
+    from each.models.mlx_model import MLXRepairModel
+
+    return MLXRepairModel(snapshot_dir, manifest, max_tokens=max_tokens)
 
 
 def _granite_3b_code_base_mlx() -> RepairModel:
@@ -271,6 +349,7 @@ def _granite_gguf_llamacpp() -> RepairModel:
 
 
 _CATALOG: dict[str, Callable[..., RepairModel]] = {
+    "starcoderbase-mlx": _starcoderbase_mlx,
     "granite-3b-code-base-mlx": _granite_3b_code_base_mlx,
     "granite-3b-code-instruct-mlx": _granite_3b_code_instruct_mlx,
     "granite-8b-code-instruct-128k-mlx": _granite_8b_code_instruct_128k_mlx,
@@ -284,16 +363,18 @@ _CATALOG: dict[str, Callable[..., RepairModel]] = {
 
 
 def load_model(key: str, **kwargs) -> RepairModel:
-    """Fail closed until a model's training-data lineage is qualified.
+    """Load only an explicitly qualified model; all other entries fail closed.
 
     Historical builders remain for adapter tests and receipt interpretation;
     their availability is not permission to use them for new target generation.
     """
     if key not in _CATALOG:
         raise UnavailableModelError(f"unknown model key: {key!r}; known keys: {sorted(_CATALOG)}")
+    if key == "starcoderbase-mlx":
+        return _CATALOG[key](**kwargs)
     raise UnavailableModelError(
         f"training-data provenance is not qualified for {key!r}; "
         "public weights, artifact hashes and a model license are insufficient. "
         "EACH requires reviewed base-training and post-training dataset lineage "
-        "before target generation. No current catalog entry has that qualification."
+        "before target generation. This catalog entry has no such qualification."
     )

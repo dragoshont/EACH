@@ -1,6 +1,7 @@
 # Provenance-first evaluation plan
 
-Status: access and lineage assessment; **no qualified neural-model trial yet**.
+Status: StarCoderBase training-lineage dossier accepted for a bounded research
+trial; artifact provisioning is next. **No qualified neural-model trial yet.**
 User-directed reset: 2026-10-03. Access prerequisites come before model loading,
 adapter work, repair trials or production qualification.
 
@@ -124,14 +125,16 @@ compatibility. No extra infrastructure or qualification framework is needed.
 
 | Priority | Exact candidate | Data that must be assessed | Current prerequisite |
 |---|---|---|---|
-| 1 | `bigcode/starcoderbase` | Actual StarCoder training mix: The Stack v1.2-derived code, notebooks, issues and commits; exact checkpoint-stage mapping. | Model configuration returned HTTP 401 on the Mac; no existing Hugging Face credential. The dataset README is reachable, but record access is not established. |
+| 1 | `bigcode/starcoderbase` | Actual StarCoder training mix: The Stack v1.2-derived code, notebooks, issues and commits; exact checkpoint-stage mapping. | User-approved access verified; all component representations inspected. Exact base checkpoint dossier independently accepted with attribution limits. Original-weight provisioning/conversion and runtime verification remain. |
 | 2 | `bigcode/octocoder` | StarCoder ancestry plus CommitPackFT and OASST OctoPack fine-tuning data and processing. | Weights are ungated; base ancestry and every post-training stage still need qualification. Existing incomplete-download/adapter diagnostics are not provenance approval. |
-| 3 | `bigcode/starcoder2-3b` base | Exact The Stack v2 training subset and all additional sources, including the documented natural-language data. | Model weights are ungated; dataset terms and record access are separate. The Stack v2 bulk access requires additional agreement. |
+| 3 | `bigcode/starcoder2-3b` base | Exact The Stack v2 training subset and all additional sources, including the documented natural-language data. | Model and training-ID shard access now verified after user approval. File-content access and complete additional-source lineage still require assessment; bulk Software Heritage access is separate. |
 | Alternative | `allenai/OLMo-1B-hf` original base | Dolma v1_5, original training recipe, component source lineage and publisher HF-format conversion. Not OLMo2 or an instruct checkpoint. | Manifest/recipe are accessible; sample shards returned HTTP 403 for every component on the Mac. It remains BLOCKED. |
 
 Granite remains a candidate only if its required source-level training lineage
 can be established. Qwen is excluded from provenance-first qualification.
-No row above is an approved model.
+Only the exact StarCoderBase artifact described in
+[its dossier](model-qualifications/starcoderbase.md) has passed the current
+bounded lineage assessment. Access alone does not qualify either other model.
 
 Access links:
 - [StarCoderBase model](https://huggingface.co/bigcode/starcoderbase)
@@ -168,12 +171,19 @@ builder invocation. Low-level adapters are development APIs, not an approved
 eligibility bypass. FixtureModel remains available solely as a deterministic
 harness test.
 
-The canonical Mac Run `each-provenance-first-20261003`, revision 7, records:
+The earlier canonical Mac Run `each-provenance-first-20261003`, revision 7,
+recorded the initial access blocker:
 - Catalog provenance prerequisite: PASS.
 - Eligible training lineage: BLOCKED_EXTERNAL.
 - Qualified local evaluation: BLOCKED_EXTERNAL.
 - Status: WAITING_EXTERNAL; zero generation calls, weights acquired or terms
   accepted by this qualification step.
+
+  The user subsequently authenticated and accepted the BigCode access gates.
+  Revision 11 resolves the original access checkpoint using actual successful
+  model/data requests. Subsequent bounded training-record inspection and the
+  independent StarCoderBase eligibility decision are described in its dossier.
+  No research-stage eligibility decision is a production or repair-success claim.
 
 The catalog correction at `149ad3caae0aa18f76fdba05fbcc5144d9062400` passed
 configured gates (594 tests, three optional skips), explicit audit/models
@@ -181,8 +191,9 @@ checks (597 tests, zero skips) and Ruff. Independent bounded correction review
 accepted the fail-closed behavior and documentation; it did **not** qualify
 a model or complete a repair trial.
 
-**Next work is step 1, not another repair experiment.** Once permitted access
-is established, finish one candidate's dossier before enabling it.
+**Next work for StarCoderBase is exact artifact provisioning and local runtime
+verification.** Continue separate dataset-stage assessment for OctoCoder and
+StarCoder2; do not substitute an unqualified model.
 See [model provenance](model-provenance.md) for primary sources and
 [the production ledger](production-readiness-ledger.md) for later release gates.
 

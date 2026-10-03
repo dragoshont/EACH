@@ -124,11 +124,12 @@ unavailable; a skip is not a successful isolation test.
 
 ## Using real local models
 
-**Generation is currently blocked pending training-data provenance
-qualification.** EACH uses only eligible models with clear base and
+**Training-data provenance is a prerequisite, not a model preference.**
+EACH uses only eligible models with clear base and
 post-training dataset lineage. Public weights, exact hashes or a model
-license are not sufficient. No current catalog entry is qualified; historical
-Qwen capability trials do not qualify this product. See
+license are not sufficient. The exact original StarCoderBase checkpoint is
+the first independently assessed candidate; other entries remain blocked.
+Historical Qwen capability trials do not qualify this product. See
 [model eligibility](docs/model-provenance.md).
 The [provenance-first evaluation plan](docs/provenance-first-evaluation-plan.md)
 puts model/data access and lineage qualification ahead of runtime and repair
@@ -159,8 +160,8 @@ automatically or treat model licensing as licensing of generated patches.
 See [model provenance](docs/model-provenance.md) for identities, conversion
 limitations and actual evaluation results.
 
-The following bake-off/benchmark commands are **historical workflow references**.
-Today they return an eligibility error (exit 2) before model loading or inference.
+The following Granite bake-off/benchmark commands are **historical workflow references**.
+They return an eligibility error (exit 2) before model loading or inference.
 After a model is genuinely qualified, these workflows also require provisioned
 runtime images; see the setup limitations below.
 
@@ -172,8 +173,23 @@ uv run --extra audit --extra models each benchmark run \
 ```
 
 When eligibility is enabled for a reviewed model, these are real
-inference/validation operations, not health checks. Currently no entry is
-eligible. Historical unsuccessful repairs remain nonzero outcomes with evidence.
+inference/validation operations, not health checks. Historical unsuccessful
+repairs remain nonzero outcomes with evidence.
+
+For the qualified original StarCoderBase checkpoint, authenticated model access
+must already be granted. Provisioning retains approximately 63 GB of original
+publisher FP32 shards and converts to approximately 31 GB of local FP16
+safetensors. It requires 120 GiB free disk, verifies the original publisher
+hashes and every saved tensor, and records the precision conversion:
+
+```bash
+uv run --extra models python -m each.models.provision_starcoderbase
+```
+
+Provisioning does not run inference. Do not repeat it over an existing or
+partial conversion; preserve and inspect existing artifacts first. The
+`starcoderbase-mlx` loader verifies the conversion/output identities and binds
+the training-lineage dossier into its model manifest.
 
 ### Benchmark image setup limitation
 

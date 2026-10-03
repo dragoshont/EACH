@@ -6,8 +6,11 @@ The user clarified that EACH works **only with models having clear training-data
 provenance**. This is an eligibility requirement before new target generation,
 not a preference traded away for repair performance.
 
-No current catalog model has completed that qualification. The public loader
-therefore fails closed before loading weights or invoking an adapter. Historical
+The exact original StarCoderBase checkpoint has now passed a bounded
+[independent training-lineage assessment](model-qualifications/starcoderbase.md).
+Its catalog key is `starcoderbase-mlx`; artifact provisioning and recorded
+conversion must also verify before loading. All other entries fail closed
+before loading weights or invoking an adapter. Historical
 builders and receipts are retained for reproducibility and tests; their presence
 does not authorize new generation. FixtureModel is a deterministic harness test.
 Enforcement is at `catalog.load_model` and its official CLI callers. Low-level
@@ -144,8 +147,9 @@ terms were accepted, no weights were acquired and no inference ran.
 Next qualification work is to obtain permitted inspectable corpus access,
 verify component-level source lineage and exact checkpoint/stage mapping,
 then independently assess the dossier before enabling a model. The catalog
-continues to reject all current entries rather than treating missing evidence
-as a capability fallback.
+continues to reject unqualified entries rather than treating missing evidence
+as a capability fallback. The separate StarCoderBase dossier documents the
+subsequent access approval and exact-checkpoint eligibility decision.
 
 Sources:
 - [Pinned OLMo-1B HF conversion card](https://huggingface.co/allenai/OLMo-1B-hf/blob/aee7752d9c08ee4775e9b0091426d8410e8f6a89/README.md)

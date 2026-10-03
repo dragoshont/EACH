@@ -4,9 +4,11 @@ honest "unavailable" reasons must be real, not silently swallowed."""
 from __future__ import annotations
 
 import json
+from types import SimpleNamespace
 
 import pytest
 
+from each.hashing import sha256_file
 from each.models import catalog
 from each.models.catalog import UnavailableModelError, load_model
 
@@ -67,7 +69,7 @@ def test_load_model_rejects_unsupported_kwarg_for_entries_without_tunable_params
         catalog._granite_gguf_llamacpp(max_tokens=1024)
 
 
-@pytest.mark.parametrize("key", list(catalog._CATALOG))
+@pytest.mark.parametrize("key", [key for key in catalog._CATALOG if key != "starcoderbase-mlx"])
 def test_catalog_blocks_unqualified_training_provenance_before_loading(key, monkeypatch) -> None:
     def must_not_load(**kwargs):
         pytest.fail("unqualified model builder was invoked")
@@ -75,3 +77,56 @@ def test_catalog_blocks_unqualified_training_provenance_before_loading(key, monk
     monkeypatch.setitem(catalog._CATALOG, key, must_not_load)
     with pytest.raises(UnavailableModelError, match="training-data provenance is not qualified"):
         load_model(key)
+
+
+def test_qualified_base_still_requires_provisioned_artifact(monkeypatch, tmp_path):
+    monkeypatch.setattr(catalog, "models_dir", lambda: tmp_path)
+    with pytest.raises(UnavailableModelError, match="not provisioned"):
+        load_model("starcoderbase-mlx")
+
+
+def test_unrelated_conversion_cannot_enter_qualified_base(monkeypatch, tmp_path):
+    monkeypatch.setattr(catalog, "models_dir", lambda: tmp_path)
+    root = tmp_path / "qualified" / "starcoderbase-fp16" / catalog.STARCODERBASE_REVISION
+    root.mkdir(parents=True)
+    (root / "conversion.json").write_text(json.dumps({
+        "sourceRepo": "Qwen/Qwen2.5-Coder-14B-Instruct",
+        "sourceRevision": catalog.STARCODERBASE_REVISION,
+        "operation": "pytorch-fp32-to-safetensors-fp16",
+        "sourceFilesSha256": {"weights.bin": "a"},
+        "outputFilesSha256": {"model.safetensors": "b"},
+    }))
+    with pytest.raises(UnavailableModelError, match="does not match"):
+        load_model("starcoderbase-mlx")
+
+
+def test_qualified_conversion_binds_lineage_and_rejects_output_drift(monkeypatch, tmp_path):
+    """Synthetic artifact/adapter fixture, never a real model qualification."""
+    monkeypatch.setattr(catalog, "models_dir", lambda: tmp_path)
+    monkeypatch.setattr(catalog, "_mlx_runtime_version", lambda: "test-runtime")
+    monkeypatch.setattr(
+        "each.models.mlx_model.MLXRepairModel",
+        lambda path, manifest, **kwargs: SimpleNamespace(manifest=manifest),
+    )
+    root = tmp_path / "qualified" / "starcoderbase-fp16" / catalog.STARCODERBASE_REVISION
+    root.mkdir(parents=True)
+    for index in range(1, 8):
+        (root / f"model-{index:05d}-of-00007.safetensors").write_bytes(b"synthetic-test-weights")
+    (root / "config.json").write_text('{"n_positions":8192}')
+    (root / "tokenizer.json").write_text("{}")
+    record = {
+        "sourceRepo": "bigcode/starcoderbase",
+        "sourceRevision": catalog.STARCODERBASE_REVISION,
+        "operation": "pytorch-fp32-to-safetensors-fp16",
+        "sourceWeightsSha256": catalog.STARCODERBASE_SOURCE_WEIGHTS,
+        "outputFilesSha256": {p.name: sha256_file(p) for p in root.iterdir()},
+        "tensorRoundTripVerified": True,
+        "trainingPerformed": False,
+    }
+    (root / "conversion.json").write_text(json.dumps(record))
+    result = load_model("starcoderbase-mlx")
+    assert result.manifest.to_dict()["trainingDataProvenance"]["modelRevision"] == catalog.STARCODERBASE_REVISION
+    assert result.manifest.max_position_embeddings == 8192
+    (root / "model-00001-of-00007.safetensors").write_bytes(b"changed")
+    with pytest.raises(UnavailableModelError, match="changed"):
+        load_model("starcoderbase-mlx")
