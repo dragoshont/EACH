@@ -209,6 +209,11 @@ def normalize_target_evidence(
             "INVALID_CRITERION",
             f"criterion {criterion_id} targetEvidence must declare both purpose and targetSpecHash",
         )
+    if not re.fullmatch(r"[0-9a-f]{64}", target_spec_hash):
+        raise RuntimeFailure(
+            "INVALID_CRITERION",
+            f"criterion {criterion_id} targetEvidence targetSpecHash must be 64 lowercase hex characters",
+        )
     expected_purpose = TARGET_EVIDENCE_PURPOSES[kind]
     if purpose != expected_purpose:
         raise RuntimeFailure(
@@ -1559,35 +1564,37 @@ class RunStore:
         from each.outcome import UNKNOWN_OUTCOME_CLASS, sanitize_outcome_class, sanitize_proposal_format
 
         resolved = self._resolve_private_each_run_file(receipt_path, code="TARGET_EXPERIMENT_RECEIPT")
-        before_bytes = resolved.read_bytes()
+        try:
+            before_bytes = resolved.read_bytes()
+        except OSError as exc:
+            raise RuntimeFailure("TARGET_EXPERIMENT_RECEIPT", "private receipt could not be read") from exc
         before_sha256 = hashlib.sha256(before_bytes).hexdigest()
         try:
-            json.loads(before_bytes)
+            receipt = json.loads(before_bytes)
         except (UnicodeDecodeError, json.JSONDecodeError) as exc:
             raise RuntimeFailure("TARGET_EXPERIMENT_RECEIPT", "private receipt is unreadable") from exc
-        result = subprocess.run(
-            [sys.executable, "-m", "each.cli", "verify", "--full", str(resolved)],
-            cwd=str(self.repository),
-            capture_output=True,
-            text=True,
-            timeout=120,
-            check=False,
-        )
-        if result.returncode != 0:
-            raise RuntimeFailure(
-                "TARGET_EXPERIMENT_RECEIPT",
-                "independent `each verify --full` re-check of the private receipt did not PASS",
-                details={"returncode": result.returncode},
-            )
-        after_bytes = resolved.read_bytes()
-        if not hmac.compare_digest(before_sha256, hashlib.sha256(after_bytes).hexdigest()):
-            raise RuntimeFailure("TARGET_EXPERIMENT_RECEIPT", "private receipt changed during verification")
-        try:
-            receipt = json.loads(after_bytes)
-        except (UnicodeDecodeError, json.JSONDecodeError) as exc:
-            raise RuntimeFailure("TARGET_EXPERIMENT_RECEIPT", "verified private receipt is unreadable") from exc
         if not isinstance(receipt, dict):
             raise RuntimeFailure("TARGET_EXPERIMENT_RECEIPT", "private receipt must be a JSON object")
+        if not isinstance(receipt.get("materials"), dict) or not receipt["materials"]:
+            raise RuntimeFailure("TARGET_EXPERIMENT_RECEIPT", "private receipt has no retained materials")
+        if not isinstance(receipt.get("audit"), dict):
+            raise RuntimeFailure("TARGET_EXPERIMENT_RECEIPT", "private receipt audit must be an object")
+        from each.attestation import verify_materials_root, verify_receipt
+        from each.signing import public_key_path
+
+        try:
+            signature_result = verify_receipt(receipt, public_key_path().read_bytes())
+            materials_result = verify_materials_root(receipt, resolved.parent / "materials")
+        except (OSError, ValueError, TypeError, KeyError) as exc:
+            raise RuntimeFailure(
+                "TARGET_EXPERIMENT_RECEIPT",
+                "independent receipt verification could not execute",
+            ) from exc
+        if signature_result.get("status") != "PASS" or materials_result.get("status") != "PASS":
+            raise RuntimeFailure(
+                "TARGET_EXPERIMENT_RECEIPT",
+                "independent signature and retained-material verification did not PASS",
+            )
         outcome = sanitize_outcome_class(str(receipt.get("outcome", "")))
         eligible_outcomes = {
             "PATCH_REJECTED",
@@ -1626,7 +1633,15 @@ class RunStore:
         catalog_key = f"{matched_name}-mlx"
         try:
             official_identity = load_model(catalog_key, max_tokens=1).identity()
-        except UnavailableModelError as exc:
+        except (
+            UnavailableModelError,
+            OSError,
+            RuntimeError,
+            ValueError,
+            TypeError,
+            KeyError,
+            json.JSONDecodeError,
+        ) as exc:
             raise RuntimeFailure(
                 "TARGET_EXPERIMENT_RECEIPT",
                 "exact qualified local artifact is unavailable or changed",
@@ -1664,7 +1679,7 @@ class RunStore:
             raise RuntimeFailure("TARGET_EXPERIMENT_RECEIPT", "private receipt specHash is invalid")
         try:
             require_id(target_run_id, "target run id")
-        except ValueError as exc:
+        except RuntimeFailure as exc:
             raise RuntimeFailure("TARGET_EXPERIMENT_RECEIPT", "private receipt runId is invalid") from exc
         assurance_level = str(receipt.get("assuranceLevel") or "")
         if assurance_level not in {"EACH-P1", "EACH-P2", "EACH-P3", "EACH-P4"}:
@@ -1691,6 +1706,7 @@ class RunStore:
             or not isinstance(selected_completion, str)
             or not selected_completion.strip()
             or not exact_json_equal(selected_records[0].get("model_identity"), model_identity)
+            or model_identity.get("generationAttempted") is not True
         ):
             raise RuntimeFailure(
                 "TARGET_EXPERIMENT_RECEIPT",

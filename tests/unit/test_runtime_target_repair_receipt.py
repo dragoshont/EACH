@@ -18,6 +18,7 @@ identities, non-verified outcomes, and private-store path escapes.
 from __future__ import annotations
 
 import copy
+import hashlib
 import json
 import subprocess
 import sys
@@ -67,6 +68,10 @@ def _write_real_receipt(
     attempt_model_identity=None,
     type_confused_attempt_identity=False,
     top_level_raw_completion=None,
+    retain_materials=True,
+    generation_attempted=True,
+    materials_override=None,
+    audit_value=None,
 ):
     """Build and sign a genuine receipt via the real each.receipt/each.attestation
     code paths, written under a private EACH_HOME/runs/<run_id>/ directory --
@@ -99,7 +104,7 @@ def _write_real_receipt(
         },
         "generationParameters": {"maxTokens": 256, "temperature": 0.0, "sampling": "greedy", "seed": None},
         "contextPolicy": {"maxPositionEmbeddings": 8192, "reservedOutputTokens": 256},
-        "generationAttempted": True,
+        "generationAttempted": generation_attempted,
     }
 
     selected_model_identity = model_identity if attempt_model_identity is None else attempt_model_identity
@@ -123,7 +128,7 @@ def _write_real_receipt(
         isolation_evidence={"command": ["docker", "run", "--network", "none"], "exit_code": 1, "stdout": ""},
         baseline_result={"exit_code": 1},
         repaired_result={"exit_code": 0} if repaired_result is None else repaired_result,
-        audit={"result": "UNAVAILABLE", "checks": {}},
+        audit={"result": "UNAVAILABLE", "checks": {}} if audit_value is None else audit_value,
         assurance_level=assurance_level,
         legal_certification=legal_certification,
         cleanroom_certification=cleanroom_certification,
@@ -142,7 +147,18 @@ def _write_real_receipt(
         audit_subject_sha256="subject-sha",
     )
     run_dir = each_home / "runs" / run_id
-    json_path, _ = receipt.write(run_dir)
+    materials_source = each_home / "receipt-inputs" / run_id
+    if retain_materials:
+        materials_source.mkdir(parents=True)
+        material = materials_source / "input.txt"
+        material.write_text("retained input\n", encoding="utf-8")
+        receipt.materials = {"input.txt": hashlib.sha256(material.read_bytes()).hexdigest()}
+    if materials_override is not None:
+        receipt.materials = materials_override
+    json_path, _ = receipt.write(
+        run_dir,
+        materials_source=materials_source if retain_materials else None,
+    )
     return json_path
 
 
@@ -221,6 +237,18 @@ def experiment_harness(tmp_path, monkeypatch):
                 "verificationType": "reality",
                 "surface": "runtime",
                 "blocking": False,
+            },
+            {
+                "id": "verified-repair",
+                "description": "a genuinely verified repair",
+                "verificationType": "reality",
+                "surface": "runtime",
+                "blocking": False,
+                "targetEvidence": {
+                    "kind": "target-repair-receipt",
+                    "purpose": "target-repair-verified",
+                    "targetSpecHash": "2c5eca88fdccb0c1a0c94541e0b612d990b7d1dfd5ccfb0389ea61fb9e669c78",
+                },
             },
         ],
         autonomy_scope="approved-program",
@@ -384,6 +412,16 @@ def test_target_experiment_rejects_unqualified_model_and_unowned_criterion(exper
             evidence_refs=["artifact:owned-target-evidence"],
             criteria=["unrelated-runtime"],
         )
+    with pytest.raises(art.RuntimeFailure, match="kind"):
+        run_store.record_gate(
+            "test-experiment-run",
+            gate_id="repair-laundered-gate",
+            task_id=None,
+            gate_type="reality",
+            status="PASS",
+            evidence_refs=["artifact:owned-target-evidence"],
+            criteria=["verified-repair"],
+        )
 
 
 @pytest.mark.parametrize(
@@ -394,6 +432,7 @@ def test_target_experiment_rejects_unqualified_model_and_unowned_criterion(exper
         ({"spec_hash": "not-a-hash"}, "specHash"),
         ({"raw_completion": "", "selected_attempt": None}, "bind one selected"),
         ({"legal_certification": True}, "legal certification"),
+        ({"retain_materials": False}, "no retained materials"),
     ],
 )
 def test_target_experiment_rejects_invalid_runtime_evidence(experiment_harness, monkeypatch, kwargs, message):
@@ -415,7 +454,7 @@ def test_target_experiment_rejects_invalid_runtime_evidence(experiment_harness, 
         )
 
 
-def test_target_experiment_detects_receipt_replacement_during_verification(experiment_harness, monkeypatch):
+def test_target_experiment_verifies_the_captured_receipt_payload(experiment_harness, monkeypatch):
     run_store, _repo, each_home = experiment_harness
     receipt_path = _write_real_receipt(
         each_home,
@@ -424,21 +463,26 @@ def test_target_experiment_detects_receipt_replacement_during_verification(exper
         repaired_result={},
     )
     _patch_official_identity(monkeypatch, receipt_path)
-    original_run = subprocess.run
+    original_bytes = receipt_path.read_bytes()
+    original_sha256 = hashlib.sha256(original_bytes).hexdigest()
+    from each.attestation import verify_receipt as original_verify
 
-    def replace_after_verify(*args, **kwargs):
-        result = original_run(*args, **kwargs)
+    def replace_path_during_verify(receipt, public_key):
+        result = original_verify(receipt, public_key)
         receipt_path.write_bytes(receipt_path.read_bytes() + b"\n")
         return result
 
-    monkeypatch.setattr(art.subprocess, "run", replace_after_verify)
-    with pytest.raises(art.RuntimeFailure, match="changed during verification"):
-        run_store._record_target_experiment_receipt(
-            "test-experiment-run",
-            artifact_id="raced-target-evidence",
-            receipt_path=str(receipt_path),
-            evidence_refs=[],
-        )
+    monkeypatch.setattr("each.attestation.verify_receipt", replace_path_during_verify)
+    state = run_store._record_target_experiment_receipt(
+        "test-experiment-run",
+        artifact_id="captured-target-evidence",
+        receipt_path=str(receipt_path),
+        evidence_refs=[],
+    )
+    artifact = next(item for item in state["artifacts"] if item["id"] == "captured-target-evidence")
+    summary = json.loads((_repo / artifact["path"]).read_text())
+    assert summary["receiptSha256"] == original_sha256
+    assert hashlib.sha256(receipt_path.read_bytes()).hexdigest() != original_sha256
 
 
 @pytest.mark.parametrize(
@@ -448,6 +492,7 @@ def test_target_experiment_detects_receipt_replacement_during_verification(exper
         {"attempt_number": True, "selected_attempt": 1},
         {"attempt_number": 1.0, "selected_attempt": 1},
         {"selected_attempt": True},
+        {"generation_attempted": False},
         {"raw_completion": "   "},
         {"raw_completion": "", "top_level_raw_completion": "top-level fallback is forbidden"},
         {
@@ -481,11 +526,12 @@ def test_target_experiment_binds_selected_attempt_to_qualified_identity(
         )
 
 
-def test_target_experiment_rejects_type_confused_official_identity(experiment_harness, monkeypatch):
+@pytest.mark.parametrize("mismatch", ["runtime-config-type", "implementation-sha", "manifest"])
+def test_target_experiment_rejects_mismatched_official_identity(experiment_harness, monkeypatch, mismatch):
     run_store, _repo, each_home = experiment_harness
     receipt_path = _write_real_receipt(
         each_home,
-        "official-type-confusion",
+        "official-identity-mismatch-" + mismatch,
         outcome="PATCH_REJECTED",
         repaired_result={},
     )
@@ -494,7 +540,12 @@ def test_target_experiment_rejects_type_confused_official_identity(experiment_ha
     official["generationParameters"]["maxTokens"] = 1
     official["contextPolicy"]["reservedOutputTokens"] = 1
     official["generationAttempted"] = False
-    official["runtimeModelConfig"]["tie_word_embeddings"] = 0
+    if mismatch == "runtime-config-type":
+        official["runtimeModelConfig"]["tie_word_embeddings"] = 0
+    elif mismatch == "implementation-sha":
+        official["implementationSha256"] = "different-implementation"
+    else:
+        official["modelManifest"]["configSha256"] = "different-config"
     monkeypatch.setattr(
         "each.models.catalog.load_model",
         lambda *_a, **_k: type("M", (), {"identity": lambda self: official})(),
@@ -502,10 +553,76 @@ def test_target_experiment_rejects_type_confused_official_identity(experiment_ha
     with pytest.raises(art.RuntimeFailure, match="official qualified local artifact"):
         run_store._record_target_experiment_receipt(
             "test-experiment-run",
-            artifact_id="official-type-confusion-evidence",
+            artifact_id="official-identity-mismatch-" + mismatch,
             receipt_path=str(receipt_path),
             evidence_refs=[],
         )
+
+
+def test_target_experiment_normalizes_receipt_read_and_catalog_failures(experiment_harness, monkeypatch):
+    run_store, _repo, each_home = experiment_harness
+    missing = each_home / "runs" / "missing" / "receipt.json"
+    original_resolver = run_store._resolve_private_each_run_file
+    monkeypatch.setattr(run_store, "_resolve_private_each_run_file", lambda *_a, **_k: missing)
+    with pytest.raises(art.RuntimeFailure, match="could not be read"):
+        run_store._record_target_experiment_receipt(
+            "test-experiment-run",
+            artifact_id="missing-receipt-evidence",
+            receipt_path=str(missing),
+            evidence_refs=[],
+        )
+
+    monkeypatch.setattr(run_store, "_resolve_private_each_run_file", original_resolver)
+    receipt_path = _write_real_receipt(
+        each_home,
+        "catalog-runtime-failure",
+        outcome="PATCH_REJECTED",
+        repaired_result={},
+    )
+    monkeypatch.setattr(
+        "each.models.catalog.load_model",
+        lambda *_a, **_k: (_ for _ in ()).throw(RuntimeError("optional runtime failure")),
+    )
+    with pytest.raises(art.RuntimeFailure, match="unavailable or changed"):
+        run_store._record_target_experiment_receipt(
+            "test-experiment-run",
+            artifact_id="catalog-runtime-failure-evidence",
+            receipt_path=str(receipt_path),
+            evidence_refs=[],
+        )
+
+
+@pytest.mark.parametrize(
+    ("field", "value", "message"),
+    [
+        ("materials", "invalid", "no retained materials"),
+        ("audit", "invalid", "audit must be an object"),
+    ],
+)
+def test_target_experiment_rejects_signed_malformed_mapping_shapes(
+    experiment_harness, field, value, message,
+):
+    from each.attestation import attest_receipt
+
+    run_store, _repo, each_home = experiment_harness
+    receipt_path = _write_real_receipt(
+        each_home,
+        "malformed-shape-" + field,
+        outcome="PATCH_REJECTED",
+        repaired_result={},
+    )
+    receipt = json.loads(receipt_path.read_text())
+    receipt[field] = value
+    receipt.pop("attestation", None)
+    receipt["attestation"] = attest_receipt(receipt)
+    receipt_path.write_text(json.dumps(receipt), encoding="utf-8")
+    with pytest.raises(art.RuntimeFailure, match=message):
+        run_store._record_target_experiment_receipt(
+            "test-experiment-run",
+            artifact_id="malformed-shape-evidence-" + field,
+            receipt_path=str(receipt_path),
+        evidence_refs=[],
+    )
 
 
 def test_rejects_a_hand_written_claim_file_that_is_not_a_real_receipt(harness):
