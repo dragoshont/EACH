@@ -1,8 +1,10 @@
 # OctoCoder lineage assessment progress
 
-Status on 2026-10-03: **not yet eligible**. Access has been granted for the
-model and the inspected post-training datasets, but this progress record is
-not an eligibility decision or a performance result.
+Status on 2026-10-03: **independently assessed ELIGIBLE for bounded research
+dataset lineage**, at the same scope as the original StarCoderBase dossier.
+Access has been granted for the model and inspected post-training datasets.
+This decision does not provision the weights, enable the loader, qualify
+performance, or certify exact sample membership/licensing.
 
 Candidate: `bigcode/octocoder` at
 `0f863c63e38ba80fc2c4010f34a7f46d537a9eee`.
@@ -44,19 +46,46 @@ The preprocessing script's intermediate `HuggingFaceH4/oasst1_guanaco`
 repository currently returned 404. The direct final-to-original ID/text match
 is real evidence; it does not by itself reproduce every intermediate filter.
 
-## Still to close
+## Independent assessment and remaining runtime work
 
-- Bind the full base/continuation artifact lineage to the selected checkpoint.
-- Resolve the exact selected mixture and training recipe. The published paper
+- The published paper
   describes 5,000 CommitPackFT samples, not training on the entire released
   dataset. The repository's example `finetuning/starcoder/finetune.sh` points
   to `ArmelR/guanaco-commits`; it is not sufficient by itself to identify the
   final model's complete training run. The small committed manual mixtures
   must not be silently substituted for the paper's selected mixture.
-- Assess collection/license/filtering limits and the missing intermediate
-  dataset with an independent dossier review.
-- Only after eligibility: provision the exact weights, verify local runtime
+- Independent review accepted the identified dataset-stage ancestry and direct
+  OASST record join, preserving the exact-subset and intermediate-reconstruction
+  limitations. No required unidentified datasource stage was found in the
+  supplied evidence. This is not proof of the historical training job or a
+  universal source-license guarantee.
+- Next: provision and hash the exact original weights, verify local runtime
   and evaluate the same approved Xodus behavioral packet.
+
+The assessment distinguishes **known dataset-stage lineage**
+from **exact training-sample membership**. The paper identifies all selected
+dataset stages and the sampling population/rule; the released source records
+are inspectable. This inspection has not recovered the exact 5,000 CommitPackFT
+row IDs or reconstructed the training job. Whether that is a blocking gap
+depends on the same documented-dataset-lineage scope used for StarCoderBase;
+it must not silently become an exact-membership or lawful-training claim.
+The independent verdict was PASS/ELIGIBLE for the exact checkpoint and this
+bounded dataset-stage scope, not for loader implementation or full release.
+
+| Stage | Declared/inspected source | Scope |
+|---|---|---|
+| Multilingual base | Original StarCoderBase lineage dossier: The Stack v1.2-derived code, issues, commits and notebooks; released `starcoderdata` files unchanged from the model-release revision. | Reused dataset-stage evidence, not a new base qualification by model name. |
+| Python continuation | Original StarCoder paper explicitly identifies 35B additional Python tokens from the same training dataset for StarCoder. | A real additional stage in OctoCoder ancestry; not part of StarCoderBase itself. |
+| Instruction tuning | Original OctoPack paper/model card identify CommitPackFT plus filtered OASST as the final model mixture. | Self-Instruct and xP3x are described as separate ablations, not assumed final-model ingredients. |
+| OASST ancestry | Released first-two-message selections all match original OASST IDs/text hashes, with explicit false synthetic flags. | Metadata is evidence of recorded ancestry, not proof that every contributor independently authored every word. |
+| CommitPackFT ancestry | Released records expose repository, commit, paths and license metadata in all six sampled language components; public collection/filtering scripts are pinned. | Exact random subset membership and comprehensive per-record licensing are not established. |
+
+Inspected CommitPackFT release:
+`fc56fe33c030c6daa414c2b112c932b8eed085e6`.
+Pinned collection/filtering source:
+`bigcode-project/octopack@e17a8f6470264286bc6a52eb8263582083bf3bf6`.
+Its model license is OpenRAIL-M, not Apache-2.0; neither that license nor the
+dataset's collection license replaces individual source licenses.
 
 Bounded direct inspection of the first released CommitPackFT record in each
 of Python, JavaScript, Java, Go, C++ and Rust confirmed readable repository,
