@@ -37,7 +37,9 @@ def _cmd_model_bakeoff(args: argparse.Namespace) -> int:
         return 2
 
     try:
-        result = run_model_bakeoff(model, max_attempts=args.max_attempts)
+        result = run_model_bakeoff(
+            model, max_attempts=args.max_attempts, proposal_format=args.proposal_format
+        )
     except ValueError as exc:
         print(f"invalid bake-off arguments: {exc}")
         return 2
@@ -255,6 +257,7 @@ def build_parser() -> argparse.ArgumentParser:
     bakeoff = model_sub.add_parser("bakeoff", help="run the hello-repair fixture against a real local model")
     bakeoff.add_argument("model", help="model catalog key, e.g. granite-3b-code-base-mlx")
     bakeoff.add_argument("--max-attempts", type=int, default=3)
+    bakeoff.add_argument("--proposal-format", choices=["diff", "fim"], default="diff")
     bakeoff.set_defaults(func=_cmd_model_bakeoff)
 
     issue = subparsers.add_parser("issue", help="GitHub issue intake (M3)")

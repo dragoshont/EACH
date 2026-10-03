@@ -22,6 +22,7 @@ probe itself measures for the inference step.
 
 from __future__ import annotations
 
+import time
 import uuid
 from typing import Any
 
@@ -39,8 +40,10 @@ from each.demo import (
 from each.executor.container import ContainerExecutor, ContainerExecutorError, derive_assurance_level
 from each.hashing import sha256_bytes
 from each.models.base import RepairModel
+from each.outcome import sanitize_outcome_class
 from each.patch import PatchRejected, apply_patch, extract_patch_text, parse_patch
 from each.paths import runs_dir
+from each.raw_proposal import RawProposalRejected, derive_unified_diff
 from each.receipt import Receipt
 from each.spec import ApprovedSpec, make_spec_packet
 from each.worktree import build_worktree
@@ -79,6 +82,8 @@ def _read_candidate_bytes_for_audit(worktree, touched: list[str]) -> bytes:
 
 
 def _classify_fixture_run(result, *, expected_tests: int) -> tuple[str | None, dict[str, str]]:
+    if "unittest.loader._FailedTest" in result.stdout + result.stderr:
+        return None, {"classification": "inconclusive", "reason": "test_collection_failed"}
     try:
         verdict = _interpret_test_run(result, expected_tests=expected_tests)
     except FixtureExecutionError as exc:
@@ -100,7 +105,8 @@ def _classify_fixture_run(result, *, expected_tests: int) -> tuple[str | None, d
 
 
 def run_model_bakeoff(
-    model: RepairModel, *, max_attempts: int = 3, run_id: str | None = None, audit_corpus: list[str] | None = None
+    model: RepairModel, *, max_attempts: int = 3, run_id: str | None = None,
+    audit_corpus: list[str] | None = None, proposal_format: str = "diff",
 ) -> dict[str, Any]:
     """Run the hello-repair fixture against a real local model, bounded to
     ``max_attempts`` tries, recording the full prompt/response trajectory.
@@ -115,6 +121,8 @@ def run_model_bakeoff(
     is no production corpus wired in yet).
     """
     run_id = run_id or f"bakeoff-{uuid.uuid4().hex[:8]}"
+    if proposal_format not in {"diff", "fim"}:
+        raise ValueError("proposal_format must be diff or fim")
     if max_attempts < 1:
         raise ValueError(f"max_attempts must be >= 1, got {max_attempts}")
 
@@ -144,6 +152,12 @@ def run_model_bakeoff(
         path=FIXTURE_ALLOWED_PATHS[0],
         source=_BUG_SOURCE,
     )
+    source_prefix = _BUG_SOURCE.partition("\n")[0] + "\n"
+    if proposal_format == "fim":
+        base_prompt = (
+            "<fim_prefix># " + spec_packet.problem_statement + "\n"
+            + source_prefix + "<fim_suffix><fim_middle>"
+        )
 
     common_fields = {
         "run_id": run_id,
@@ -193,11 +207,15 @@ def run_model_bakeoff(
     for attempt_num in range(1, max_attempts + 1):
         worktree, manifest = build_worktree(FIXTURE_ROOT, FIXTURE_ALLOWED_PATHS + FIXTURE_TEST_PATHS)
         try:
-            baseline = executor.run(ACCEPTANCE_COMMAND, worktree)
+            baseline = executor.run(
+                ACCEPTANCE_COMMAND, worktree,
+                **({"protected_paths": tuple(FIXTURE_TEST_PATHS)} if proposal_format == "fim" else {}),
+            )
         except ContainerExecutorError as exc:
             attempts.append(
                 {
                     "attempt": attempt_num,
+                    "proposal_format": proposal_format,
                     "prompt": prompt,
                     "raw_completion": "",
                     "materials": manifest,
@@ -232,10 +250,34 @@ def run_model_bakeoff(
                 }
             )
             break
-        raw_completion = model.complete(prompt)
+        completion_started = time.perf_counter()
+        try:
+            raw_completion = model.complete(prompt)
+        except (RuntimeError, OSError, ValueError, TypeError, ImportError, MemoryError, KeyboardInterrupt) as exc:
+            attempts.append({
+                "attempt": attempt_num,
+                "proposal_format": proposal_format,
+                "prompt": getattr(model, "last_prompt", None) or prompt,
+                "raw_completion": "",
+                "materials": manifest,
+                "baseline_result": attempt_baseline,
+                "baseline_classification": baseline_classification,
+                "patch_text": "", "touched_paths": [], "repaired_result": {},
+                "repaired_classification": {"classification": "unavailable", "reason": "not_run"},
+                "audit": common_fields["audit"],
+                "outcome": "EXECUTION_ERROR",
+                "failureStage": "generation",
+                "errorType": type(exc).__name__,
+                "generation_error_detail": str(exc),
+                "completion_call_seconds": time.perf_counter() - completion_started,
+                "model_identity": model.identity(),
+            })
+            break
         rendered_prompt = getattr(model, "last_prompt", None)
         attempt_record: dict[str, Any] = {
             "attempt": attempt_num,
+            "proposal_format": proposal_format,
+            "completion_call_seconds": time.perf_counter() - completion_started,
             "prompt": rendered_prompt if rendered_prompt is not None else prompt,
             "raw_completion": raw_completion,
             "materials": manifest,
@@ -250,13 +292,32 @@ def run_model_bakeoff(
         }
 
         try:
-            patch_text = extract_patch_text(raw_completion)
+            if proposal_format == "fim":
+                if not raw_completion.strip() or "<fim_" in raw_completion or "<|endoftext|>" in raw_completion:
+                    raise RawProposalRejected("FIM completion is empty or contains unexpected control tokens")
+                proposed_source = source_prefix + raw_completion
+                if not proposed_source.endswith("\n"):
+                    proposed_source += "\n"
+                patch_text = derive_unified_diff(
+                    path=FIXTURE_ALLOWED_PATHS[0], original_text=_BUG_SOURCE, proposed_text=proposed_source,
+                )
+                if not patch_text:
+                    raise RawProposalRejected("FIM completion did not change the source")
+                attempt_record["infillPrefixSha256"] = sha256_bytes(source_prefix.encode())
+                attempt_record["infillSuffixSha256"] = sha256_bytes(b"")
+                worktree, candidate_manifest = build_worktree(
+                    FIXTURE_ROOT, FIXTURE_ALLOWED_PATHS + FIXTURE_TEST_PATHS
+                )
+                if candidate_manifest != manifest:
+                    raise RawProposalRejected("FIM candidate preimage differs from the validated baseline")
+            else:
+                patch_text = extract_patch_text(raw_completion)
             patch = parse_patch(patch_text)
             touched = apply_patch(patch, worktree, set(FIXTURE_ALLOWED_PATHS))
-        except PatchRejected as exc:
+        except (PatchRejected, RawProposalRejected) as exc:
             attempt_record["outcome"] = f"PATCH_REJECTED: {exc}"
             attempts.append(attempt_record)
-            prompt = base_prompt + _RETRY_SUFFIX.format(reason=str(exc))
+            prompt = base_prompt if proposal_format == "fim" else base_prompt + _RETRY_SUFFIX.format(reason=str(exc))
             continue
 
         # From here on this attempt's own patch_text/touched_paths are
@@ -268,7 +329,10 @@ def run_model_bakeoff(
         attempt_record["audit_subject_sha256"] = sha256_bytes(candidate_source_bytes)
 
         try:
-            repaired = executor.run(ACCEPTANCE_COMMAND, worktree)
+            repaired = executor.run(
+                ACCEPTANCE_COMMAND, worktree,
+                **({"protected_paths": tuple(FIXTURE_TEST_PATHS)} if proposal_format == "fim" else {}),
+            )
         except ContainerExecutorError as exc:
             attempt_record["outcome"] = f"EXECUTION_ERROR: {exc}"
             attempts.append(attempt_record)
@@ -284,7 +348,9 @@ def run_model_bakeoff(
         if repaired_verdict is None:
             attempt_record["outcome"] = f"REPAIRED_RUN_INCONCLUSIVE: {repaired_classification['reason']}"
             attempts.append(attempt_record)
-            prompt = base_prompt + _RETRY_SUFFIX.format(reason="the repaired test run could not be classified; try again")
+            prompt = base_prompt if proposal_format == "fim" else base_prompt + _RETRY_SUFFIX.format(
+                reason="the repaired test run could not be classified; try again"
+            )
             continue
         outcome = (
             "REPAIR_VERIFIED" if (baseline_verdict == "failed" and repaired_verdict == "passed") else "REPAIR_NOT_VERIFIED"
@@ -300,7 +366,9 @@ def run_model_bakeoff(
 
         if outcome in {"REPAIR_VERIFIED", "REPAIR_REJECTED_AUDIT"}:
             break
-        prompt = base_prompt + _RETRY_SUFFIX.format(reason="patch applied but did not make the failing test pass")
+        prompt = base_prompt if proposal_format == "fim" else base_prompt + _RETRY_SUFFIX.format(
+            reason="patch applied but did not make the failing test pass"
+        )
 
     # Exactly one selected attempt -- the last one appended, whatever its
     # outcome -- supplies every receipt field below. max_attempts >= 1 is
@@ -325,9 +393,11 @@ def run_model_bakeoff(
         audit_subject_sha256=selected.get("audit_subject_sha256"),
         **common_fields,
     )
-    json_path, md_path = receipt.write(runs_dir() / run_id)
+    json_path, md_path = receipt.write(
+        runs_dir() / run_id, materials_source=FIXTURE_ROOT if proposal_format == "fim" else None
+    )
     return {
-        "outcome": final_outcome,
+        "outcome": sanitize_outcome_class(final_outcome),
         "receipt_json": str(json_path),
         "receipt_md": str(md_path),
         "attempts": len(attempts),

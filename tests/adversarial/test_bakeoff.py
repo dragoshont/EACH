@@ -229,7 +229,8 @@ def test_bakeoff_does_not_mask_execution_classification_failures(monkeypatch) ->
     model = _StubRepairModel([_CORRECT_PATCH])
     result = bakeoff_module.run_model_bakeoff(model, max_attempts=1)
     receipt = json.loads(Path(result["receipt_json"]).read_text())
-    assert result["outcome"].startswith("BASELINE_INCONCLUSIVE:")
+    assert result["outcome"] == "BASELINE_INCONCLUSIVE"
+    assert receipt["outcome"].startswith("BASELINE_INCONCLUSIVE:")
     assert receipt["attempts"][0]["baseline_result"]["exit_code"] != 0
     assert receipt["attempts"][0]["baseline_classification"] == {
         "classification": "inconclusive",

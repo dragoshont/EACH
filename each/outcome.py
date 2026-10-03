@@ -56,7 +56,7 @@ def sanitize_outcome_class(outcome: str) -> str:
 # currently declares. A source-free export must never surface an arbitrary
 # model/attempt-controlled string through this field -- only one of these
 # reviewed labels.
-PROPOSAL_FORMAT_CLASSES = frozenset({"diff", "full_source", "source_edit"})
+PROPOSAL_FORMAT_CLASSES = frozenset({"diff", "full_source", "source_edit", "fim"})
 
 UNKNOWN_PROPOSAL_FORMAT_CLASS = "UNKNOWN_PROPOSAL_FORMAT_CLASS"
 
