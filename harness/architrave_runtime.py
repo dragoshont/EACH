@@ -1176,58 +1176,130 @@ class RunStore:
             raise RuntimeFailure("EXTERNAL_PROOF", "external proof does not match a pending checkpoint")
         return self._record_artifact(run_id, kind="external-proof", actor="external-checkpoint", producer="external-proof", **kwargs)
 
-    def _record_target_repair_receipt(self, run_id: str, **kwargs: Any) -> dict[str, Any]:
+    def _record_target_repair_receipt(
+        self,
+        run_id: str,
+        *,
+        artifact_id: str,
+        receipt_path: str,
+        evidence_refs: Sequence[str] = (),
+        actor: str = "coordinator",
+    ) -> dict[str, Any]:
         """Register honest, reality-gate evidence that a declared local model produced a
-        genuinely verified target repair (M7/M8-style): the receipt itself (prompts,
-        completions, patch text, target source) must stay private under ``runs_dir()`` and
-        is never copied into this artifact. This records only a sanitized, source-free
-        summary -- outcome classification, independently re-checked signature/materials
-        verification results, and the approved spec hash -- so the Run's acceptance
-        evidence can never silently assert a PASS the summary itself does not actually show.
+        genuinely verified target repair (M7/M8-style).
+
+        ``receipt_path`` must be an absolute path to the REAL private receipt
+        (prompts, completions, patch text, target source) under the private
+        ``~/.each/runs`` store -- never a repo-relative, caller-authored summary
+        file. This function independently re-runs the EXISTING, mature
+        ``each verify --full`` signature + retained-materials verifier against
+        that real receipt itself (never trusting a caller-supplied
+        "signatureVerification": "PASS"-style claim string), and derives every
+        fact this records -- outcome, spec hash, model identity, network
+        isolation -- directly from the re-verified receipt's own declared
+        content. A hand-written JSON summary that merely *asserts* a PASS can
+        therefore never satisfy a reality criterion; only a genuinely signed,
+        materially-retained, REPAIR_VERIFIED receipt for a real (non-Fixture)
+        model can. The private receipt content itself is still never copied
+        into the artifact this writes -- only the independently re-derived,
+        source-free summary fields are.
         """
-        summary = self._read_json_receipt(kwargs["path"], "target-repair")
-        required = ("specId", "specHash", "targetRunId", "outcome", "signatureVerification", "materialsVerification")
-        missing = [field for field in required if not summary.get(field)]
-        if missing:
+        receipt_file = Path(receipt_path).expanduser()
+        if not receipt_file.is_absolute():
+            raise RuntimeFailure(
+                "TARGET_REPAIR_RECEIPT", "receipt path must be an absolute path to the private receipt store"
+            )
+        if receipt_file.is_symlink():
+            raise RuntimeFailure("TARGET_REPAIR_RECEIPT", "receipt path must not itself be a symlink")
+        each_home = Path(os.environ.get("EACH_HOME", str(Path.home() / ".each"))).expanduser()
+        private_runs_root = (each_home / "runs").resolve()
+        resolved = receipt_file.resolve()
+        try:
+            resolved.relative_to(private_runs_root)
+        except ValueError as exc:
             raise RuntimeFailure(
                 "TARGET_REPAIR_RECEIPT",
-                "target-repair summary lacks required fields",
-                details={"missing": missing},
-            )
-        if summary["outcome"] != "REPAIR_VERIFIED":
+                "receipt path must live under the private EACH runs directory, not anywhere else",
+                details={"resolved": str(resolved), "privateRunsRoot": str(private_runs_root)},
+            ) from exc
+        if not resolved.is_file():
+            raise RuntimeFailure("TARGET_REPAIR_RECEIPT", "private receipt file does not exist")
+
+        try:
+            receipt = json.loads(resolved.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError) as exc:
+            raise RuntimeFailure("TARGET_REPAIR_RECEIPT", "private receipt is unreadable") from exc
+        if not isinstance(receipt, dict):
+            raise RuntimeFailure("TARGET_REPAIR_RECEIPT", "private receipt must be a JSON object")
+
+        # Independently re-run the EXISTING `each verify --full` CLI (mature
+        # Ed25519 signature + retained-materials-bytes verifier) against the
+        # real receipt file. Invoked as a subprocess, not imported, so this
+        # stdlib-only runtime module stays free of a hard dependency on the
+        # `each` package/its own dependencies (e.g. `cryptography`).
+        result = subprocess.run(
+            [sys.executable, "-m", "each.cli", "verify", "--full", str(resolved)],
+            cwd=str(self.repository),
+            capture_output=True,
+            text=True,
+            timeout=120,
+        )
+        if result.returncode != 0:
             raise RuntimeFailure(
                 "TARGET_REPAIR_RECEIPT",
-                "target-repair summary does not declare a verified repair outcome",
-                details={"outcome": summary["outcome"]},
+                "independent `each verify --full` re-check of the private receipt did not PASS",
+                details={"returncode": result.returncode, "stdoutTail": result.stdout[-500:]},
             )
-        if summary["signatureVerification"] != "PASS" or summary["materialsVerification"] != "PASS":
+
+        outcome = str(receipt.get("outcome", ""))
+        if not outcome.startswith("REPAIR_VERIFIED"):
             raise RuntimeFailure(
                 "TARGET_REPAIR_RECEIPT",
-                "target-repair summary does not show independently re-checked PASS signature/materials verification",
-                details={
-                    "signatureVerification": summary["signatureVerification"],
-                    "materialsVerification": summary["materialsVerification"],
-                },
+                "private receipt does not itself declare a verified repair outcome",
+                details={"outcome": outcome},
             )
-        if not summary.get("networkIsolationVerified"):
-            raise RuntimeFailure("TARGET_REPAIR_RECEIPT", "target-repair summary does not show network isolation verified")
-        # Reject anything that looks like it accidentally copied real target source,
-        # prompt, or completion content into this (public-repo-adjacent) summary file:
-        # it must only ever carry classification-level fields, never raw strict material.
-        forbidden_keys = {"prompt", "rawCompletion", "patchText", "numberedSource", "diff"}
-        leaked = forbidden_keys & set(summary.keys())
-        if leaked:
+        if receipt.get("networkIsolationVerified") is not True:
+            raise RuntimeFailure("TARGET_REPAIR_RECEIPT", "private receipt does not show network isolation verified")
+        model_id = str((receipt.get("modelIdentity") or {}).get("modelId", ""))
+        if not model_id or "fixture" in model_id.lower():
             raise RuntimeFailure(
                 "TARGET_REPAIR_RECEIPT",
-                "target-repair summary must not carry raw private material",
-                details={"leakedFields": sorted(leaked)},
+                "private receipt does not declare a real, non-Fixture model identity",
+                details={"modelId": model_id},
             )
+        spec_hash = receipt.get("specHash")
+        target_run_id = receipt.get("runId")
+        if not spec_hash or not target_run_id:
+            raise RuntimeFailure("TARGET_REPAIR_RECEIPT", "private receipt is missing specHash or runId")
+
+        # The artifact this records is built ENTIRELY from the independently
+        # re-verified receipt above -- never from caller-supplied claim
+        # fields -- and written to a private, gitignored evidence scratch
+        # file inside the repo so `_record_artifact` (which requires a
+        # repo-relative path) can register it.
+        sanitized_summary = {
+            "specHash": spec_hash,
+            "targetRunId": target_run_id,
+            "outcome": "REPAIR_VERIFIED",
+            "signatureVerification": "PASS",
+            "materialsVerification": "PASS",
+            "networkIsolationVerified": True,
+            "modelId": model_id,
+            "receiptSha256": hashlib.sha256(resolved.read_bytes()).hexdigest(),
+        }
+        evidence_dir = self.repository / ".architrave" / "evidence"
+        evidence_dir.mkdir(parents=True, exist_ok=True)
+        summary_path = evidence_dir / f"{artifact_id}.target-repair-summary.json"
+        summary_path.write_text(json.dumps(sanitized_summary, indent=2), encoding="utf-8")
+
         return self._record_artifact(
             run_id,
+            artifact_id=artifact_id,
             kind="target-repair-receipt",
-            actor="target-repair-runner",
+            path=str(summary_path.relative_to(self.repository)),
+            evidence_refs=evidence_refs,
+            actor=actor,
             producer="target-repair",
-            **kwargs,
         )
 
     def _read_json_receipt(self, path_value: str, label: str) -> dict[str, Any]:
