@@ -168,6 +168,7 @@ def _extract_patch_text_for_mode(raw_completion: str, proposal_format: str, *, p
 def _retry_suffix_for_mode(
     proposal_format: str, *, reason: str, line_count: int,
     test_feedback: str = "", previous_candidate: str | None = None,
+    approved_problem_statement: str = "",
 ) -> str:
     test_feedback_block = _render_test_feedback_block(test_feedback)
     previous_candidate_block = ""
@@ -187,7 +188,27 @@ def _retry_suffix_for_mode(
         suffix = _RETRY_SUFFIX.format(reason=reason, line_count=line_count, test_feedback_block=test_feedback_block)
     else:
         suffix = _FULL_SOURCE_RETRY_SUFFIX.format(reason=reason, test_feedback_block=test_feedback_block)
-    return suffix + previous_candidate_block
+    requirement_block = ""
+    reported = re.search(r"Reported failed approved specification items: ([1-9, ]+)", test_feedback)
+    if reported and approved_problem_statement:
+        item_ids = set(re.findall(r"[1-9]", reported.group(1)))
+        sections = re.finditer(
+            r"(?ms)^([1-9])\. .*?(?=^[1-9]\. |^Explicitly NOT|\Z)",
+            approved_problem_statement,
+        )
+        selected = [section.group(0) for section in sections if section.group(1) in item_ids]
+        if selected:
+            requirement_block = (
+                "\n\nThese requirements are copied verbatim from the unchanged approved "
+                "specification, not from test code or exception messages. They remain "
+                "authoritative even if your previous candidate follows conventional "
+                "library behavior that contradicts these observations:\n"
+                "BEGIN_FAILED_APPROVED_REQUIREMENTS\n"
+                + "\n".join(selected)
+                + "\nEND_FAILED_APPROVED_REQUIREMENTS\n"
+                "Respond only with the corrected file in the requested proposal format.\n"
+            )
+    return suffix + previous_candidate_block + requirement_block
 
 
 def run_clean_room_build(
@@ -506,6 +527,7 @@ def run_clean_room_build(
                 line_count=line_count,
                 test_feedback=feedback,
                 previous_candidate=previous_candidate,
+                approved_problem_statement=packet.problem_statement,
             )
             continue
         test_outcome = (
@@ -556,6 +578,7 @@ def run_clean_room_build(
         prompt = base_prompt + _retry_suffix_for_mode(
             proposal_format, reason=reason, line_count=line_count, test_feedback=feedback,
             previous_candidate=previous_candidate,
+            approved_problem_statement=packet.problem_statement,
         )
 
     if final_outcome is None:
