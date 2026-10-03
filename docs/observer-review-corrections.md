@@ -87,3 +87,33 @@ revision 102, all original negative signed receipts/retained inputs and the
 user's signing key remain unchanged. Only public synthetic harness tests and
 source-free correction evidence are new. No real inference, model loading or
 weight download, private target publication, production tag or P5-P8 advancement.
+
+## Frozen corrective implementation and gates
+
+Implementation: `5505301b6e41adf26e799efc95ebcefba645666d`.
+Corrective Run: `each-production-observer-review-fix-20261003`, revision **33**,
+**FAILED**, `accepted: false`. Engineering tasks are development-gated complete;
+F1/F2 independent R4 acceptance is UNTESTED. F3 recovered-evidence verification
+is PASS from exact digest/count checks. The original API acceptance criterion
+is canonical FAIL (unmet), publicly described as **P1 BLOCKED**—not a
+fabricated waiting-for-human approval.
+
+The changed-source integration cycle ran once: configured base **585 passed,
+3 optional skips**; explicit audit/models **588 passed, zero skips**.
+Ruff, doctor, wheel/sdist and Run schema/projection validation passed.
+Targeted correction checks: **44 passed, zero skips**, including 12 new
+regression cases. These are engineering facts, not API-return authentication,
+fresh-install qualification or semantic/security/policy PASS.
+The unchanged 8b gate commands were not rerun.
+
+New ignored source-free evidence:
+
+```text
+.architrave/evidence/5505301b6e41-af1ae1f913dc-frozen-observer-correction-sourcefree-evidence.json
+SHA-256 ad7a4c046320f4eaf3ca0c388b7bc939d71f392ce18f1c3a75835115e4b02aae
+```
+
+It includes the existing 8b supplement's source-free gate metadata as well as
+new exact-SHA engineering results, observed attack/error mechanisms and
+explicit acceptance ceilings. No raw logs, private target source, trajectory,
+patch, model weights, signing key or canonical signed Run are published.

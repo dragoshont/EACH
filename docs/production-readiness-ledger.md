@@ -419,3 +419,11 @@ See [the correction evidence](observer-review-corrections.md). P3 remains failed
 at 1/14 benign false flags per split; external membership/scanning remain
 UNAVAILABLE. P4 operational measurements do not authenticate API returns or
 confer R4 acceptance. Original production usefulness and P5-P8 remain unmet.
+
+Corrective implementation `5505301b6e41adf26e799efc95ebcefba645666d` passed one
+changed-source integration cycle: 585 base tests/3 optional skips, 588 explicit
+extras tests/zero skips, 44 targeted checks, Ruff/doctor/package. The corrective
+Run is FAILED revision 33: original API acceptance unmet, F1/F2 R4 acceptance
+UNTESTED, recovered F3 evidence PASS. Source-free artifact identity and the
+unchanged exact-8b output supplement are in the correction report. Neither
+engineering success nor schema validity removes the P1 blocker.

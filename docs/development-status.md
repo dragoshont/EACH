@@ -869,3 +869,9 @@ skips) with original artifact/output hashes. The earlier frozen proof did not
 embed those outputs; no unchanged 8b command was rerun or historical artifact
 restamped. Original nine negative local-model calls, Runs 69/36/102 and signing
 key are unchanged. P3 still FAIL; P4 independent R4 acceptance still open.
+
+Frozen correction `5505301b6e41adf26e799efc95ebcefba645666d`: one changed-source
+base gate 585 passed/3 optional skips, explicit extras 588 passed/zero skips,
+44 targeted checks passed; Ruff, doctor and packaging passed. Corrective Run
+FAILED revision 33, original API acceptance unmet. Post-fix R4 acceptance is
+not fabricated; documentation publication does not restamp that implementation.
