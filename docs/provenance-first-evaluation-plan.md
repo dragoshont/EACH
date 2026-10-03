@@ -58,21 +58,52 @@ acceptability or legal clean-room status.
   no matching reference source or Auditor-derived implementation details return
   to Builder. A target that cannot be validated credibly remains unverified.
 
-### First Xodus task: resolve the source range before implementation
+### First Xodus task: the user's private AI-work fork
 
-Metadata-only observation on 2026-10-03 found both
-`dragoshont/xodus-macos:main` and `xodus-gaming/xodus:main` at
-`a3afa0569332e32ce2677c0edc643ef85477ee3e`. Therefore current `main` versus
-current upstream is not an identified change set. The fork also has
-`dragoshont-macos-handoff-plan` at
-`2dee8b33fc050a981a6ff98cc66fca32a444a20e`; its name alone does not establish
-that it contains the intended work.
+The first metadata check examined the public fork, whose `main` matched
+upstream. That was the wrong source for the user's AI-work changes. Prior
+user-session history and live repository metadata now identify the private
+AI-work repository and its companion private runtime repository. Their exact
+references are retained in the private coordination packet, not published here.
 
-First identify the actual before/after commits or worktree containing the
-frontier changes. Inspect metadata and public behavioral evidence first, not
-the AI-generated implementation. Record origin for existing findings; do not
-label their provenance clean merely because they are already on `main`.
-No target code was read or generated during this metadata check.
+The private work includes a 20-row gameplay-validation artifact with separate
+fields for gameplay, save/reload, cloud, multiplayer, runtime/version, measured
+performance and recording references. Only its schema and file identity were
+inspected for this task map. Its contents remain investigator evidence, not an
+approved Builder specification; private notes can contain implementation hints.
+A row marked successful is not proof that every feature is implemented or that
+the observation itself has acceptable origins.
+
+Next, the investigator selects one bounded API behavior with a reproducible
+input/output observation and an independently justified expected result.
+Prefer a reversible, offline behavior that can be validated in a disposable
+environment. Whole-game launch or broad store integration is not the first
+task. Do not access personal saves, cloud data or launch games merely to create
+this packet.
+
+Retain the actual before/after range and observation-artifact hashes privately.
+Prepare a new origin-reviewed behavioral packet from permitted evidence.
+Treat unsupported notes as hypotheses; reproduce or exclude them. Select a
+permitted pre-AI implementation baseline rather than copying the private fork
+into the Builder context. The frontier patch remains sealed through generation
+and terminal audit. No target implementation was read or generated during this
+metadata and schema check.
+
+### Immediate work, in dependency order
+
+1. **Model access and lineage:** resolve the existing access checkpoint. No
+   extra credits/token ceiling was added, but consent and unknown data lineage
+   cannot be bypassed.
+2. **Investigator packet, independently ready:** use the identified private
+   observation inventory to propose one bounded behavior. Record exact API,
+   permitted baseline, observation procedure, inputs/outputs, negative controls,
+   source origins and uncertainties; keep implementation advice out.
+3. **Harness boundary:** validate that packet's declared materials, fresh
+   Builder context and credible tests with the existing harness. Do not
+   redesign unrelated machinery or count FixtureModel as qualified inference.
+4. **Real trial:** only after model eligibility and sensitive-spec approval,
+   run the separate local Builder; retain all performance and provenance data.
+   Neither access nor observation inventory alone completes this step.
 
 ## Ordered steps
 
