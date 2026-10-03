@@ -53,3 +53,30 @@ def test_unauthenticated_state_cannot_release_resource(tmp_path):
     path.write_text(json.dumps(state))
     with pytest.raises(RuntimeFailure, match="cannot validate active resource"):
         store._cross_run_mutation_conflicts("new", ["each"])
+
+
+def test_resume_recovery_is_bounded_without_fake_external_approval(tmp_path):
+    store, _ = setup_store(tmp_path)
+    store.start_task("old", "T", worker_id="worker")
+    store.resume("old")
+    store.grant_resume_attempt("old", "T", reason="supported resume interrupted the genuine attempt")
+    state = store.load("old")
+    assert state["tasks"][0]["attempts"] == 1
+    assert state["tasks"][0]["retryPolicy"]["maxAttempts"] == 2
+    assert state["externalCheckpoints"] == []
+    with pytest.raises(RuntimeFailure):
+        store.grant_resume_attempt("old", "T", reason="replay")
+    store.start_task("old", "T", worker_id="worker")
+    store.finish_worker("old", "T", worker_id="worker", status="FAILED")
+    with pytest.raises(RuntimeFailure):
+        store.grant_resume_attempt("old", "T", reason="ordinary failure is not resume recovery")
+
+
+def test_resume_recovery_requires_real_interruption_and_trusted_actor(tmp_path):
+    store, _ = setup_store(tmp_path)
+    with pytest.raises(RuntimeFailure):
+        store.grant_resume_attempt("old", "T", reason="no interruption")
+    store.start_task("old", "T", worker_id="worker")
+    store.resume("old")
+    with pytest.raises(RuntimeFailure):
+        store.grant_resume_attempt("old", "T", reason="worker escalation", actor="worker:test")

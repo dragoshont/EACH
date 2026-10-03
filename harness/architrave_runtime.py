@@ -2332,6 +2332,49 @@ class RunStore:
             task_id=task_id,
         )
 
+    def grant_resume_attempt(
+        self, run_id: str, task_id: str, *, reason: str, actor: str = "coordinator",
+    ) -> dict[str, Any]:
+        """Recover exactly one genuine resume-requeued attempt, without consent fiction.
+
+        A supported resume requeues RUNNING tasks and consumes their original
+        attempt. That is not an external approval interruption. Bind a bounded
+        grant to the authenticated resume event; it cannot recover ordinary
+        failed tasks, uncertain side effects, or replay the same interruption.
+        """
+        if actor != "coordinator" or not reason.strip():
+            raise RuntimeFailure("UNTRUSTED_RESOLUTION", "resume recovery requires coordinator and reason")
+
+        def mutate(state: dict[str, Any]) -> dict[str, Any]:
+            self._assert_repository_baseline(state)
+            task = find_task(state, task_id)
+            if task["status"] != "READY" or task["attempts"] != task["retryPolicy"]["maxAttempts"]:
+                raise RuntimeFailure("TASK_NOT_GRANTABLE", "only an exhausted READY task can recover a resume")
+            if task.get("sideEffect") and task["sideEffect"]["state"] in {"PENDING", "UNCERTAIN"}:
+                raise RuntimeFailure("RECONCILIATION_REQUIRED", "uncertain side effects cannot recover by retry")
+            events = self._read_events(self.run_dir(run_id))
+            resumes = [
+                event for event in events if event["type"] == "run.resumed"
+                and task_id in event["payload"].get("recoveredTasks", [])
+            ]
+            if not resumes:
+                raise RuntimeFailure("RESUME_RECOVERY_REQUIRED", "no authenticated task interruption by resume")
+            resume = resumes[-1]
+            later = [event for event in events if event["sequence"] > resume["sequence"]]
+            if any(
+                event.get("taskId") == task_id
+                and event["type"] in {"task.started", "task.resume_attempt_granted", "task.failed"}
+                for event in later
+            ):
+                raise RuntimeFailure("RESUME_RECOVERY_CONSUMED", "resume interruption is stale or already consumed")
+            task["retryPolicy"]["maxAttempts"] += 1
+            return {"taskId": task_id, "maxAttempts": task["retryPolicy"]["maxAttempts"],
+                    "resumeSequence": resume["sequence"], "reason": reason}
+
+        return self._transaction(
+            run_id, mutate, event_type="task.resume_attempt_granted", actor=actor, task_id=task_id,
+        )
+
     def _cross_run_mutation_conflicts(self, current_run_id: str, mutable_paths: Sequence[str]) -> list[str]:
         conflicts: list[str] = []
         if not self.runs_root.is_dir():
