@@ -3,8 +3,9 @@
 Status on 2026-10-03: **independently assessed ELIGIBLE for bounded research
 dataset lineage**, at the same scope as the original StarCoderBase dossier.
 Access has been granted for the model and inspected post-training datasets.
-This decision does not provision the weights, enable the loader, qualify
-performance, or certify exact sample membership/licensing.
+The lineage decision alone does not qualify performance or certify exact
+sample membership/licensing. Subsequent original-weight provisioning and one
+actual qualified EACH wiring result are recorded below.
 
 Candidate: `bigcode/octocoder` at
 `0f863c63e38ba80fc2c4010f34a7f46d537a9eee`.
@@ -59,8 +60,9 @@ is real evidence; it does not by itself reproduce every intermediate filter.
   limitations. No required unidentified datasource stage was found in the
   supplied evidence. This is not proof of the historical training job or a
   universal source-license guarantee.
-- Next: provision and hash the exact original weights, verify local runtime
-  and evaluate the same approved Xodus behavioral packet.
+- Original-weight provisioning and one actual local fixture wiring call have
+  subsequently completed. The approved Xodus behavioral packet remains a
+  separate task; this fixture result is not Xodus capability evidence.
 
 The assessment distinguishes **known dataset-stage lineage**
 from **exact training-sample membership**. The paper identifies all selected
@@ -97,6 +99,99 @@ dataset identity are not legal clearance for outputs.
 
 No OctoCoder model weights were acquired or inference calls made in this
 assessment step. Training-data access/inspection is not model evaluation.
+
+## Subsequent qualified provisioning and actual EACH wiring
+
+Implementation: `867957cb670efdc19946170b8a38267c263cdbd8`.
+The new `octocoder-mlx` catalog entry reuses the existing qualified loader
+and provisioner. Provision explicitly with:
+`python -m each.models.provision_starcoderbase --model octocoder`.
+It does not qualify any other checkpoint, family or historical conversion.
+
+All seven original FP32 safetensors hashes were rechecked against the pinned
+HF API metadata and downloaded bytes before tensor loading. Only safetensors
+and metadata/tokenizer files were requested, not duplicate PyTorch `.bin`
+weights. Original files remain in the private HF cache. The 120 GiB free-space
+floor and exclusive destination checks apply; existing/partial conversions
+are never overwritten.
+
+### Publisher index discrepancy and runtime resolution
+
+The first attempt failed closed before writing a converted shard: the original
+index declares **485** tensors but the actual seven files store **484**.
+The sole absent index entry is `lm_head.weight`. The stored input embedding
+`transformer.wte.weight` is present. This is not the explicit stored-head case
+seen in StarCoderBase.
+
+The original configuration has no explicit tie flag; the installed original
+GPTBigCode configuration class resolves `tie_word_embeddings=True`, as does
+MLX's built-in GPTBigCode configuration. The provisioner admits only this
+exact missing-head alias, only with a tied original GPTBigCode configuration,
+and records the original index count and omitted alias. All other missing,
+extra, duplicate or wrongly mapped tensors still fail closed. No actual
+weight is discarded or synthesized. The output index describes all **484**
+stored tensors; every FP16 tensor was reopened and compared with its intended
+FP32-to-FP16 rounding. This precision conversion is not training.
+
+The failed attempt's empty destination was inspected and renamed to a retained
+`.partial-index-mismatch-cdc2097dada0` sibling before retrying. Its private
+diagnostic and preservation receipt remain intact. Initial acquisition/check
+time was 342.740 seconds; the subsequent cached recheck/conversion was 64.571
+seconds. These are provisioning times, not generation throughput.
+
+Private conversion record SHA-256:
+`6432ad00b631f340dee0665b8b9e29be678ed765c95a42f434184341ef3e0aca`.
+The record contains all original and output file hashes, dtype/versions,
+round-trip verification and the exact index exception.
+
+Converted shards (original pins are in `each/models/catalog.py`):
+
+| Shard | FP16 safetensors SHA-256 |
+|---|---|
+| 1 | `b7a16a596bea36e9d7bcef51c39606511f7b71a9937765a9f1d31d2c3dac9f54` |
+| 2 | `3fd47345858ece602413108baef3d378acba6d605637a0239216432dcb5ae4ab` |
+| 3 | `b8e8f1ffa9650464fbb35463efed64c1cce204f0c249f847b6f7c70211837b15` |
+| 4 | `c0361b47d87edd118bc3c8988771b12e98d16b228320fd4d7651fa1dfdf5ef91` |
+| 5 | `385f422c14238b7823d8f69cc55507dc561164140e2325fdf708b60898d97ac2` |
+| 6 | `6ea998c7c0699315afca94b9e403505faa688f9ba3d6f450b927f3c93cb75e21` |
+| 7 | `84f561e0893eed749437a8f609c9cf5909a6a3c9a9bc0225321a61c533cf2dbc` |
+
+### One real local response
+
+- Run: `octocoder-qualified-wiring-256c03641b83`.
+- Official `load_model("octocoder-mlx", max_tokens=512)`, followed by
+  `run_model_bakeoff(..., max_attempts=1, proposal_format="diff")`.
+- Documented rendering: `Question: {harness instruction}\n\nAnswer:`.
+  The exact rendered input is retained in the signed receipt; no expected fix
+  or outer-agent completion was substituted.
+- MLX actually loaded `mlx_lm.models.gpt_bigcode.Model`, with recorded and
+  post-load-verified `tie_word_embeddings=True`.
+- One actual nonempty response, baseline exit **1**, candidate exit **0**:
+  **REPAIR_VERIFIED** on the hello-repair wiring fixture.
+- Strong `colima-each` executor, **EACH-P2**; baseline and candidate tests are
+  protected, the candidate uses a fresh worktree, and original inputs are
+  retained. Diff mode now has the same protections as FIM.
+- Receipt signature and both retained input files: **PASS**.
+- Receipt SHA-256:
+  `3cac16bc725501f93066d93e3307c8c3d4cead2bf369df3a29ed66c5d8d1f8df`.
+- Manifest/loading: 23.193 s; harness: 5.109 s; total: 28.302 s;
+  completion-call: 4.436 s. Actual encoded input: **195 tokens**.
+  Output token count and decoder tokens/second were not measured.
+- Runtime: MLX 0.32.3, MLX-LM 0.32.0, Torch 2.14.1, Transformers 5.18.0,
+  safetensors 0.8.0. Original FP32 and converted FP16 artifacts are retained.
+
+Private evidence lives under `~/.each/runs/` and the existing parent Run
+`each-provenance-first-20261003`. The scoped execution child is
+`each-octocoder-wiring-20261003`: the research parent's empty mutation policy
+was preserved rather than manually rewritten. Source-bound integrated gate
+stdout and exact receipts are retained for independent review. No
+implementation judge-family PASS is asserted by this dossier.
+
+This is one successful fixture wiring check, not a repair benchmark, Xodus
+trial, full program completion, production/P3 qualification or legal clearance.
+No further Base utility attempts or other model evaluations ran in this slice.
+Private prompts, responses, candidate source, keys, data records and weights
+were not exported.
 
 Primary sources:
 - [OctoCoder model card](https://huggingface.co/bigcode/octocoder/blob/0f863c63e38ba80fc2c4010f34a7f46d537a9eee/README.md)
