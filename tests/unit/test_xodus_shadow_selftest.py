@@ -283,6 +283,20 @@ def test_recommended_profiles_follow_observed_model_failures() -> None:
     )
     assert crystal["proposalFormat"] == "body"
     assert crystal["promptStyle"] == "code-continuation"
+    k2 = xodus_shadow_module.recommended_xodus_task_profile(
+        {
+            "modelId": (
+                "IFM/K2@400af6cd7de09fc9349cc6b5b24db20f778d5b72"
+                "#sha256:8266ff62e09c6985"
+            ),
+            "modelManifest": {
+                "repoId": "IFM/K2",
+                "revision": "400af6cd7de09fc9349cc6b5b24db20f778d5b72",
+            },
+        }
+    )
+    assert k2["proposalFormat"] == "body"
+    assert k2["promptStyle"] == "code-continuation"
     with pytest.raises(ValueError):
         xodus_shadow_module.recommended_xodus_task_profile(
             {"modelManifest": {"repoId": "unqualified/model"}}

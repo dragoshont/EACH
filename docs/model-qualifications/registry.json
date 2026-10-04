@@ -589,6 +589,81 @@
         ],
         "reviewed_at": "2026-10-04"
       }
+    },
+    "k2-65b": {
+      "model": {
+        "exact_identity": "IFM/K2",
+        "upstream_revision": "400af6cd7de09fc9349cc6b5b24db20f778d5b72",
+        "status": "AUTHORIZED",
+        "catalog_key": "k2-65b-mlx",
+        "artifact_model_id": "IFM/K2@400af6cd7de09fc9349cc6b5b24db20f778d5b72#sha256:8266ff62e09c6985"
+      },
+      "artifact": {
+        "original_weights_retained": true,
+        "original_format": "27 publisher FP16 safetensors shards",
+        "repository_total_bytes": 130580505345,
+        "original_weight_bytes": 130572453976,
+        "original_verification_record_sha256": "3a422e34687df44aeaad75063e50fa552d14e47e755aaaac0c369a99396e12f3",
+        "conversion": "local MLX affine 8-bit, group size 64, 8.5 effective bits per weight",
+        "conversion_sha256": "8b157bd5a49e8f0fa129c3e0278e0e823f8a4500eeb70adc4795d38bdb4d6d58",
+        "converted_bytes": 69371802420,
+        "converted_weight_shards": 14
+      },
+      "pretraining": {
+        "starts_from_scratch": true,
+        "dataset": "IFM/K2Datasets",
+        "dataset_revision": "17cd6d34bf7d2a5c68df74d3f5fc0b4d19c4bdf4",
+        "dataset_manifest_sha256": "4a731053c01bdcde19a6c97e4341b507c0b698e75f40b5f0f8b2198362dfee84",
+        "chunk_source_map_sha256": "726bff67a872a87cc6b1e73924e3e3abf196e25b1a348c546f741c2b86af7878",
+        "stages": [
+          "1.3T-token 2048-context mixed public sequence, chunks 0-359",
+          "69.4B-token 8192-context code/math/science continuation, chunks 360-379"
+        ],
+        "opaque_weight_ancestors": "NONE",
+        "intentional_llm_teacher_generated_stage": "NONE_IDENTIFIED",
+        "procedural_material": "DeepMind Mathematics public generator; deterministic StarCoder FIM transformation"
+      },
+      "posttraining": {
+        "present": false,
+        "datasets": [],
+        "excluded_variants": ["K2-Chat", "later safety-tuned checkpoints"]
+      },
+      "rights": {
+        "model_license": "Apache-2.0",
+        "sequence_license": "ODC-By-1.0",
+        "unresolved_risks": [
+          "Pile of Law is CC-BY-NC-SA-4.0.",
+          "RefinedWeb/Common Crawl and public web/code records retain heterogeneous upstream copyrights and terms.",
+          "Proof-Pile-2 preserves underlying source licenses rather than assigning blanket clearance.",
+          "Private bounded research authorization is not commercial-use or legal certification."
+        ]
+      },
+      "each": {
+        "local_runtime_verified": true,
+        "trajectory_recording_verified": true,
+        "official_loader": "each.models.catalog.load_model",
+        "runtime": "MLX 0.32.3 / MLX-LM 0.32.0, Apple Silicon, affine 8-bit",
+        "smoke_record_sha256": "8241c7af544633e3c4256c3313852e07190f86d6d25f1ec379f6105945d1b284",
+        "xodus_verified_fixes": 0,
+        "xodus_tasks": 2,
+        "capability_result": "0/2; sandbox 4/6 and console 3/6, both compiled and failed behavioral validation.",
+        "receipts": {
+          "sandbox": "sha256:48455a8ac3236aeb4a7852c21294cc2dca25e63cce93b7300d3233cb4fdd8507",
+          "console": "sha256:be6d4f51352b40c8eb5907d54c9b930f55bd10f6df80fd44c80e7266894c0a7a"
+        }
+      },
+      "decision": {
+        "status": "AUTHORIZED",
+        "blocker": null,
+        "scope": "Private bounded research under exact published dataset-stage lineage; mixed source rights preserved; not production or legal clearance.",
+        "evidence_refs": [
+          "docs/model-qualifications/k2-progress.md",
+          "each/models/k2_profile.json",
+          "each/models/catalog.py",
+          "docs/two-model-evaluation-ledger.md"
+        ],
+        "reviewed_at": "2026-10-04"
+      }
     }
   }
 }

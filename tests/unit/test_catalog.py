@@ -4,6 +4,7 @@ honest "unavailable" reasons must be real, not silently swallowed."""
 from __future__ import annotations
 
 import json
+from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
@@ -71,7 +72,7 @@ def test_load_model_rejects_unsupported_kwarg_for_entries_without_tunable_params
 
 @pytest.mark.parametrize("key", [
     key for key in catalog._CATALOG
-    if key not in {"starcoderbase-mlx", "octocoder-mlx", "crystalcoder-transformers"}
+    if key not in {"starcoderbase-mlx", "octocoder-mlx", "crystalcoder-transformers", "k2-65b-mlx"}
 ])
 def test_catalog_blocks_unqualified_training_provenance_before_loading(key, monkeypatch) -> None:
     def must_not_load(**kwargs):
@@ -146,6 +147,48 @@ def test_qualified_crystal_rejects_runtime_drift_before_artifact_access(monkeypa
     )
     with pytest.raises(UnavailableModelError, match="runtime is absent or has changed"):
         load_model("crystalcoder-transformers")
+
+
+def test_qualified_k2_requires_the_exact_provisioned_artifact(monkeypatch, tmp_path):
+    monkeypatch.setattr(catalog, "models_dir", lambda: tmp_path)
+    with pytest.raises(UnavailableModelError, match="not provisioned"):
+        load_model("k2-65b-mlx")
+
+
+def test_qualified_k2_profile_binds_lineage_and_quantization() -> None:
+    profile = json.loads((Path(catalog.__file__).with_name("k2_profile.json")).read_text())
+    assert catalog.K2_LINEAGE["status"] == "ELIGIBLE"
+    assert profile["sourceRevision"] == catalog.K2_REVISION
+    assert profile["lineageEvidence"]["datasetRevision"] == catalog.K2_LINEAGE["datasetRevision"]
+    assert profile["quantization"] == {
+        "mode": "affine",
+        "bits": 8,
+        "groupSize": 64,
+        "effectiveBitsPerWeightReported": 8.5,
+    }
+    assert len(profile["sourceWeightsSha256"]) == 27
+    assert len(profile["outputWeightsSha256"]) == 14
+
+
+def test_qualified_k2_rejects_converted_artifact_drift(monkeypatch, tmp_path):
+    monkeypatch.setattr(catalog, "models_dir", lambda: tmp_path)
+    monkeypatch.setattr(catalog, "_mlx_runtime_version", lambda: "test-runtime")
+    root = tmp_path / "qualified" / "k2-int8" / catalog.K2_REVISION
+    root.mkdir(parents=True)
+    profile_path = Path(catalog.__file__).with_name("k2_profile.json")
+    (root / "conversion.json").write_bytes(profile_path.read_bytes())
+    monkeypatch.setattr(
+        catalog,
+        "build_manifest_from_snapshot",
+        lambda *args, **kwargs: SimpleNamespace(
+            files_sha256={},
+            weights_sha256={},
+            quantization={},
+            max_position_embeddings=None,
+        ),
+    )
+    with pytest.raises(UnavailableModelError, match="converted artifact has changed"):
+        load_model("k2-65b-mlx")
 
 
 def test_unrelated_conversion_cannot_enter_qualified_base(monkeypatch, tmp_path):

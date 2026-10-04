@@ -206,6 +206,32 @@ private-file denial probes true. Secured receipt SHA-256 values are
 (console). Sandbox failed its build; console repeated the selected signature
 five times and was structurally rejected. Neither reached behavioral cases.
 
+## K2-65B scale follow-up
+
+K2 was selected after Granite Code 34B failed the strict lineage gate: Granite's
+base card identifies an unpublished IBM-filtered FLAN variant and incompletely
+enumerated phase-2 language bytes. K2 instead publishes its exact 13.235 TB
+preprocessed two-stage sequence, preparation/training code and intermediate
+checkpoints. Its mixed source licenses and non-commercial Pile-of-Law stage are
+retained as limitations, not converted into legal clearance.
+
+Exact K2 artifact:
+`IFM/K2@400af6cd7de09fc9349cc6b5b24db20f778d5b72#sha256:8266ff62e09c6985`.
+The 65.286B publisher model was verified, locally converted to 8-bit MLX and
+run once per fixed task with no retry.
+
+| Model | Sandbox | Console | Distinct verified fixes |
+|---|---|---|---:|
+| K2-65B 8-bit | Candidate compiled; **4/6 cases PASS** | Candidate compiled; **3/6 cases PASS** | **0/2** |
+
+This is the first 65B-class result in the ledger. It confirms that larger scale
+alone does not solve the optional-output contract. Signed private receipt
+SHA-256 values are
+`48455a8ac3236aeb4a7852c21294cc2dca25e63cce93b7300d3233cb4fdd8507`
+(sandbox) and
+`be6d4f51352b40c8eb5907d54c9b930f55bd10f6df80fd44c80e7266894c0a7a`
+(console).
+
 These recommendations are encoded by
 `each.xodus_shadow.recommended_xodus_task_profile`; unknown/unqualified models
 fail closed rather than inheriting one of these profiles.

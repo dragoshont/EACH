@@ -1,0 +1,57 @@
+{
+  "artifact": {
+    "conversion_sha256": "8b157bd5a49e8f0fa129c3e0278e0e823f8a4500eeb70adc4795d38bdb4d6d58",
+    "model_id": "IFM/K2@400af6cd7de09fc9349cc6b5b24db20f778d5b72#sha256:8266ff62e09c6985",
+    "smoke_record_sha256": "8241c7af544633e3c4256c3313852e07190f86d6d25f1ec379f6105945d1b284",
+    "source_verification_record_sha256": "3a422e34687df44aeaad75063e50fa552d14e47e755aaaac0c369a99396e12f3"
+  },
+  "configured_gate": {
+    "command": "bash gates/checks.sh",
+    "exit_code": 0,
+    "status": "PASS",
+    "stdout": "== Architrave checks (root: /Users/dragoshont/src/EACH) ==\nok    config    architrave.config.json\ninfo  profile knowledge: UI design JSON validation not applicable\nskip  generate (not configured)\n== build: uv sync --locked ==\nResolved 75 packages in 2ms\nUninstalled 37 packages in 1.15s\n - annotated-doc==0.0.5\n - anyio==4.15.1\n - certifi==2026.7.22\n - click==8.5.0\n - filelock==4.0.8\n - fsspec==2026.9.0\n - h11==0.16.0\n - hf-xet==1.6.0\n - httpcore==1.0.9\n - httpx==0.28.1\n - huggingface-hub==1.33.0\n - idna==3.20\n - jinja2==3.1.6\n - markdown-it-py==4.2.0\n - markupsafe==3.0.3\n - mdurl==0.1.2\n - mlx==0.32.3\n - mlx-lm==0.32.0\n - mlx-metal==0.32.3\n - mpmath==1.3.0\n - networkx==3.7\n - numpy==2.5.3\n - protobuf==7.36.2\n - regex==2026.9.29\n - rich==15.0.0\n - safetensors==0.8.0\n - sentencepiece==0.2.2\n - setuptools==84.0.0\n - shellingham==1.5.4\n - sympy==1.14.0\n - tokenizers==0.23.2\n - torch==2.14.1\n - tqdm==4.70.1\n - transformers==5.18.0\n - tree-sitter==0.26.0\n - tree-sitter-python==0.25.0\n - typer==0.27.2\nok    build\n== test: uv run pytest -q && uv run each doctor ==\n...sss.................................................................. [  9%]\n........................................................................ [ 19%]\n........................................................................ [ 28%]\n........................................................................ [ 38%]\n........................................................................ [ 47%]\n.........................................ssssssss....................... [ 57%]\n........................................................................ [ 67%]\n........................................................................ [ 76%]\n........................................................................ [ 86%]\n........................................................................ [ 95%]\n...............................                                          [100%]\n740 passed, 11 skipped in 84.67s (0:01:24)\n\u2705 python              [OK   required]  Python 3.12.14\n\u2705 platform            [OK   optional]  Darwin/arm64 (Apple Silicon)\n\u2705 git                 [OK   required]  git version 2.56.0\n\u2705 uv                  [OK   optional]  uv 0.12.21 (Homebrew 2026-09-29 aarch64-apple-darwin)\n\u2705 docker:colima-each  [OK   optional]  colima-each daemon reachable (server 29.5.2)\n\u2705 each-home           [OK   required]  private store writable at /Users/dragoshont/.each\n\neach doctor: PASS (all required checks satisfied)\nok    test\nCHECKS: PASS\n",
+    "stdout_sha256": "be0719538de288a317171e7cd7d05003bd02c6016c460e67e1e2fd3e92a08c15"
+  },
+  "evaluated_files_sha256": {
+    "docs/model-qualifications/k2-progress.md": "076de2d12a33df94e9cce2614b246cd50054297af4b252667485ade3e69d4397",
+    "docs/model-qualifications/registry.json": "1c2e9d759640cccf10edf676bc618021b966fcbb1292e7ea1fae1502212ed878",
+    "docs/two-model-evaluation-ledger.md": "ec751138c05824269a42ea5dd1918d665b67dad5f878e65c4a502601d01a945b",
+    "each/models/catalog.py": "54ddeba3746d8dc9175ade970fe6a6a0eb29342fa8d8c9d21e0f52e3a5c4391d",
+    "each/models/k2_profile.json": "8b157bd5a49e8f0fa129c3e0278e0e823f8a4500eeb70adc4795d38bdb4d6d58",
+    "each/xodus_shadow.py": "6773e5454009f966c673489a3b4f7665c0c4089acebecc85df73f40952e33103",
+    "tests/unit/test_catalog.py": "d023ae301339d1e4a0e81ab835357bd17860ea03fbccd092582284ba3b7b6205",
+    "tests/unit/test_xodus_shadow_selftest.py": "2ec5d0b2d5ef338797cb9a75cef1333af98297adb0494cc1d0be19e1394445b5"
+  },
+  "evaluation": {
+    "console_cases_passed": 3,
+    "console_receipt_sha256": "be6d4f51352b40c8eb5907d54c9b930f55bd10f6df80fd44c80e7266894c0a7a",
+    "sandbox_cases_passed": 4,
+    "sandbox_receipt_sha256": "48455a8ac3236aeb4a7852c21294cc2dca25e63cce93b7300d3233cb4fdd8507",
+    "tasks": 2,
+    "verified_fixes": 0
+  },
+  "extras_gate": {
+    "command": "uv sync --locked --extra models --extra audit && uv run pytest -q",
+    "exit_code": 0,
+    "status": "PASS",
+    "stdout": "Resolved 75 packages in 2ms\nInstalled 37 packages in 189ms\n + annotated-doc==0.0.5\n + anyio==4.15.1\n + certifi==2026.7.22\n + click==8.5.0\n + filelock==4.0.8\n + fsspec==2026.9.0\n + h11==0.16.0\n + hf-xet==1.6.0\n + httpcore==1.0.9\n + httpx==0.28.1\n + huggingface-hub==1.33.0\n + idna==3.20\n + jinja2==3.1.6\n + markdown-it-py==4.2.0\n + markupsafe==3.0.3\n + mdurl==0.1.2\n + mlx==0.32.3\n + mlx-lm==0.32.0\n + mlx-metal==0.32.3\n + mpmath==1.3.0\n + networkx==3.7\n + numpy==2.5.3\n + protobuf==7.36.2\n + regex==2026.9.29\n + rich==15.0.0\n + safetensors==0.8.0\n + sentencepiece==0.2.2\n + setuptools==84.0.0\n + shellingham==1.5.4\n + sympy==1.14.0\n + tokenizers==0.23.2\n + torch==2.14.1\n + tqdm==4.70.1\n + transformers==5.18.0\n + tree-sitter==0.26.0\n + tree-sitter-python==0.25.0\n + typer==0.27.2\n........................................................................ [  9%]\n........................................................................ [ 19%]\n........................................................................ [ 28%]\n........................................................................ [ 38%]\n........................................................................ [ 47%]\n........................................................................ [ 57%]\n........................................................................ [ 67%]\n........................................................................ [ 76%]\n........................................................................ [ 86%]\n........................................................................ [ 95%]\n...............................                                          [100%]\n751 passed in 100.15s (0:01:40)\n",
+    "stdout_sha256": "44eb0f91fced8eda52aa4b3f4fde24a881dcdd0e990f49f11e37e2ad2cbfa196"
+  },
+  "lineage": {
+    "chunk_source_map_sha256": "726bff67a872a87cc6b1e73924e3e3abf196e25b1a348c546f741c2b86af7878",
+    "dataset_manifest_sha256": "4a731053c01bdcde19a6c97e4341b507c0b698e75f40b5f0f8b2198362dfee84",
+    "formal_cross_family_release_pass": false,
+    "independent_verdict": "ADVISORY_PASS",
+    "reviewer": "single independent lineage-closure review; model-family telemetry unavailable",
+    "status": "PASS"
+  },
+  "recorded_at": "2026-10-04",
+  "ruff": {
+    "command": "uv run ruff check each tests",
+    "exit_code": 0,
+    "status": "PASS",
+    "stdout": "All checks passed!\n",
+    "stdout_sha256": "82b3e6a6c090a57601d22943bd23fca9218d1031dbe5a7b754092f9a156b4f18"
+  },
+  "scope": "Captured source-free K2-65B lineage, artifact, runtime and fixed-task evidence."
+}

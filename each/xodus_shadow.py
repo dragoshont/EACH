@@ -452,6 +452,16 @@ def recommended_xodus_task_profile(model_identity: dict[str, Any]) -> dict[str, 
             "promptStyle": "code-continuation",
             "reason": "FIM saturated the output budget; continue only the selected declaration and body.",
         }
+    if repo == "IFM/K2":
+        from each.models.catalog import K2_MODEL_ID, K2_REVISION
+
+        if revision != K2_REVISION or model_id != K2_MODEL_ID:
+            raise ValueError("model identity is not the exact authorized K2 artifact")
+        return {
+            "proposalFormat": "body",
+            "promptStyle": "code-continuation",
+            "reason": "Ordinary code continuation produced a nonempty smoke; FIM produced only whitespace.",
+        }
     raise ValueError("no Xodus task profile exists for this model identity")
 
 
@@ -653,7 +663,7 @@ def run_xodus_shadow_build(
         selected_source = declaration + original_body + "}\n"
         model_repo = (initial_model_identity.get("modelManifest") or {}).get("repoId")
         cases = _behavioral_case_prompt(selected_api)
-        if model_repo == "LLM360/Crystal":
+        if model_repo in {"LLM360/Crystal", "IFM/K2"}:
             requirement = (packet.problem_statement + "\n\n" + cases).replace("*/", "* /")
             base_prompt = (
                 f"/* Approved requirement:\n{requirement}\n"

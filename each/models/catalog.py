@@ -206,6 +206,34 @@ CRYSTAL_LINEAGE = {
     ],
 }
 
+K2_REVISION = "400af6cd7de09fc9349cc6b5b24db20f778d5b72"
+K2_PROFILE_SHA256 = "8b157bd5a49e8f0fa129c3e0278e0e823f8a4500eeb70adc4795d38bdb4d6d58"
+K2_MODEL_ID = (
+    "IFM/K2@400af6cd7de09fc9349cc6b5b24db20f778d5b72"
+    "#sha256:8266ff62e09c6985"
+)
+K2_LINEAGE = {
+    "status": "ELIGIBLE",
+    "scope": "documented-inspectable-training-dataset-lineage",
+    "modelRepo": "IFM/K2",
+    "modelRevision": K2_REVISION,
+    "startsFromScratch": True,
+    "datasetRepo": "IFM/K2Datasets",
+    "datasetRevision": "17cd6d34bf7d2a5c68df74d3f5fc0b4d19c4bdf4",
+    "datasetManifestSha256": "4a731053c01bdcde19a6c97e4341b507c0b698e75f40b5f0f8b2198362dfee84",
+    "chunkSourceMapSha256": "726bff67a872a87cc6b1e73924e3e3abf196e25b1a348c546f741c2b86af7878",
+    "dataPreparationSource": "LLM360/k2-data-prep@f69878c898dce6bbb4d84c7982d1005132f8562f",
+    "trainingSource": "LLM360/k2-train@869fbb9710bbe2c361f56c02a6d58ad83adbc755",
+    "postTraining": "NONE_FOR_SELECTED_BASE_RELEASE",
+    "dossier": "docs/model-qualifications/k2-progress.md",
+    "limitations": [
+        "Private bounded research only; no commercial-use or legal certification.",
+        "Pile of Law is CC-BY-NC-SA-4.0; other sources retain heterogeneous upstream rights.",
+        "Individual public web/code records may contain generated material even though no teacher-generated stage was identified.",
+        "Dataset-stage lineage is not exact original-author attribution, lawful-training proof or output-license clearance.",
+    ],
+}
+
 
 def qualified_profile(name: str) -> dict:
     """Only the two independently assessed original artifacts; no family fallback."""
@@ -328,6 +356,81 @@ def _crystalcoder_transformers(*, max_tokens: int = 512) -> RepairModel:
         runtime_files_sha256=CRYSTAL_RUNTIME_FILES,
         runtime_versions=CRYSTAL_RUNTIME_VERSIONS,
     )
+
+
+def _k2_mlx(*, max_tokens: int = 512) -> RepairModel:
+    profile_path = Path(__file__).with_name("k2_profile.json")
+    if not profile_path.is_file() or sha256_file(profile_path) != K2_PROFILE_SHA256:
+        raise UnavailableModelError("qualified K2 artifact profile is absent or has changed")
+    try:
+        profile = json.loads(profile_path.read_text())
+    except (OSError, UnicodeDecodeError, json.JSONDecodeError) as exc:
+        raise UnavailableModelError("qualified K2 artifact profile is unreadable") from exc
+    if (
+        K2_LINEAGE.get("status") != "ELIGIBLE"
+        or K2_LINEAGE.get("modelRepo") != "IFM/K2"
+        or K2_LINEAGE.get("modelRevision") != K2_REVISION
+        or K2_LINEAGE.get("datasetRevision") != profile.get("lineageEvidence", {}).get("datasetRevision")
+        or K2_LINEAGE.get("datasetManifestSha256")
+        != profile.get("lineageEvidence", {}).get("datasetManifestSha256")
+        or K2_LINEAGE.get("chunkSourceMapSha256")
+        != profile.get("lineageEvidence", {}).get("chunkSourceMapSha256")
+        or K2_LINEAGE.get("postTraining") != "NONE_FOR_SELECTED_BASE_RELEASE"
+    ):
+        raise UnavailableModelError("K2 training-data provenance is not qualified")
+    if (
+        profile.get("sourceRepo") != "IFM/K2"
+        or profile.get("sourceRevision") != K2_REVISION
+        or profile.get("sourceRepositoryManifestSha256")
+        != "5566356d8ea8989989ab1258d4324776bf36dde9fac82c66533a5b5a718b5f2d"
+        or profile.get("sourceVerificationRecordSha256")
+        != "3a422e34687df44aeaad75063e50fa552d14e47e755aaaac0c369a99396e12f3"
+        or profile.get("sourceIndexTensorCount") != 723
+        or len(profile.get("sourceWeightsSha256", {})) != 27
+        or profile.get("operation") != "publisher-fp16-safetensors-to-mlx-affine-int8"
+        or profile.get("quantization")
+        != {"mode": "affine", "bits": 8, "groupSize": 64, "effectiveBitsPerWeightReported": 8.5}
+        or len(profile.get("outputWeightsSha256", {})) != 14
+        or profile.get("trainingPerformed") is not False
+        or profile.get("generationPerformed") is not False
+    ):
+        raise UnavailableModelError("K2 conversion does not match its qualified source artifact")
+
+    snapshot_dir = models_dir() / "qualified" / "k2-int8" / K2_REVISION
+    assert_no_symlink_escape(snapshot_dir, label="qualified K2 artifact")
+    conversion_path = snapshot_dir / "conversion.json"
+    if not conversion_path.is_file() or sha256_file(conversion_path) != K2_PROFILE_SHA256:
+        raise UnavailableModelError("qualified K2 artifact is not provisioned or conversion evidence changed")
+    manifest = build_manifest_from_snapshot(
+        snapshot_dir,
+        repo_id="IFM/K2",
+        license="Apache-2.0",
+        runtime_name="mlx-lm",
+        runtime_version=_mlx_runtime_version(),
+        conversion_chain=(
+            "original publisher FP16 safetensors -> local MLX affine 8-bit "
+            "(group_size=64); retained conversion.json"
+        ),
+    )
+    if any(
+        manifest.files_sha256.get(name) != digest
+        for name, digest in profile["outputFilesSha256"].items()
+    ):
+        raise UnavailableModelError("qualified K2 converted artifact has changed")
+    if (
+        set(manifest.files_sha256) != set(profile["outputFilesSha256"]) | {"conversion.json"}
+        or manifest.weights_sha256 != profile["outputWeightsSha256"]
+        or manifest.quantization
+        != {"group_size": 64, "bits": 8, "mode": "affine"}
+        or manifest.max_position_embeddings != 8192
+    ):
+        raise UnavailableModelError("qualified K2 converted artifact structure does not match its trusted profile")
+    manifest = replace(manifest, training_data_provenance=dict(K2_LINEAGE))
+    if manifest.model_id != K2_MODEL_ID:
+        raise UnavailableModelError("qualified K2 artifact identity does not match its trusted pin")
+    from each.models.mlx_model import MLXRepairModel
+
+    return MLXRepairModel(snapshot_dir, manifest, max_tokens=max_tokens)
 
 
 def _qualified_mlx(name: str, *, max_tokens: int) -> RepairModel:
@@ -656,6 +759,7 @@ _CATALOG: dict[str, Callable[..., RepairModel]] = {
     "starcoderbase-mlx": _starcoderbase_mlx,
     "octocoder-mlx": _octocoder_mlx,
     "crystalcoder-transformers": _crystalcoder_transformers,
+    "k2-65b-mlx": _k2_mlx,
     "granite-3b-code-base-mlx": _granite_3b_code_base_mlx,
     "granite-3b-code-instruct-mlx": _granite_3b_code_instruct_mlx,
     "granite-8b-code-instruct-128k-mlx": _granite_8b_code_instruct_128k_mlx,
@@ -676,7 +780,7 @@ def load_model(key: str, **kwargs) -> RepairModel:
     """
     if key not in _CATALOG:
         raise UnavailableModelError(f"unknown model key: {key!r}; known keys: {sorted(_CATALOG)}")
-    if key in {"starcoderbase-mlx", "octocoder-mlx", "crystalcoder-transformers"}:
+    if key in {"starcoderbase-mlx", "octocoder-mlx", "crystalcoder-transformers", "k2-65b-mlx"}:
         return _CATALOG[key](**kwargs)
     raise UnavailableModelError(
         f"training-data provenance is not qualified for {key!r}; "
