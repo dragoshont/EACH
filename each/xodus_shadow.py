@@ -34,7 +34,12 @@ from typing import Any
 from each.audit.run import reject_on_audit_flag, run_audit
 from each.benchmark import BenchmarkExecutionError, fetch_file
 from each.demo import _DOCKER_LAUNCH_FAILURE_EXIT_CODES, _result_to_dict
-from each.executor.container import ContainerExecutor, ContainerExecutorError, derive_assurance_level
+from each.executor.container import (
+    DOCKER_CONTEXT,
+    ContainerExecutor,
+    ContainerExecutorError,
+    derive_assurance_level,
+)
 from each.hashing import sha256_bytes
 from each.models.base import ContextBudgetExceeded, RepairModel
 from each.outcome import sanitize_outcome_class, sanitize_proposal_format
@@ -417,6 +422,7 @@ def run_xodus_shadow_build(
     max_attempts: int = 3,
     run_id: str | None = None,
     proposal_format: str = "diff",
+    docker_context: str = DOCKER_CONTEXT,
 ) -> dict[str, Any]:
     """Run one sealed Builder attempt sequence for ``approved`` (an M8-style
     real, pinned, public-source bug-fix spec), reusing the proven isolation
@@ -471,7 +477,7 @@ def run_xodus_shadow_build(
     _assemble_source_root(fetched_source, allowed_path, materialize_root)
     include_paths = [allowed_path] + [f"examples/xodus-m8-sandbox-id/{name}" for name in HARNESS_FILES]
 
-    executor = ContainerExecutor(image=NATIVE_IMAGE_DIGEST)
+    executor = ContainerExecutor(image=NATIVE_IMAGE_DIGEST, docker_context=docker_context)
     probe_worktree, _probe_manifest = build_worktree(materialize_root, include_paths)
     try:
         isolation_result = executor.verify_isolation(probe_worktree)
