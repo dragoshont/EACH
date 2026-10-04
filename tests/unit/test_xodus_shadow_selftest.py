@@ -61,6 +61,11 @@ _CORRECT_FIM_BODY = """    /* Always assume RETAIL environment for Wine */
     if (sandboxIdUsed) *sandboxIdUsed = strlen( Id ) + 1;
     return S_OK;
 """
+_CONSOLE_FIXED_SOURCE = _CACHED_SOURCE.replace(
+    "if (!consoleId || !consoleIdUsed)", "if (!consoleId)"
+).replace(
+    "*consoleIdUsed = strlen( Id ) + 1;", "if (consoleIdUsed) *consoleIdUsed = strlen( Id ) + 1;"
+)
 
 
 def _native_image_available() -> bool:
@@ -331,7 +336,7 @@ def test_fixture_model_candidate_is_verified_and_signed(tmp_path, monkeypatch) -
 @requires_colima_each
 @requires_m8_native_image
 def test_fixture_model_fim_candidate_is_verified_and_signed(tmp_path, monkeypatch) -> None:
-    monkeypatch.setattr(xodus_shadow_module, "fetch_file", lambda *_a, **_k: _CACHED_SOURCE)
+    monkeypatch.setattr(xodus_shadow_module, "fetch_file", lambda *_a, **_k: _CONSOLE_FIXED_SOURCE)
     approved = _approve_selftest_spec("test-xodus-shadow-fim-selftest")
 
     class CapturingFixture(FixtureModel):
@@ -349,7 +354,7 @@ def test_fixture_model_fim_candidate_is_verified_and_signed(tmp_path, monkeypatc
     )
 
     assert result["outcome"] == "REPAIR_VERIFIED"
-    source_prefix, source_suffix = xodus_shadow_module._split_sandbox_function_body(_CACHED_SOURCE)
+    source_prefix, source_suffix = xodus_shadow_module._split_sandbox_function_body(_CONSOLE_FIXED_SOURCE)
     expected_prompt = (
         f"<fim_prefix>/* EACH approved requirement:\n{approved.packet.problem_statement}\n*/\n"
         f"{source_prefix}<fim_suffix>{source_suffix}<fim_middle>"
@@ -569,6 +574,10 @@ def test_xodus_shadow_audit_match_is_terminal_without_builder_feedback(tmp_path,
 
 
 _ALREADY_FIXED_SOURCE = _CACHED_SOURCE.replace(
+    "if (!consoleId || !consoleIdUsed)", "if (!consoleId)"
+).replace(
+    "*consoleIdUsed = strlen( Id ) + 1;", "if (consoleIdUsed) *consoleIdUsed = strlen( Id ) + 1;"
+).replace(
     "if (!sandboxId || !sandboxIdUsed)", "if (!sandboxId)"
 ).replace(
     "*sandboxIdUsed = strlen( Id ) + 1;", "if (sandboxIdUsed) *sandboxIdUsed = strlen( Id ) + 1;"

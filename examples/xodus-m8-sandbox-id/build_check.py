@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""M8 bounded validation harness for xgameruntime#22 (XSystemGetXboxLiveSandboxId).
+"""Bounded validation harness for xgameruntime#22 and #26.
 
 Human/coordinator-authored scaffold (never Builder input, never part of the
 generated candidate). It mechanically extracts exactly the one function the
@@ -21,7 +21,7 @@ like every other EACH spec's build_commands/acceptance_commands split:
 
 This proves only what mandate section 63 says an unproven native-isolation
 Xodus validation can honestly prove: structural patch correctness and
-function-level behavior in a tiny standalone harness -- NOT a full native
+two-function behavior in a tiny standalone harness -- NOT a full native
 winelib/Wine build, NOT execution of the real DLL, NOT a real Xbox/GDK
 service round-trip. The receipt built on top of this must say so plainly.
 """
@@ -34,7 +34,10 @@ import subprocess
 import sys
 from pathlib import Path
 
-_FUNCTION_NAME = "x_system_XSystemGetXboxLiveSandboxId"
+_FUNCTION_NAMES = (
+    "x_system_XSystemGetConsoleId",
+    "x_system_XSystemGetXboxLiveSandboxId",
+)
 _HERE = Path(__file__).resolve().parent
 _BUILD_DIR = _HERE / ".build"
 _BINARY = _BUILD_DIR / "check_sandbox_id"
@@ -77,22 +80,43 @@ int main(void)
         return 1;
     }
 
-    fprintf(stderr, "PASS: all 3 cases\n");
+    /* Case 4 (#26): consoleIdUsed is also documented _Out_opt_. */
+    memset(buf, 0, sizeof(buf));
+    hr = x_system_XSystemGetConsoleId(NULL, (INT32)sizeof(buf), buf, NULL);
+    if (hr != S_OK) { fprintf(stderr, "FAIL case4: expected S_OK, got 0x%08lx\n", (unsigned long)hr); return 1; }
+    if (strcmp(buf, "00000000.00000000.00000000.00000000.00") != 0) {
+        fprintf(stderr, "FAIL case4: consoleId not written correctly\n");
+        return 1;
+    }
+
+    /* Case 5: consoleId remains required. */
+    used = 0;
+    hr = x_system_XSystemGetConsoleId(NULL, (INT32)sizeof(buf), NULL, &used);
+    if (hr != E_POINTER) { fprintf(stderr, "FAIL case5: expected E_POINTER, got 0x%08lx\n", (unsigned long)hr); return 1; }
+
+    /* Case 6: undersized console ID buffer remains insufficient-buffer. */
+    used = 0;
+    hr = x_system_XSystemGetConsoleId(NULL, 1, buf, &used);
+    if (hr != HRESULT_FROM_WIN32(ERROR_INSUFFICIENT_BUFFER)) {
+        fprintf(stderr, "FAIL case6: expected ERROR_INSUFFICIENT_BUFFER, got 0x%08lx\n", (unsigned long)hr);
+        return 1;
+    }
+
+    fprintf(stderr, "PASS: all 6 cases\n");
     return 0;
 }
 """
 
 
-def _extract_function(source_path: Path) -> str:
-    text = source_path.read_text(encoding="utf-8")
+def _extract_function(text: str, function_name: str) -> str:
     # Mechanical signature match only -- never the known fix/diff location.
     signature_re = re.compile(
-        r"static\s+HRESULT\s+WINAPI\s+" + re.escape(_FUNCTION_NAME) + r"\s*\([^)]*\)\s*\{",
+        r"static\s+HRESULT\s+WINAPI\s+" + re.escape(function_name) + r"\s*\([^)]*\)\s*\{",
         re.MULTILINE,
     )
     match = signature_re.search(text)
     if not match:
-        raise SystemExit(f"build_check: could not locate function signature for {_FUNCTION_NAME!r}")
+        raise SystemExit(f"build_check: could not locate function signature for {function_name!r}")
     start = match.start()
     depth = 0
     index = match.end() - 1  # position of the opening brace
@@ -112,7 +136,8 @@ def cmd_build(source_arg: str) -> int:
     source_path = Path(source_arg).resolve()
     if not source_path.is_file():
         raise SystemExit(f"build_check: source file not found: {source_path}")
-    function_text = _extract_function(source_path)
+    source_text = source_path.read_text(encoding="utf-8")
+    function_text = "\n\n".join(_extract_function(source_text, name) for name in _FUNCTION_NAMES)
 
     _BUILD_DIR.mkdir(parents=True, exist_ok=True)
     harness_c = _BUILD_DIR / "harness.c"

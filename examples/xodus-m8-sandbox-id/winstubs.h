@@ -66,5 +66,6 @@ typedef void IXSystemImpl5;
  * from inspecting the fix location, independently known from the same
  * public documentation page cited in docs/m8-xodus-policy-pin-20261002.md. */
 #define XSystemXboxLiveSandboxIdMaxBytes ((SIZE_T)16)
+#define XSystemConsoleIdBytes ((SIZE_T)39)
 
 #endif
