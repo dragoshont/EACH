@@ -397,18 +397,28 @@ def _function_profile_proposal(
 
 def recommended_xodus_task_profile(model_identity: dict[str, Any]) -> dict[str, str]:
     """Return the smallest empirically justified task shape for an authorized model."""
+    from each.models.catalog import qualified_profile
+
     repo = str((model_identity.get("modelManifest") or {}).get("repoId") or "")
+    revision = str((model_identity.get("modelManifest") or {}).get("revision") or "")
+    model_id = str(model_identity.get("modelId") or "")
     if repo == "bigcode/starcoderbase":
+        profile = qualified_profile("starcoderbase")
+        if revision != profile["revision"] or model_id != profile["model_id"]:
+            raise ValueError("model identity is not the exact authorized StarCoderBase artifact")
         return {
             "proposalFormat": "body",
             "promptStyle": "fim",
             "reason": "Full-function candidates compiled but missed required positive cases; reduce regeneration.",
         }
     if repo == "bigcode/octocoder":
+        profile = qualified_profile("octocoder")
+        if revision != profile["revision"] or model_id != profile["model_id"]:
+            raise ValueError("model identity is not the exact authorized OctoCoder artifact")
         return {
-            "proposalFormat": "function",
+            "proposalFormat": "body",
             "promptStyle": "question-answer-tests",
-            "reason": "Generic function instruction produced no change; use official repair-style tests plus buggy code.",
+            "reason": "Generic function instruction produced no change; use the official repair prompt and complete the body.",
         }
     raise ValueError("no Xodus task profile exists for this model identity")
 
@@ -605,15 +615,20 @@ def run_xodus_shadow_build(
                 f"{middle_prefix}<fim_suffix>{middle_suffix}<fim_middle>"
             )
         else:
-            answer_kind = "complete function with the same interface" if proposal_format == "function" else (
-                "function body only, without the outer opening or closing brace"
-            )
-            base_prompt = (
-                f"Question: The following public C function is buggy and fails these public cases.\n"
-                f"{packet.problem_statement}\n\n{cases}\n\nBuggy function:\n{selected_source}\n"
-                f"Return only the corrected {answer_kind}. You must change the shown function. "
-                "No diff, custom markers, explanation or other functions.\n\nAnswer:"
-            )
+            if proposal_format == "body":
+                entry_point = signature.split()[-1]
+                base_prompt = (
+                    f"Question: Fix bugs in {entry_point}.\n"
+                    f"{packet.problem_statement}\n\n{selected_source}\n{cases}\n\nAnswer:\n{declaration}"
+                )
+            else:
+                base_prompt = (
+                    f"Question: The following public C function is buggy and fails these public cases.\n"
+                    f"{packet.problem_statement}\n\n{cases}\n\nBuggy function:\n{selected_source}\n"
+                    "Return only the corrected complete function with the same interface. "
+                    "You must change the shown function. No diff, custom markers, explanation or other functions.\n\n"
+                    "Answer:"
+                )
         fim_evidence = {
             "selectedFunction": signature.split()[-1],
             "infillPrefixSha256": sha256_bytes((before + declaration).encode()),

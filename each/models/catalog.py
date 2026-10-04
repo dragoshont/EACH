@@ -30,6 +30,9 @@ STARCODERBASE_SOURCE_WEIGHTS = {
     "pytorch_model-00007-of-00007.bin": "a0a6a38cfae8b0418e8b79ec30b6e14a0dfdd24a8237c238e98c80da6f3f5d1c",
 }
 STARCODERBASE_CONVERSION_SHA256 = "48bc14f9240345e8c81a5586e71a9f0ce7102fdc9ac80ded74199869653dbed7"
+STARCODERBASE_MODEL_ID = (
+    "bigcode/starcoderbase@88ec5781ad071a9d9e925cd28f327dea22eb5188#sha256:97c8813f705fc8c1"
+)
 STARCODERBASE_OUTPUT_FILES = {
     "README.md": "d3da47af55f61b85039733235b3697ac62da2f86f9e2e3d267268f282906d26a",
     "config.json": "15388cc9aec122696c90ea09eef715b3eabbb40dbd163e2ef3022558486ef652",
@@ -81,6 +84,9 @@ OCTOCODER_SOURCE_WEIGHTS = dict(zip(
     ], strict=True,
 ))
 OCTOCODER_CONVERSION_SHA256 = "6432ad00b631f340dee0665b8b9e29be678ed765c95a42f434184341ef3e0aca"
+OCTOCODER_MODEL_ID = (
+    "bigcode/octocoder@0f863c63e38ba80fc2c4010f34a7f46d537a9eee#sha256:553d84a480a0c794"
+)
 OCTOCODER_OUTPUT_FILES = {
     "README.md": "3d935543684971419a2328817b84af5f16b52a218ddf595ffad586c6b62fa072",
     "config.json": "747885d285914374fa4f630e1ecfcd3a35149d86b7598759b0bdcd58334ee439",
@@ -146,14 +152,14 @@ OCTOCODER_LINEAGE = {
 def qualified_profile(name: str) -> dict:
     """Only the two independently assessed original artifacts; no family fallback."""
     if name == "starcoderbase":
-        revision, weights, lineage, source_format, conversion_sha256, output_files = (
+        revision, weights, lineage, source_format, conversion_sha256, output_files, model_id = (
             STARCODERBASE_REVISION, STARCODERBASE_SOURCE_WEIGHTS, STARCODERBASE_LINEAGE, "pytorch",
-            STARCODERBASE_CONVERSION_SHA256, STARCODERBASE_OUTPUT_FILES,
+            STARCODERBASE_CONVERSION_SHA256, STARCODERBASE_OUTPUT_FILES, STARCODERBASE_MODEL_ID,
         )
     elif name == "octocoder":
-        revision, weights, lineage, source_format, conversion_sha256, output_files = (
+        revision, weights, lineage, source_format, conversion_sha256, output_files, model_id = (
             OCTOCODER_REVISION, OCTOCODER_SOURCE_WEIGHTS, OCTOCODER_LINEAGE, "safetensors",
-            OCTOCODER_CONVERSION_SHA256, OCTOCODER_OUTPUT_FILES,
+            OCTOCODER_CONVERSION_SHA256, OCTOCODER_OUTPUT_FILES, OCTOCODER_MODEL_ID,
         )
     else:
         raise UnavailableModelError("training-data provenance is not qualified")
@@ -168,6 +174,7 @@ def qualified_profile(name: str) -> dict:
         "name": name, "repo": f"bigcode/{name}", "revision": revision,
         "weights": weights, "lineage": lineage, "source_format": source_format,
         "conversion_sha256": conversion_sha256, "output_files": output_files,
+        "model_id": model_id,
         "operation": f"{source_format}-fp32-to-safetensors-fp16",
     }
 
@@ -262,6 +269,8 @@ def _qualified_mlx(name: str, *, max_tokens: int) -> RepairModel:
         ):
             raise UnavailableModelError("OctoCoder conversion does not match its complete source tensor map")
     manifest = replace(manifest, training_data_provenance=dict(profile["lineage"]))
+    if manifest.model_id != profile["model_id"]:
+        raise UnavailableModelError(f"qualified {name} artifact identity does not match its trusted pin")
     from each.models.mlx_model import MLXRepairModel
 
     return MLXRepairModel(

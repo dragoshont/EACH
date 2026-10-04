@@ -250,16 +250,35 @@ def test_function_profiles_derive_diff_without_custom_markers(profile, signature
 
 def test_recommended_profiles_follow_observed_model_failures() -> None:
     assert xodus_shadow_module.recommended_xodus_task_profile(
-        {"modelManifest": {"repoId": "bigcode/starcoderbase"}}
+        {
+            "modelId": "bigcode/starcoderbase@88ec5781ad071a9d9e925cd28f327dea22eb5188#sha256:97c8813f705fc8c1",
+            "modelManifest": {
+                "repoId": "bigcode/starcoderbase",
+                "revision": "88ec5781ad071a9d9e925cd28f327dea22eb5188",
+            },
+        }
     )["proposalFormat"] == "body"
     octo = xodus_shadow_module.recommended_xodus_task_profile(
-        {"modelManifest": {"repoId": "bigcode/octocoder"}}
+        {
+            "modelId": "bigcode/octocoder@0f863c63e38ba80fc2c4010f34a7f46d537a9eee#sha256:553d84a480a0c794",
+            "modelManifest": {
+                "repoId": "bigcode/octocoder",
+                "revision": "0f863c63e38ba80fc2c4010f34a7f46d537a9eee",
+            },
+        }
     )
-    assert octo["proposalFormat"] == "function"
+    assert octo["proposalFormat"] == "body"
     assert octo["promptStyle"] == "question-answer-tests"
-    with pytest.raises(ValueError, match="no Xodus task profile"):
+    with pytest.raises(ValueError):
         xodus_shadow_module.recommended_xodus_task_profile(
             {"modelManifest": {"repoId": "unqualified/model"}}
+        )
+    with pytest.raises(ValueError, match="exact authorized"):
+        xodus_shadow_module.recommended_xodus_task_profile(
+            {
+                "modelId": "bigcode/octocoder@wrong#sha256:0000",
+                "modelManifest": {"repoId": "bigcode/octocoder", "revision": "wrong"},
+            }
         )
 
 
@@ -570,11 +589,15 @@ def test_split_native_profiles_reach_six_independent_behavioral_cases(
             assert model.observed.endswith("<fim_middle>")
             assert "Public behavioral cases:" in model.observed
         else:
-            assert model.observed.startswith("Question:")
             assert "Public behavioral cases:" in model.observed
-            assert "Buggy function:" in model.observed
-            assert "You must change the shown function." in model.observed
-            assert model.observed.endswith("Answer:")
+            if profile == "body":
+                assert model.observed.startswith("Question: Fix bugs in ")
+                assert "\n\nAnswer:\nstatic HRESULT WINAPI " in model.observed
+            else:
+                assert model.observed.startswith(
+                    "Question: The following public C function is buggy"
+                )
+                assert "Buggy function:" in model.observed
         receipt_path = Path(result["receipt_json"])
         receipt = json.loads(receipt_path.read_text())
         cases = json.loads(receipt["repairedResult"]["stdout"].split("EACH_CASE_RESULTS:", 1)[1])

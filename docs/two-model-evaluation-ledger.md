@@ -142,10 +142,10 @@ requirements and behavioral oracle:
   Include the six public expected cases as a compact truth table. Its accepted
   full-function candidates preserved existing error cases but missed the
   positive optional-output behavior.
-- **OctoCoder:** use its official HumanEvalFix-style structure:
-  `Question: <requirement and public tests>\n\nAnswer:\n<buggy function prefix>`.
-  Explicitly say the shown function fails the listed tests and must be changed.
-  The generic “correct this function” form produced a no-op twice.
+- **OctoCoder:** use body completion with the official HumanEvalFix ordering:
+  `Question: Fix bugs in <entry point> + buggy function + public tests`,
+  then `Answer:` and the unchanged function declaration. The generic complete-
+  function instruction produced a no-op twice.
 - Treat unchanged output as `NO_CHANGE`, not a formatting failure.
 - A future repeat is a new approved batch. Do not silently consume deferred H2
   calls or expand the model list.

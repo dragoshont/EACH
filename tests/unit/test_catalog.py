@@ -139,6 +139,14 @@ def test_qualified_conversion_binds_lineage_and_rejects_output_drift(monkeypatch
         "conversion_sha256": sha256_file(root / "conversion.json"),
         "output_files": record["outputFilesSha256"],
     }
+    synthetic_profile["model_id"] = catalog.build_manifest_from_snapshot(
+        root,
+        repo_id=profile["repo"],
+        license="bigcode-openrail-m",
+        runtime_name="test-runtime",
+        runtime_version="test-runtime",
+        conversion_chain="synthetic",
+    ).model_id
     monkeypatch.setattr(catalog, "qualified_profile", lambda requested: synthetic_profile if requested == name else profile)
     result = load_model(f"{name}-mlx")
     assert result.manifest.to_dict()["trainingDataProvenance"]["modelRevision"] == profile["revision"]
