@@ -5,6 +5,13 @@ delivery from behavioral correctness. Receipt integrity is not repair success.
 Private sources, completions, candidates and Auditor findings stay private.
 Results are not production, legal, Wine or Xodus certification.
 
+**Current execution scope: four calls, two fixed tasks, one existing profile.**
+The user deferred harness comparison. Use H1/function replacement only.
+Batch SHA-256:
+`30a3052ad0199208c6bc41e014d57f11cbc4d1425d0bf1b7c67d83f1ad3c4ec7`.
+The exact-batch approval request returned user unavailable; no new model
+generation has occurred. This is pending approval, not a model result.
+
 ## Models
 
 | Model | Exact publisher revision | Retained local artifact | Status |
@@ -32,7 +39,7 @@ input**. Builder inputs are the approved documentation-derived requirements,
 the selected function/interface and permitted source context. No private fork
 implementation, reference fix, hidden test source or Auditor result is input.
 
-## Harnesses and repeat matrix
+## Existing harness profiles; comparison deferred
 
 | Harness profile | Builder output | Model-native prompt | What changes |
 |---|---|---|---|
@@ -41,20 +48,22 @@ implementation, reference fix, hidden test source or Auditor result is input.
 
 These are **two concrete EACH harness profiles**, not claims that Pi,
 OpenCode or the original BigCode evaluator has been executed. The same oracle,
-source, requirements and isolation apply to both profiles. One completion per
-model/task/profile gives eight cells; failures remain in the denominator.
+source, requirements and isolation apply to both profiles. **H2 is deferred**:
+it is not part of the current execution or a prerequisite for evaluating H1.
 
-| Model | S / H1 | S / H2 | C / H1 | C / H2 |
-|---|---|---|---|---|
-| StarCoderBase | NOT RUN | NOT RUN | NOT RUN | NOT RUN |
-| OctoCoder | NOT RUN | NOT RUN | NOT RUN | NOT RUN |
+## Fixed task matrix
+
+| Model | S: sandbox ID / H1 | C: console ID / H1 | Distinct verified fixes |
+|---|---|---|---|
+| StarCoderBase | NOT RUN | NOT RUN | Not measured in this batch |
+| OctoCoder | NOT RUN | NOT RUN | Not measured in this batch |
 
 Each cell records exact Spec/material hashes, model/runtime identity, actual
 prompt/output, sampling, input tokens, response characters, completion time,
 proposal acceptance, build exit, named behavioral cases, audit execution,
 receipt verification and private evidence references. Missing metrics remain
-UNAVAILABLE. Do not count four passing cells as four distinct fixes: S and C
-are only **two distinct issues**.
+UNAVAILABLE. There are **four cells and two distinct issues**; a model can score
+0/2, 1/2 or 2/2 verified fixes. Format failure is not a behavioral-test failure.
 
 ## Existing executions -- not a matched model comparison
 
@@ -118,6 +127,6 @@ outside the claimed assurance. Do not relabel the production oracle gap PASS.
   says only some models are good at both code generation and tool calling.
   No verified OctoCoder-specific improvement was found in this bounded search.
 
-Therefore the first meaningful comparison is H1 versus H2 above, not installing
-a tool loop and assuming that it improves capability. External harnesses are
-**investigated, not installed/evaluated**. Do not report otherwise.
+No external tool-loop installation or additional harness comparison is needed
+before the four-call evaluation. External harnesses are **investigated, not
+installed/evaluated**. Their incremental value is deferred by the user.
