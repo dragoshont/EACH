@@ -1,12 +1,14 @@
 # Two-model repair evaluation ledger
 
-Scope: **StarCoderBase and OctoCoder only**. This ledger separates proposal
+Primary matrix scope: **StarCoderBase and OctoCoder**; a separately authorized
+CrystalCoder follow-up is recorded below. This ledger separates proposal
 delivery from behavioral correctness. Receipt integrity is not repair success.
 Private sources, completions, candidates and Auditor findings stay private.
 Results are not production, legal, Wine or Xodus certification.
 
-**Executed scope: four calls, two fixed tasks, one function-replacement profile.**
-The user deferred harness comparison.
+**Executed scope: two fixed tasks, two original models, two task profiles,
+plus one zero-call parser replay.** A separately qualified CrystalCoder
+evaluation is recorded below because the initial two models produced no fix.
 Batch SHA-256:
 `30a3052ad0199208c6bc41e014d57f11cbc4d1425d0bf1b7c67d83f1ad3c4ec7`.
 The user directed immediate evaluation after this exact batch was displayed.
@@ -48,8 +50,8 @@ implementation, reference fix, hidden test source or Auditor result is input.
 
 These are **two concrete EACH harness profiles**, not claims that Pi,
 OpenCode or the original BigCode evaluator has been executed. The same oracle,
-source, requirements and isolation apply to both profiles. **H2 is deferred**:
-it is not part of the current execution or a prerequisite for evaluating H1.
+source, requirements and isolation apply to both profiles. H2 subsequently ran
+after H1; the original H1 evidence remains unchanged.
 
 ## Fixed task matrix
 
@@ -58,6 +60,27 @@ it is not part of the current execution or a prerequisite for evaluating H1.
 | StarCoderBase | Candidate compiled; **3/6 cases PASS** | Candidate compiled; **3/6 cases PASS** | **0/2** |
 | OctoCoder | **PATCH_REJECTED: no change**; cases NOT RUN | **PATCH_REJECTED: no change**; cases NOT RUN | **0/2** |
 
+## H2 body-profile results and replay
+
+| Model | Sandbox | Console | Distinct verified fixes |
+|---|---|---|---:|
+| StarCoderBase | Candidate compiled; **4/6 cases PASS** | Candidate compiled; **4/6 cases PASS** | **0/2** |
+| OctoCoder, original execution | Body/scope parser rejection | Body/scope parser rejection | **0/2** |
+| OctoCoder, zero-call replay | Candidate compiled; **4/6 cases PASS** | Candidate compiled; **4/6 cases PASS** | **0/2** |
+
+The replay consumed only the first complete selected function body and ignored
+continued output. It used the retained original completions, made **zero new
+model calls**, and did not overwrite the original receipts. Private source-free
+result artifact:
+`~/.each/oracle/experiments/octocoder-body-replay-v3/results.json`,
+SHA-256
+`069cbc9f911cee5ed19cedb0baa0244519e5bc1c7926673c7ca659dfc6c15a7d`.
+
+Both replayed OctoCoder candidates matched StarCoderBase's H2 pattern: they
+passed the required-buffer NULL, both-outputs NULL, value-plus-size and short-
+buffer-with-size cases, but failed both cases where the optional size pointer
+was NULL. The parser improvement recovered logic evidence, not a fix.
+
 Each cell records exact Spec/material hashes, model/runtime identity, actual
 prompt/output, sampling, input tokens, response characters, completion time,
 proposal acceptance, build exit, named behavioral cases, audit execution,
@@ -65,7 +88,7 @@ receipt verification and private evidence references. Missing metrics remain
 UNAVAILABLE. There are **four cells and two distinct issues**; a model can score
 0/2, 1/2 or 2/2 verified fixes. Format failure is not a behavioral-test failure.
 
-### Named case results
+### H1 named case results
 
 StarCoderBase produced the same behavioral pattern on both tasks:
 
@@ -149,6 +172,39 @@ requirements and behavioral oracle:
 - Treat unchanged output as `NO_CHANGE`, not a formatting failure.
 - A future repeat is a new approved batch. Do not silently consume deferred H2
   calls or expand the model list.
+
+## CrystalCoder follow-up
+
+CrystalCoder was subsequently authorized and evaluated because the two-model
+matrix produced no verified repair. Exact checkpoint:
+`LLM360/Crystal@34fc9cd58acd87002560379a95b432147cc9135a`;
+artifact suffix `af277cbad887d6d0`. Full lineage and artifact evidence is in
+`docs/model-qualifications/crystalcoder.md`.
+
+Its original full-file FIM packet failed closed before generation because the
+2,314-2,349 token inputs exceeded the model's declared 2,048-token window.
+Function-only FIM reduced inputs to 554-567 tokens and ordinary code
+continuation to 559-572 tokens. All generated attempts saturated their exact
+512- or 1,024-token output budgets. The sandbox candidates were structurally
+incomplete or failed compilation; console candidates failed compilation or
+repeated the target signature and were rejected. No behavioral case ran.
+
+| Model | Sandbox | Console | Distinct verified fixes |
+|---|---|---|---:|
+| CrystalCoder 7B | No compiling candidate | No compiling candidate | **0/2** |
+
+This is a real negative capability result. The harness learned to preflight
+context, reduce unrelated source, distinguish truncation from logic failure,
+and switch from FIM to plain code continuation. It must not keep increasing
+budgets when the model repeats instead of closing the selected function.
+
+The final continuation repeat used the hardened local runtime with network and
+private-file denial probes true. Secured receipt SHA-256 values are
+`6e03d88280a48644d683a0c367ec11bda3f9b7098ff572942d9500b1a950e141`
+(sandbox) and
+`d635c463030f99fb26e8a5a51809932ef5aca94c14ed66a1c150a58fdb0f3da6`
+(console). Sandbox failed its build; console repeated the selected signature
+five times and was structurally rejected. Neither reached behavioral cases.
 
 These recommendations are encoded by
 `each.xodus_shadow.recommended_xodus_task_profile`; unknown/unqualified models

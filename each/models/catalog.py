@@ -10,11 +10,14 @@ adapter) rather than silently omitted.
 from __future__ import annotations
 
 import hashlib
+import json
 from collections.abc import Callable
 from dataclasses import replace
 from importlib.metadata import PackageNotFoundError, version
+from pathlib import Path
 
-from each.model_manifest import build_manifest_from_snapshot
+from each.hashing import sha256_file
+from each.model_manifest import ModelManifest, build_manifest_from_snapshot, verify_snapshot_matches
 from each.models.base import RepairModel
 from each.paths import assert_no_symlink_escape, models_dir
 
@@ -148,6 +151,61 @@ OCTOCODER_LINEAGE = {
     ],
 }
 
+CRYSTAL_REVISION = "34fc9cd58acd87002560379a95b432147cc9135a"
+CRYSTAL_SOURCE_WEIGHTS = {
+    "pytorch_model-00001-of-00003.bin": "45d3ddd1d30058d55c8ccc250139aeeef318f14c39c53bbfa830fb669ac79ebe",
+    "pytorch_model-00002-of-00003.bin": "c1c03da74d41317a7e2c5a799e09a8ee5ce4a94ba19976befa9f1135c48cf93a",
+    "pytorch_model-00003-of-00003.bin": "c33c1d1ace28b1ac3a7afa7e82b18322446bacf76f12fd07401879dafd4d6cfe",
+}
+CRYSTAL_FILES = {
+    "README.md": "54ba72133c87c357a9ae6e4b6bf628a7d44810368b6900e177db315bf3c5ca1f",
+    "config.json": "f1fd9fba01f1fb3b26a04c8320b126d92602498a9d71fa20460e07e134fd5558",
+    "configuration_crystalcoder.py": "dfbcd1553049fe82e893d0ec36314037c7f8c68a660775259abbef74d5b6fbf6",
+    "modeling_crystalcoder.py": "f9587615339793b107824188cfe5e2e2a27f1a13c703fddbe20f49e39a89b75c",
+    **CRYSTAL_SOURCE_WEIGHTS,
+    "pytorch_model.bin.index.json": "ce88084fdcec7c1f5158bd8ccfb846e7251d6e3cc7d5ba182d578af4cb3fe525",
+    "special_tokens_map.json": "77650f68e1bb047e9264ea447114e94cded61905308546bd5439062b86572ed9",
+    "tokenization_crystalcoder_fast.py": "d8fa4edde1b2b022e93514b6e59da68c3346ed6d5eb855b59c3eb1708c65ff5a",
+    "tokenizer.json": "c61adcb4e52988e4ee38ad9871e1f4e43ab128b0b5191225d307c2d022ca9569",
+    "tokenizer_config.json": "9ce5cf84759e59cd3ecd63a2602ac130bcf3a63b7cdd76b3c24c2ae02aaf71e2",
+}
+CRYSTAL_MODEL_ID = (
+    "LLM360/Crystal@34fc9cd58acd87002560379a95b432147cc9135a"
+    "#sha256:af277cbad887d6d0"
+)
+CRYSTAL_RUNTIME_FILES = {
+    "pyproject.toml": "b92c4a1013562ab224cf6aef6e246a6d60a954432ec9d7c02515d4eb5d30c5ed",
+    "uv.lock": "91038254ab4b87f2651de4244fdf1dd4e95386b1907260ce6f734ee366cf3505",
+    "crystal_runtime.py": "39c1e0937d6f5513541de3c96afa8fc904240b267aee609246758998903bd6cd",
+}
+CRYSTAL_RUNTIME_VERSIONS = {
+    "python": "3.12.14",
+    "torch": "2.14.1",
+    "transformers": "4.44.2",
+}
+CRYSTAL_LINEAGE = {
+    "status": "ELIGIBLE",
+    "scope": "documented-inspectable-training-dataset-lineage",
+    "modelRepo": "LLM360/Crystal",
+    "modelRevision": CRYSTAL_REVISION,
+    "startsFromScratch": True,
+    "datasetRepo": "LLM360/CrystalCoderDatasets",
+    "datasetRevision": "e42bace8739ade3b2d73025746bdac8a38345427",
+    "processingSource": "LLM360/crystalcoder-data-prep",
+    "stages": [
+        "Stage 1: first half of SlimPajama",
+        "Stage 2: second half of SlimPajama plus two epochs of StarCoderData",
+        "Stage 3: selected Python/web StarCoderData plus SlimPajama",
+    ],
+    "postTraining": "NONE_FOR_SELECTED_BASE_RELEASE",
+    "dossier": "docs/model-qualifications/crystalcoder.md",
+    "limitations": [
+        "Dataset-stage lineage, not exact training-sample or historical training-job reconstruction.",
+        "No exhaustive per-record source-license, human-authorship, memorization or legal determination.",
+        "Runtime directly imports the exact pinned publisher custom-code files inside a local sandbox.",
+    ],
+}
+
 
 def qualified_profile(name: str) -> dict:
     """Only the two independently assessed original artifacts; no family fallback."""
@@ -196,6 +254,80 @@ def _starcoderbase_mlx(*, max_tokens: int = 512) -> RepairModel:
 
 def _octocoder_mlx(*, max_tokens: int = 512) -> RepairModel:
     return _qualified_mlx("octocoder", max_tokens=max_tokens)
+
+
+def _transformers_runtime_version() -> str:
+    return "4.44.2"
+
+
+def _crystalcoder_transformers(*, max_tokens: int = 512) -> RepairModel:
+    if (
+        CRYSTAL_LINEAGE.get("status") != "ELIGIBLE"
+        or CRYSTAL_LINEAGE.get("modelRepo") != "LLM360/Crystal"
+        or CRYSTAL_LINEAGE.get("modelRevision") != CRYSTAL_REVISION
+        or CRYSTAL_LINEAGE.get("datasetRepo") != "LLM360/CrystalCoderDatasets"
+        or CRYSTAL_LINEAGE.get("datasetRevision") != "e42bace8739ade3b2d73025746bdac8a38345427"
+        or CRYSTAL_LINEAGE.get("postTraining") != "NONE_FOR_SELECTED_BASE_RELEASE"
+    ):
+        raise UnavailableModelError("CrystalCoder training-data provenance is not qualified")
+    runtime_project = Path(__file__).resolve().parents[2] / "runtimes" / "crystal"
+    runtime_paths = {
+        "pyproject.toml": runtime_project / "pyproject.toml",
+        "uv.lock": runtime_project / "uv.lock",
+        "crystal_runtime.py": Path(__file__).with_name("crystal_runtime.py"),
+    }
+    runtime_drift = [
+        name
+        for name, path in runtime_paths.items()
+        if not path.is_file() or sha256_file(path) != CRYSTAL_RUNTIME_FILES[name]
+    ]
+    if runtime_drift:
+        raise UnavailableModelError(
+            "qualified CrystalCoder runtime is absent or has changed: " + ", ".join(runtime_drift)
+        )
+    snapshot_dir = models_dir() / f"crystal-{CRYSTAL_REVISION}" / "original"
+    assert_no_symlink_escape(snapshot_dir, label="qualified CrystalCoder artifact")
+    manifest = ModelManifest(
+        repo_id="LLM360/Crystal",
+        revision=CRYSTAL_REVISION,
+        license="Apache-2.0",
+        runtime_name="transformers",
+        runtime_version=_transformers_runtime_version(),
+        quantization={},
+        weights_sha256=dict(CRYSTAL_SOURCE_WEIGHTS),
+        tokenizer_sha256=CRYSTAL_FILES["tokenizer.json"],
+        conversion_chain="original publisher bfloat16 PyTorch shards; no conversion",
+        files_sha256=dict(CRYSTAL_FILES),
+        max_position_embeddings=2048,
+        training_data_provenance=dict(CRYSTAL_LINEAGE),
+    )
+    drift = verify_snapshot_matches(snapshot_dir, manifest)
+    if drift:
+        raise UnavailableModelError(
+            "qualified CrystalCoder artifact is absent or has changed: " + "; ".join(drift)
+        )
+    try:
+        config = json.loads((snapshot_dir / "config.json").read_text())
+    except (OSError, UnicodeDecodeError, json.JSONDecodeError) as exc:
+        raise UnavailableModelError("qualified CrystalCoder configuration is unreadable") from exc
+    if (
+        config.get("model_type") != "crystalcoder"
+        or config.get("n_positions") != 2048
+        or str(config.get("torch_dtype")) != "bfloat16"
+    ):
+        raise UnavailableModelError("qualified CrystalCoder configuration does not match its trusted profile")
+    if manifest.model_id != CRYSTAL_MODEL_ID:
+        raise UnavailableModelError("qualified CrystalCoder artifact identity does not match its trusted pin")
+    from each.models.transformers_model import TransformersRepairModel
+
+    return TransformersRepairModel(
+        snapshot_dir,
+        manifest,
+        max_tokens=max_tokens,
+        runtime_project=runtime_project,
+        runtime_files_sha256=CRYSTAL_RUNTIME_FILES,
+        runtime_versions=CRYSTAL_RUNTIME_VERSIONS,
+    )
 
 
 def _qualified_mlx(name: str, *, max_tokens: int) -> RepairModel:
@@ -523,6 +655,7 @@ def _granite_gguf_llamacpp() -> RepairModel:
 _CATALOG: dict[str, Callable[..., RepairModel]] = {
     "starcoderbase-mlx": _starcoderbase_mlx,
     "octocoder-mlx": _octocoder_mlx,
+    "crystalcoder-transformers": _crystalcoder_transformers,
     "granite-3b-code-base-mlx": _granite_3b_code_base_mlx,
     "granite-3b-code-instruct-mlx": _granite_3b_code_instruct_mlx,
     "granite-8b-code-instruct-128k-mlx": _granite_8b_code_instruct_128k_mlx,
@@ -543,7 +676,7 @@ def load_model(key: str, **kwargs) -> RepairModel:
     """
     if key not in _CATALOG:
         raise UnavailableModelError(f"unknown model key: {key!r}; known keys: {sorted(_CATALOG)}")
-    if key in {"starcoderbase-mlx", "octocoder-mlx"}:
+    if key in {"starcoderbase-mlx", "octocoder-mlx", "crystalcoder-transformers"}:
         return _CATALOG[key](**kwargs)
     raise UnavailableModelError(
         f"training-data provenance is not qualified for {key!r}; "

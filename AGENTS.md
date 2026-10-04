@@ -45,6 +45,13 @@ Keep candidate-question transfer distinct from implementation transfer; classify
 unsupported implementation-derived requirements as REPRO_REQUIRED. Maintain the
 finite exact-artifact registry and genuine sensitive-Spec approval.
 
+**Later user direction, 2026-10-04:** after the defined two-model evaluation
+produced no useful repair, the user explicitly directed EACH to continue
+evaluating other provenance-qualified local models and tailor task packets from
+their observed behavior. This authorizes bounded follow-up candidates without
+weakening the training-lineage rule, privacy boundaries, fixed-task oracle or
+negative-result reporting.
+
 Use the Architrave knowledge profile, durable Run state, small vertical slices,
 deterministic gates, and independent adversarial review. Do not build a UI,
 daemon, database, RAG system, hosted backend, or custom cryptography.

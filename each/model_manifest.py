@@ -133,13 +133,15 @@ def build_manifest_from_snapshot(
             continue
         relative_path = entry.relative_to(snapshot_dir).as_posix()
         files[relative_path] = _sha256_file(entry)
-        if entry.suffix == ".safetensors":
+        if entry.suffix == ".safetensors" or (
+            entry.suffix == ".bin" and entry.name.startswith("pytorch_model")
+        ):
             weights[relative_path] = files[relative_path]
         elif relative_path == "tokenizer.json":
             tokenizer_sha256 = files[relative_path]
 
     if not weights:
-        raise ValueError(f"no .safetensors weight files found under {snapshot_dir}")
+        raise ValueError(f"no supported model weight files found under {snapshot_dir}")
     if not tokenizer_sha256:
         raise ValueError(f"no tokenizer.json found under {snapshot_dir}")
 

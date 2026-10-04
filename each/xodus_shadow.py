@@ -41,7 +41,13 @@ from each.executor.container import (
     derive_assurance_level,
 )
 from each.hashing import sha256_bytes
-from each.models.base import ContextBudgetExceeded, RepairModel
+from each.models.base import (
+    REAL_MODEL_ADAPTER_CLASS_PATHS,
+    ContextBudgetExceeded,
+    RepairModel,
+    validate_recorded_real_model_identity,
+)
+from each.models.fixture import FixtureModel
 from each.outcome import sanitize_outcome_class, sanitize_proposal_format
 from each.patch import PatchRejected, apply_patch, extract_patch_text, parse_patch
 from each.paths import assert_no_symlink_escape, each_home, runs_dir, validate_private_root, validate_task_id
@@ -357,7 +363,7 @@ def _unwrap_function_output(completion: str) -> str:
         if code_start < 0 or closing < 0 or text.count("```") != 2:
             raise PatchRejected("function output has an incomplete or ambiguous code fence")
         text = text[code_start + 1:closing].strip()
-    if not text or "<fim_" in text or "<|endoftext|>" in text:
+    if not text or "<fim_" in text or "<|fim_" in text or "<|endoftext|>" in text:
         raise PatchRejected("function output is empty or contains unexpected control tokens")
     return text + "\n"
 
@@ -374,6 +380,22 @@ def _function_profile_proposal(
         # Like a function-completion evaluator, consume only the selected function.
         # Continued prose/source is retained in the receipt, never applied to the file.
         text = text[len(generated_prefix):len(text) - len(generated_suffix)]
+    else:
+        # Body-completion models commonly emit the existing outer closing
+        # brace and continue with prose or later source. Evaluate exactly the
+        # selected function body, like a function-completion benchmark.
+        try:
+            generated_prefix, generated_suffix = _split_sandbox_function_body(
+                declaration + text, signature,
+            )
+        except PatchRejected:
+            pass
+        else:
+            if generated_prefix != declaration:
+                raise PatchRejected("body output changed its public interface")
+            text = (declaration + text)[
+                len(generated_prefix):len(declaration + text) - len(generated_suffix)
+            ]
     proposal = before + declaration + text + suffix
     # The original closing brace must remain the unique boundary of this body.
     checked_prefix, checked_suffix = _split_sandbox_function_body(proposal, signature)
@@ -419,6 +441,16 @@ def recommended_xodus_task_profile(model_identity: dict[str, Any]) -> dict[str, 
             "proposalFormat": "body",
             "promptStyle": "question-answer-tests",
             "reason": "Generic function instruction produced no change; use the official repair prompt and complete the body.",
+        }
+    if repo == "LLM360/Crystal":
+        from each.models.catalog import CRYSTAL_MODEL_ID, CRYSTAL_REVISION
+
+        if revision != CRYSTAL_REVISION or model_id != CRYSTAL_MODEL_ID:
+            raise ValueError("model identity is not the exact authorized CrystalCoder artifact")
+        return {
+            "proposalFormat": "body",
+            "promptStyle": "code-continuation",
+            "reason": "FIM saturated the output budget; continue only the selected declaration and body.",
         }
     raise ValueError("no Xodus task profile exists for this model identity")
 
@@ -551,6 +583,21 @@ def run_xodus_shadow_build(
         type(max_attempts) is not int or max_attempts != 1
     ):
         raise ValueError("FIM shadow runs require exactly one approved attempt")
+    initial_model_identity = model.identity()
+    adapter_class_path = str(initial_model_identity.get("adapterClassPath", ""))
+    if adapter_class_path in REAL_MODEL_ADAPTER_CLASS_PATHS:
+        actual_class_path = f"{type(model).__module__}.{type(model).__name__}"
+        if adapter_class_path != actual_class_path:
+            raise ValueError("model identity does not match the actual Builder adapter")
+        validate_recorded_real_model_identity(initial_model_identity)
+        recommended = recommended_xodus_task_profile(initial_model_identity)
+        if proposal_format != recommended["proposalFormat"]:
+            raise ValueError(
+                f"proposal format {proposal_format!r} does not match this exact model's "
+                f"authorized profile {recommended['proposalFormat']!r}"
+            )
+    elif not isinstance(model, FixtureModel):
+        raise ValueError("Xodus Builder must use an allowlisted real adapter or FixtureModel self-test")
     approved.verify()
     verify_xodus_shadow_binding(approved)
     validate_private_root()
@@ -604,9 +651,16 @@ def run_xodus_shadow_build(
     if proposal_format in {"function", "body"}:
         before, declaration, original_body, suffix = _function_profile_parts(fetched_source, signature)
         selected_source = declaration + original_body + "}\n"
-        model_repo = (model.identity().get("modelManifest") or {}).get("repoId")
+        model_repo = (initial_model_identity.get("modelManifest") or {}).get("repoId")
         cases = _behavioral_case_prompt(selected_api)
-        if model_repo == "bigcode/starcoderbase":
+        if model_repo == "LLM360/Crystal":
+            requirement = (packet.problem_statement + "\n\n" + cases).replace("*/", "* /")
+            base_prompt = (
+                f"/* Approved requirement:\n{requirement}\n"
+                "Return only this function's corrected implementation.\n*/\n"
+                f"{declaration}"
+            )
+        elif model_repo == "bigcode/starcoderbase":
             middle_prefix = before if proposal_format == "function" else before + declaration
             middle_suffix = suffix[1:] if proposal_format == "function" else suffix
             requirement = (packet.problem_statement + "\n\n" + cases).replace("*/", "* /")

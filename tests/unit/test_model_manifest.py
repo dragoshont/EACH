@@ -125,3 +125,20 @@ def test_snapshot_rejects_an_extra_weight_shard_after_admission(tmp_path: Path) 
     manifest = _manifest(root)
     (root / "extra.safetensors").write_bytes(b"unrecorded fixture weights")
     assert verify_snapshot_matches(root, manifest) == ["extra.safetensors: unrecorded file"]
+
+
+def test_snapshot_manifest_accepts_publisher_pytorch_shards(tmp_path: Path) -> None:
+    root = tmp_path / "revision"
+    root.mkdir()
+    (root / "config.json").write_text('{"n_positions":2048}')
+    (root / "tokenizer.json").write_text("{}")
+    (root / "pytorch_model-00001-of-00001.bin").write_bytes(b"weights")
+    manifest = build_manifest_from_snapshot(
+        root,
+        repo_id="publisher/model",
+        license="Apache-2.0",
+        runtime_name="transformers",
+        runtime_version="test",
+        conversion_chain="publisher bytes",
+    )
+    assert set(manifest.weights_sha256) == {"pytorch_model-00001-of-00001.bin"}

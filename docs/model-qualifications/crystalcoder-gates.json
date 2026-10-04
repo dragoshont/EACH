@@ -1,0 +1,54 @@
+{
+  "recorded_at": "2026-10-04",
+  "scope": "Source-free deterministic evidence for the final CrystalCoder qualification/runtime/evaluation file set before commit.",
+  "host": "m5.hont.ro Apple Silicon Mac",
+  "configured_gate": {
+    "command": "bash gates/checks.sh",
+    "status": "PASS",
+    "tests_passed": 737,
+    "optional_skips": 11,
+    "doctor": "PASS",
+    "stdout_sha256": "272ac61451d3a50caeb651e711b61b2fee1b661cf84ab8fe71eed08beb6bdd7e"
+  },
+  "extras_gate": {
+    "command": "uv sync --locked --extra models --extra audit && uv run pytest -q",
+    "status": "PASS",
+    "tests_passed": 748,
+    "skips": 0,
+    "stdout_sha256": "55b72b5d70490eba382a040dc2442e2bd955111fe0883ddb9676a802fe46c202"
+  },
+  "ruff": {
+    "command": "uv run ruff check each tests",
+    "status": "PASS",
+    "stdout_sha256": "82b3e6a6c090a57601d22943bd23fca9218d1031dbe5a7b754092f9a156b4f18"
+  },
+  "runtime_reality": {
+    "status": "PASS",
+    "python": "3.12.14",
+    "torch": "2.14.1",
+    "transformers": "4.44.2",
+    "network_denied": true,
+    "private_file_probes_denied": 2,
+    "outside_work_write_denied": true,
+    "sandbox_receipt_sha256": "6e03d88280a48644d683a0c367ec11bda3f9b7098ff572942d9500b1a950e141",
+    "console_receipt_sha256": "d635c463030f99fb26e8a5a51809932ef5aca94c14ed66a1c150a58fdb0f3da6"
+  },
+  "evaluated_files_sha256": {
+    "AGENTS.md": "c65ae6ceb9b03f828341618341a590a407853e95faf24c19268b6aa41eb29d4f",
+    "docs/model-qualifications/crystalcoder.md": "f926f8a3156fd151ab4947c6da4814278a24bb670b49dd4752ab33aabcc978f0",
+    "docs/model-qualifications/registry.json": "b7ab11a12ada998eb52a5cd29b1946e3866ecac78b651c6819ddb2a5b1081ece",
+    "docs/two-model-evaluation-ledger.md": "a1279e96a33c1398f3870ab57ba77b6c2ac43175f2185e7be9de09cae4a53ecc",
+    "each/model_manifest.py": "c06b2e006e523f950146b51f09ceca8e9f2f54fe92c436b7ff27949e639fd8e2",
+    "each/models/base.py": "4ec7d9b55b9fe5ed432a5e0bf05dd02b418c7ca6ac81757104f6dab9d5ddcddf",
+    "each/models/catalog.py": "39a8929612ba2f33ea20fa7407f055273a808e56487f19278f4ca5bbec507a04",
+    "each/models/crystal_runtime.py": "39c1e0937d6f5513541de3c96afa8fc904240b267aee609246758998903bd6cd",
+    "each/models/transformers_model.py": "b462e6ccc2f1f61ea02a160eabb435f9a6e3bb71e739ac707dbb4518b11e1bdd",
+    "each/xodus_shadow.py": "b3299334ef52996b91a65349a830dacfef26af400c1a960359c97bdca2299896",
+    "runtimes/crystal/pyproject.toml": "b92c4a1013562ab224cf6aef6e246a6d60a954432ec9d7c02515d4eb5d30c5ed",
+    "runtimes/crystal/uv.lock": "91038254ab4b87f2651de4244fdf1dd4e95386b1907260ce6f734ee366cf3505",
+    "tests/unit/test_catalog.py": "32a6b496914b99fb00a448edf781f92fa2f2387b4b52777672f2f0496396791d",
+    "tests/unit/test_model_manifest.py": "0c746b89d0821b2d31a7a3f8e0f3742028652deb8c3532dccd982ab7518ad8f1",
+    "tests/unit/test_transformers_model.py": "a6d5eeb63b75e54fc3544841a0fb8e66bfc32783a6ab52a799d0f58e29c99070",
+    "tests/unit/test_xodus_shadow_selftest.py": "c3ad788a0b810123ebc205f5a42574759b7fd1551ac5e01f5031c728af9e7737"
+  }
+}

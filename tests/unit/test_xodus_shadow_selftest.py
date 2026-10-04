@@ -269,6 +269,20 @@ def test_recommended_profiles_follow_observed_model_failures() -> None:
     )
     assert octo["proposalFormat"] == "body"
     assert octo["promptStyle"] == "question-answer-tests"
+    crystal = xodus_shadow_module.recommended_xodus_task_profile(
+        {
+            "modelId": (
+                "LLM360/Crystal@34fc9cd58acd87002560379a95b432147cc9135a"
+                "#sha256:af277cbad887d6d0"
+            ),
+            "modelManifest": {
+                "repoId": "LLM360/Crystal",
+                "revision": "34fc9cd58acd87002560379a95b432147cc9135a",
+            },
+        }
+    )
+    assert crystal["proposalFormat"] == "body"
+    assert crystal["promptStyle"] == "code-continuation"
     with pytest.raises(ValueError):
         xodus_shadow_module.recommended_xodus_task_profile(
             {"modelManifest": {"repoId": "unqualified/model"}}
@@ -282,15 +296,39 @@ def test_recommended_profiles_follow_observed_model_failures() -> None:
         )
 
 
-def test_body_profile_cannot_escape_selected_function() -> None:
-    with pytest.raises(xodus_shadow_module.PatchRejected, match="escaped"):
-        xodus_shadow_module._function_profile_proposal(
-            "return S_OK;\n}\nint unexpected_function(void) { return 0; }\n",
-            _CACHED_SOURCE,
-            "xsystem.c",
-            xodus_shadow_module._SANDBOX_ID_FUNCTION_SIGNATURE,
-            "body",
+def test_xodus_runner_rejects_spoofed_real_adapter_identity() -> None:
+    class SpoofedFixture(FixtureModel):
+        def identity(self):
+            value = super().identity()
+            value.update({
+                "adapterType": "TransformersRepairModel",
+                "adapterClassPath": "each.models.transformers_model.TransformersRepairModel",
+            })
+            return value
+
+    with pytest.raises(ValueError, match="actual Builder adapter"):
+        run_xodus_shadow_build(
+            SpoofedFixture("unused"),
+            None,
+            max_attempts=1,
+            proposal_format="body",
         )
+
+
+def test_body_profile_does_not_apply_continued_unrelated_source(tmp_path) -> None:
+    from each.patch import apply_patch, parse_patch
+
+    patch = xodus_shadow_module._function_profile_proposal(
+        _CORRECT_FIM_BODY + "}\nint unexpected_function(void) { return 0; }\n",
+        _CACHED_SOURCE,
+        "xsystem.c",
+        xodus_shadow_module._SANDBOX_ID_FUNCTION_SIGNATURE,
+        "body",
+    )
+    target = tmp_path / "xsystem.c"
+    target.write_text(_CACHED_SOURCE)
+    apply_patch(parse_patch(patch), tmp_path, {"xsystem.c"})
+    assert "unexpected_function" not in target.read_text()
 
 
 def test_function_profile_evaluates_the_function_not_response_wrappers(tmp_path) -> None:
@@ -310,17 +348,21 @@ def test_function_profile_evaluates_the_function_not_response_wrappers(tmp_path)
     body = xodus_shadow_module._function_profile_proposal(
         _CORRECT_FIM_BODY + "}\n", _CACHED_SOURCE, "xsystem.c", signature, "body",
     )
+    body_with_continuation = xodus_shadow_module._function_profile_proposal(
+        _CORRECT_FIM_BODY + "}\nContinued explanation that must not be applied.\n",
+        _CACHED_SOURCE, "xsystem.c", signature, "body",
+    )
     from each.patch import apply_patch, parse_patch
 
     reconstructed = []
-    for index, candidate_patch in enumerate((patch, continued, body)):
+    for index, candidate_patch in enumerate((patch, continued, body, body_with_continuation)):
         root = tmp_path / str(index)
         root.mkdir()
         target = root / "xsystem.c"
         target.write_text(_CACHED_SOURCE)
         apply_patch(parse_patch(candidate_patch), root, {"xsystem.c"})
         reconstructed.append(target.read_text().split())
-    assert reconstructed[0] == reconstructed[1] == reconstructed[2]
+    assert reconstructed[0] == reconstructed[1] == reconstructed[2] == reconstructed[3]
 
 
 @requires_colima_each

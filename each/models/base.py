@@ -9,13 +9,17 @@ in the run's provenance.
 from __future__ import annotations
 
 import inspect
+import re
 from abc import ABC, abstractmethod
 from pathlib import Path
 from typing import Any
 
 from each.hashing import sha256_file
 
-REAL_MODEL_ADAPTER_CLASS_PATHS = frozenset({"each.models.mlx_model.MLXRepairModel"})
+REAL_MODEL_ADAPTER_CLASS_PATHS = frozenset({
+    "each.models.mlx_model.MLXRepairModel",
+    "each.models.transformers_model.TransformersRepairModel",
+})
 
 
 class ContextBudgetExceeded(RuntimeError):
@@ -143,4 +147,24 @@ def validate_recorded_real_model_identity(model_identity: dict[str, Any]) -> tup
         or not str(generation.get("sampling", "")).strip()
     ):
         raise ValueError("receipt model identity is missing recorded generation parameters")
+    if adapter_class_path == "each.models.transformers_model.TransformersRepairModel":
+        runtime_environment = model_identity.get("runtimeEnvironment")
+        if (
+            implementation_module != adapter_class_path.rsplit(".", 1)[0]
+            or not re.fullmatch(r"[0-9a-f]{64}", implementation_sha256)
+            or not isinstance(runtime_environment, dict)
+            or set(runtime_environment) != {"projectSha256", "lockSha256", "helperSha256", "versions"}
+            or not all(
+                isinstance(value, str) and re.fullmatch(r"[0-9a-f]{64}", value)
+                for key, value in runtime_environment.items()
+                if key != "versions"
+            )
+            or not isinstance(runtime_environment.get("versions"), dict)
+            or set(runtime_environment["versions"]) != {"python", "torch", "transformers"}
+            or not all(
+                isinstance(value, str) and value
+                for value in runtime_environment["versions"].values()
+            )
+        ):
+            raise ValueError("receipt Transformers runtime identity is missing or malformed")
     return model_id, adapter_class_path

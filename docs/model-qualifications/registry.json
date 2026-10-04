@@ -517,6 +517,78 @@
         },
         "reviewed_at": "2026-10-03"
       }
+    },
+    "crystalcoder": {
+      "model": {
+        "exact_identity": "LLM360/Crystal",
+        "upstream_revision": "34fc9cd58acd87002560379a95b432147cc9135a",
+        "status": "AUTHORIZED",
+        "catalog_key": "crystalcoder-transformers",
+        "artifact_model_id": "LLM360/Crystal@34fc9cd58acd87002560379a95b432147cc9135a#sha256:af277cbad887d6d0"
+      },
+      "artifact": {
+        "original_weights_retained": true,
+        "format": "publisher BF16 PyTorch, no conversion",
+        "weight_hashes": {
+          "pytorch_model-00001-of-00003.bin": "45d3ddd1d30058d55c8ccc250139aeeef318f14c39c53bbfa830fb669ac79ebe",
+          "pytorch_model-00002-of-00003.bin": "c1c03da74d41317a7e2c5a799e09a8ee5ce4a94ba19976befa9f1135c48cf93a",
+          "pytorch_model-00003-of-00003.bin": "c33c1d1ace28b1ac3a7afa7e82b18322446bacf76f12fd07401879dafd4d6cfe"
+        },
+        "tokenizer_hash": "c61adcb4e52988e4ee38ad9871e1f4e43ab128b0b5191225d307c2d022ca9569",
+        "config_hash": "f1fd9fba01f1fb3b26a04c8320b126d92602498a9d71fa20460e07e134fd5558"
+      },
+      "pretraining": {
+        "starts_from_scratch": true,
+        "dataset": "LLM360/CrystalCoderDatasets",
+        "dataset_revision": "e42bace8739ade3b2d73025746bdac8a38345427",
+        "stages": [
+          "first half of SlimPajama",
+          "second half of SlimPajama plus two StarCoderData epochs",
+          "selected Python/web StarCoderData plus SlimPajama"
+        ],
+        "opaque_ancestors": "NONE_IDENTIFIED",
+        "exact_training_samples": "NOT_RECONSTRUCTED"
+      },
+      "posttraining": {
+        "present": false,
+        "datasets": []
+      },
+      "rights": {
+        "model_license": "Apache-2.0",
+        "unresolved_risks": [
+          "Dataset-stage lineage is not exhaustive per-record attribution or legal certification.",
+          "Exact historical training membership and job reconstruction are not established."
+        ]
+      },
+      "each": {
+        "local_runtime_verified": true,
+        "trajectory_recording_verified": true,
+        "official_loader": "each.models.catalog.load_model",
+        "runtime": "lock/project/helper-hash-bound isolated runtime; child-verified Python 3.12.14 / Transformers 4.44.2 / Torch 2.14.1, MPS; scrubbed environment; timeout/output bounds; macOS sandbox network, multiple private-file and outside-work write probes passed",
+        "xodus_verified_fixes": 0,
+        "xodus_tasks": 2,
+        "capability_result": "0/2; compact FIM and code-continuation profiles produced structural rejection or build failure before behavioral validation.",
+        "secured_receipts": {
+          "sandbox": "sha256:6e03d88280a48644d683a0c367ec11bda3f9b7098ff572942d9500b1a950e141",
+          "console": "sha256:d635c463030f99fb26e8a5a51809932ef5aca94c14ed66a1c150a58fdb0f3da6"
+        },
+        "runtime_files_sha256": {
+          "project": "b92c4a1013562ab224cf6aef6e246a6d60a954432ec9d7c02515d4eb5d30c5ed",
+          "lock": "91038254ab4b87f2651de4244fdf1dd4e95386b1907260ce6f734ee366cf3505",
+          "helper": "39c1e0937d6f5513541de3c96afa8fc904240b267aee609246758998903bd6cd"
+        }
+      },
+      "decision": {
+        "status": "AUTHORIZED",
+        "blocker": null,
+        "scope": "Bounded research under documented, inspectable training-dataset-stage lineage; not production or legal certification.",
+        "evidence_refs": [
+          "docs/model-qualifications/crystalcoder.md",
+          "each/models/catalog.py",
+          "docs/two-model-evaluation-ledger.md"
+        ],
+        "reviewed_at": "2026-10-04"
+      }
     }
   }
 }

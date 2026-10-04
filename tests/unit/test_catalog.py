@@ -70,7 +70,8 @@ def test_load_model_rejects_unsupported_kwarg_for_entries_without_tunable_params
 
 
 @pytest.mark.parametrize("key", [
-    key for key in catalog._CATALOG if key not in {"starcoderbase-mlx", "octocoder-mlx"}
+    key for key in catalog._CATALOG
+    if key not in {"starcoderbase-mlx", "octocoder-mlx", "crystalcoder-transformers"}
 ])
 def test_catalog_blocks_unqualified_training_provenance_before_loading(key, monkeypatch) -> None:
     def must_not_load(**kwargs):
@@ -85,6 +86,66 @@ def test_qualified_base_still_requires_provisioned_artifact(monkeypatch, tmp_pat
     monkeypatch.setattr(catalog, "models_dir", lambda: tmp_path)
     with pytest.raises(UnavailableModelError, match="not provisioned"):
         load_model("starcoderbase-mlx")
+
+
+def test_qualified_crystal_binds_exact_artifact_and_runtime(monkeypatch, tmp_path):
+    monkeypatch.setattr(catalog, "models_dir", lambda: tmp_path)
+    monkeypatch.setattr(catalog, "_transformers_runtime_version", lambda: "4.44.2")
+    monkeypatch.setattr(catalog, "verify_snapshot_matches", lambda path, manifest: [])
+    monkeypatch.setattr(
+        "each.models.transformers_model.TransformersRepairModel",
+        lambda path, manifest, **kwargs: SimpleNamespace(path=path, manifest=manifest, options=kwargs),
+    )
+    root = tmp_path / f"crystal-{catalog.CRYSTAL_REVISION}" / "original"
+    root.mkdir(parents=True)
+    (root / "config.json").write_text(
+        '{"model_type":"crystalcoder","n_positions":2048,"torch_dtype":"bfloat16"}'
+    )
+    model = load_model("crystalcoder-transformers", max_tokens=256)
+    assert model.manifest.model_id == catalog.CRYSTAL_MODEL_ID
+    assert model.manifest.weights_sha256 == catalog.CRYSTAL_SOURCE_WEIGHTS
+    assert model.manifest.training_data_provenance["status"] == "ELIGIBLE"
+    assert model.options["max_tokens"] == 256
+    assert model.options["runtime_files_sha256"] == catalog.CRYSTAL_RUNTIME_FILES
+    assert model.options["runtime_versions"] == catalog.CRYSTAL_RUNTIME_VERSIONS
+
+
+def test_qualified_crystal_rejects_artifact_drift(monkeypatch, tmp_path):
+    monkeypatch.setattr(catalog, "models_dir", lambda: tmp_path)
+    monkeypatch.setattr(catalog, "_transformers_runtime_version", lambda: "4.44.2")
+    monkeypatch.setattr(catalog, "verify_snapshot_matches", lambda path, manifest: ["config.json: missing"])
+    with pytest.raises(UnavailableModelError, match="absent or has changed"):
+        load_model("crystalcoder-transformers")
+
+
+def test_qualified_crystal_rejects_unknown_lineage_before_artifact_access(monkeypatch):
+    lineage = dict(catalog.CRYSTAL_LINEAGE)
+    lineage["status"] = "UNKNOWN"
+    monkeypatch.setattr(catalog, "CRYSTAL_LINEAGE", lineage)
+    monkeypatch.setattr(
+        catalog,
+        "verify_snapshot_matches",
+        lambda *args: pytest.fail("artifact was accessed before lineage eligibility"),
+    )
+    with pytest.raises(UnavailableModelError, match="provenance is not qualified"):
+        load_model("crystalcoder-transformers")
+
+
+def test_qualified_crystal_rejects_runtime_drift_before_artifact_access(monkeypatch):
+    monkeypatch.setattr(
+        catalog,
+        "sha256_file",
+        lambda path: "0" * 64 if path.name == "uv.lock" else catalog.CRYSTAL_RUNTIME_FILES[
+            "crystal_runtime.py" if path.name == "crystal_runtime.py" else "pyproject.toml"
+        ],
+    )
+    monkeypatch.setattr(
+        catalog,
+        "verify_snapshot_matches",
+        lambda *args: pytest.fail("artifact was accessed before runtime verification"),
+    )
+    with pytest.raises(UnavailableModelError, match="runtime is absent or has changed"):
+        load_model("crystalcoder-transformers")
 
 
 def test_unrelated_conversion_cannot_enter_qualified_base(monkeypatch, tmp_path):
