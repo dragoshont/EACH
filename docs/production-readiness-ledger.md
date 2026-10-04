@@ -17,6 +17,9 @@ this is trustworthy negative evidence, not useful repair performance or
 production qualification. StarCoder2 is BLOCKED and Comma DEFERRED. Qwen trials
 are historical
 capability comparisons, excluded from this program's provenance qualification.
+The evidence workflow itself reached a completed cross-family acceptance Run at
+implementation `d433af8`; this closes the launch-cycle harness acceptance, not
+the production ledger. P1/P2/P3 and release gates below remain unchanged.
 P1 must assess base and every post-training dataset stage using
 [the model eligibility contract](model-provenance.md), before calibration or
 repair evaluation. No utility target or model size can override that gate.

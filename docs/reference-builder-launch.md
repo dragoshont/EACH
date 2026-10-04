@@ -53,6 +53,32 @@ authorized provenance experiment. It does **not** establish repair capability,
 full Xodus/Wine/game compatibility, production readiness, legal clean-room
 status or upstream acceptability.
 
+## Final acceptance
+
+Reviewed implementation:
+`d433af83dd5a45f2f21f41dcccf3dab680a301eb`.
+
+- Configured gates: **686 passed, 11 optional skips**.
+- Models/audit extras: **697 passed, zero skips**.
+- Ruff, package build and exact qualified Base/Octo lazy identities: **PASS**.
+- Historical receipt signature and all three materials: **PASS**.
+- Converted artifacts are pinned by trusted conversion and complete output
+  hashes; snapshots verify before and after backend load. Cooperating loaders
+  serialize through a sibling lock. The documented same-user adversary ceiling
+  remains.
+- Final acceptance Run:
+  `each-qualified-xodus-launch-accepted-20261004`, revision **12**,
+  **COMPLETED**.
+- Combined R3 criterion `qualified-provenance-launch`: **PASS**.
+- Deterministic, typed reality, GPT-family and Claude-family gates: **PASS**.
+- Pending approvals/checkpoints: none.
+
+This final acceptance means the exact lineage-qualified Builder completed the
+approved private experiment and the evidence path withstood deterministic and
+cross-family review. It does not change the experiment outcome:
+**PATCH_REJECTED**, no candidate, no terminal audit, no verified repair.
+The production ledger remains authoritative and **NOT PRODUCTION READY**.
+
 The existing full-source prompt is instruction-shaped, not native base-model
 FIM. This known capability limitation will be recorded. Format rejection or a
 failed repair is an acceptable observed result, not permission to substitute

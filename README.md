@@ -48,6 +48,15 @@ Its signed receipt and materials verify; no candidate, validation or terminal
 audit occurred because the model proposed no change. This is a valid negative
 provenance result, not production qualification.
 
+The launch acceptance harness is frozen at
+`d433af83dd5a45f2f21f41dcccf3dab680a301eb`. Its final source-bound gates
+passed **686 tests with 11 optional skips**, **697 tests with all extras**,
+Ruff, package build, exact Base/Octo lazy identities, full receipt verification
+and Run validation. Run `each-qualified-xodus-launch-accepted-20261004`
+completed at revision 12 with deterministic, reality, GPT-family and
+Claude-family PASS gates. This accepts the evidence workflow and negative
+experiment—not the repair, production release, legal status or upstream use.
+
 ## What you get
 
 - Hash-bound specifications and declared input provenance.
