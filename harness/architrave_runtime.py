@@ -1396,6 +1396,40 @@ class RunStore:
                 return value
         return "UNKNOWN"
 
+    def _validate_recorded_model_implementation(
+        self,
+        receipt: dict[str, Any],
+        model_identity: dict[str, Any],
+        *,
+        error_code: str,
+    ) -> None:
+        commit = self._extract_original_producer_sha(receipt)
+        module = str(model_identity.get("implementationModule") or "")
+        implementation_sha = str(model_identity.get("implementationSha256") or "")
+        if (
+            not re.fullmatch(r"[0-9a-f]{40}", commit)
+            or receipt.get("producerDirty") is not False
+            or module != "each.models.mlx_model"
+            or not re.fullmatch(r"[0-9a-f]{64}", implementation_sha)
+        ):
+            raise RuntimeFailure(error_code, "private receipt implementation identity is invalid")
+        module_path = module.replace(".", "/") + ".py"
+        try:
+            result = subprocess.run(
+                ["git", "show", f"{commit}:{module_path}"],
+                cwd=self.repository,
+                capture_output=True,
+                timeout=30,
+                check=False,
+            )
+        except (OSError, subprocess.SubprocessError) as exc:
+            raise RuntimeFailure(error_code, "recorded implementation source could not be verified") from exc
+        if (
+            result.returncode != 0
+            or hashlib.sha256(result.stdout).hexdigest() != implementation_sha
+        ):
+            raise RuntimeFailure(error_code, "recorded implementation does not match its producer commit")
+
     def _validated_real_model_identity(self, receipt: dict[str, Any], *, error_code: str) -> tuple[str, str]:
         from each.models.base import validate_recorded_real_model_identity
 
@@ -1649,8 +1683,6 @@ class RunStore:
         immutable_identity_fields = (
             "adapterClassPath",
             "adapterType",
-            "implementationModule",
-            "implementationSha256",
             "modelId",
             "modelManifest",
             "runtimeModelConfig",
@@ -1673,6 +1705,11 @@ class RunStore:
                 "TARGET_EXPERIMENT_RECEIPT",
                 "private receipt identity does not match the official qualified local artifact",
             )
+        self._validate_recorded_model_implementation(
+            receipt,
+            model_identity,
+            error_code="TARGET_EXPERIMENT_RECEIPT",
+        )
         spec_hash = str(receipt.get("specHash") or "")
         target_run_id = str(receipt.get("runId") or "")
         if not re.fullmatch(r"[0-9a-f]{64}", spec_hash):

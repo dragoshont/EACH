@@ -47,6 +47,45 @@ def _patch_official_identity(monkeypatch, receipt_path: Path) -> dict:
     return identity
 
 
+def test_recorded_implementation_is_bound_to_clean_producer_commit(tmp_path):
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    _git(repo, "init", "-q")
+    _git(repo, "config", "user.email", "test@example.com")
+    _git(repo, "config", "user.name", "Test")
+    module = repo / "each" / "models" / "mlx_model.py"
+    module.parent.mkdir(parents=True)
+    module.write_text("fixture implementation\n", encoding="utf-8")
+    _git(repo, "add", ".")
+    _git(repo, "commit", "-q", "-m", "fixture implementation")
+    commit = subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=repo, text=True).strip()
+    run_store = art.RunStore(repository=repo)
+    identity = {
+        "implementationModule": "each.models.mlx_model",
+        "implementationSha256": hashlib.sha256(module.read_bytes()).hexdigest(),
+    }
+    receipt = {"producerCommit": commit, "producerDirty": False}
+    run_store._validate_recorded_model_implementation(
+        receipt,
+        identity,
+        error_code="TARGET_EXPERIMENT_RECEIPT",
+    )
+    identity["implementationSha256"] = "0" * 64
+    with pytest.raises(art.RuntimeFailure, match="does not match"):
+        run_store._validate_recorded_model_implementation(
+            receipt,
+            identity,
+            error_code="TARGET_EXPERIMENT_RECEIPT",
+        )
+    receipt["producerDirty"] = True
+    with pytest.raises(art.RuntimeFailure, match="identity is invalid"):
+        run_store._validate_recorded_model_implementation(
+            receipt,
+            identity,
+            error_code="TARGET_EXPERIMENT_RECEIPT",
+        )
+
+
 def _write_real_receipt(
     each_home: Path,
     run_id: str,
@@ -178,6 +217,7 @@ def harness(tmp_path, monkeypatch):
     monkeypatch.setenv("EACH_HOME", str(each_home))
 
     run_store = art.RunStore(repository=repo)
+    monkeypatch.setattr(run_store, "_validate_recorded_model_implementation", lambda *_a, **_k: None)
     run_store.create(
         goal="test goal",
         outcome="test outcome",
@@ -215,6 +255,7 @@ def experiment_harness(tmp_path, monkeypatch):
     monkeypatch.setenv("HOME", str(tmp_path / "home"))
     monkeypatch.setenv("EACH_HOME", str(each_home))
     run_store = art.RunStore(repository=repo)
+    monkeypatch.setattr(run_store, "_validate_recorded_model_implementation", lambda *_a, **_k: None)
     run_store.create(
         goal="test goal",
         outcome="test outcome",
@@ -528,7 +569,7 @@ def test_target_experiment_binds_selected_attempt_to_qualified_identity(
         )
 
 
-@pytest.mark.parametrize("mismatch", ["runtime-config-type", "implementation-sha", "manifest"])
+@pytest.mark.parametrize("mismatch", ["runtime-config-type", "manifest"])
 def test_target_experiment_rejects_mismatched_official_identity(experiment_harness, monkeypatch, mismatch):
     run_store, _repo, each_home = experiment_harness
     receipt_path = _write_real_receipt(
@@ -544,8 +585,6 @@ def test_target_experiment_rejects_mismatched_official_identity(experiment_harne
     official["generationAttempted"] = False
     if mismatch == "runtime-config-type":
         official["runtimeModelConfig"]["tie_word_embeddings"] = 0
-    elif mismatch == "implementation-sha":
-        official["implementationSha256"] = "different-implementation"
     else:
         official["modelManifest"]["configSha256"] = "different-config"
     monkeypatch.setattr(
