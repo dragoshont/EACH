@@ -119,8 +119,8 @@ legal clearance:
   unpublished/incompletely inspectable phase-2 material.
 - StarCoder2 remains blocked by unresolved synthetic-teacher ancestry.
 
-Current source-bound gates pass **745 tests with 12 optional skips** and
-**759 tests with all extras**, plus Ruff and `each doctor`. Production remains
+Current source-bound gates pass **746 tests with 12 optional skips** and
+**760 tests with all extras**, plus Ruff and `each doctor`. Production remains
 **not qualified**; see the [production ledger](docs/production-readiness-ledger.md).
 
 ## What you get
