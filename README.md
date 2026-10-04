@@ -17,13 +17,17 @@ responses and candidates stay private by default.
 
 ```bash
 brew install git uv docker colima jq
-git clone --branch dragoshont-each-project-bootstrap \
-  https://github.com/dragoshont/EACH.git
+git clone https://github.com/dragoshont/EACH.git
 cd EACH
 
 uv python install 3.12
 uv sync --locked
 uv run each doctor
+
+# The deterministic demo uses the pinned no-network container profile.
+colima start --profile each --cpu 4 --memory 8 --activate=false
+docker --context colima-each pull \
+  python@sha256:f77ac9e44ae96ef2c90b8053ea08c31f8be030f824196b0ae4db6d462c84e51f
 
 # Safe harness demonstration: canned FixtureModel, not neural inference.
 uv run each demo hello-repair
@@ -75,13 +79,17 @@ six-case oracle:
 
 | Exact model family | Best sandbox result | Best console result | Verified fixes |
 |---|---:|---:|---:|
+| Broken pinned baseline | 4/6 | 4/6 | — |
 | StarCoderBase 15.5B | 4/6 | 4/6 | **0/2** |
 | OctoCoder 15.5B | 4/6 | 4/6 | **0/2** |
 | CrystalCoder 7B | No compiling candidate | No compiling candidate | **0/2** |
 | K2 65B, local 8-bit | 4/6 | 3/6 | **0/2** |
 | CodeGen2.5-7B-multi, local 8-bit | 1/6 | Cases not run | **0/2** |
 
-These are behavioral results, not comparisons against a preferred patch.
+These are absolute behavioral results, not numbers of newly repaired cases or
+comparisons against a preferred patch. The baseline already passes 4/6; some
+models merely reproduce that behavior, while others fix one case and regress
+another. Only 6/6 after a failing baseline counts as a verified repair.
 StarCoderBase, OctoCoder, K2 and CodeGen2.5 all produced at least one compiling
 candidate, proving that provenance-qualified models can author executable code;
 none completed either fixed repair.
@@ -137,19 +145,17 @@ execution platform described here.
 
 ### 1. Install prerequisites and clone
 
-**Experimental development branch—not a versioned production release.**
-These instructions use `dragoshont-each-project-bootstrap`, which contains the
-implemented CLI and development evidence. As of 2026-10-03, default `main`
-remains the bootstrap snapshot and is not the implementation described here.
-Use the explicit branch below until a versioned release is actually published;
-this does not imply production qualification.
+**Experimental preview—not a production release.** These instructions describe
+`v0.1.0-alpha.1` on the public default branch. The prerelease tag identifies the
+reviewed source; it does not imply production qualification.
 
 With [Homebrew](https://brew.sh/) already installed:
 
 ```bash
 brew install git uv docker colima jq
-git clone --branch dragoshont-each-project-bootstrap https://github.com/dragoshont/EACH.git
+git clone https://github.com/dragoshont/EACH.git
 cd EACH
+git checkout v0.1.0-alpha.1
 uv python install 3.12
 uv sync --locked
 uv run each --help
@@ -209,12 +215,13 @@ unavailable; a skip is not a successful isolation test.
 **Training-data provenance is a prerequisite, not a model preference.**
 EACH uses only eligible models with clear base and
 post-training dataset lineage. Public weights, exact hashes or a model
-license are not sufficient. The current exact authorized catalog entries are
+license are not sufficient. The current exact reviewed catalog entries are
 `starcoderbase-mlx`, `octocoder-mlx`, `crystalcoder-transformers`,
 `k2-65b-mlx` and `codegen25-7b-multi-mlx`. Authorization is checkpoint-
 specific and does not extend to another size, revision, chat/instruct variant
-or family member. Historical Qwen capability trials do not qualify this
-product. See [model eligibility](docs/model-provenance.md) and the
+or family member. K2 is retained as **research-only**, outside the strict
+approved-source Builder track. Historical Qwen capability trials do not
+qualify this product. See [model eligibility](docs/model-provenance.md) and the
 [finite registry](docs/model-qualifications/registry.json).
 The [provenance-first evaluation plan](docs/provenance-first-evaluation-plan.md)
 puts model/data access and lineage qualification ahead of runtime and repair

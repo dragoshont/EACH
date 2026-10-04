@@ -55,6 +55,25 @@ after H1; the original H1 evidence remains unchanged.
 
 ## Fixed task matrix
 
+### Broken baseline
+
+The original pinned implementation builds and scores **4/6 on both tasks**
+before any model edit:
+
+| Baseline case | Sandbox | Console |
+|---|---|---|
+| Optional size output is NULL, valid buffer | FAIL | FAIL |
+| Valid buffer and non-NULL size output | PASS | PASS |
+| Required buffer is NULL | PASS | PASS |
+| Both outputs are NULL | PASS | PASS |
+| Short buffer, non-NULL size output | PASS | PASS |
+| Short buffer, NULL size output | FAIL | FAIL |
+
+All model case counts below are **absolute candidate results**, not counts of
+newly repaired cases. A candidate scoring 4/6 may be behaviorally identical to
+the baseline, or may fix one case while regressing another. Only 6/6 with a
+failing baseline counts as a verified repair.
+
 | Model | S: sandbox ID / H1 | C: console ID / H1 | Distinct verified fixes |
 |---|---|---|---|
 | StarCoderBase | Candidate compiled; **3/6 cases PASS** | Candidate compiled; **3/6 cases PASS** | **0/2** |
@@ -79,7 +98,8 @@ SHA-256
 Both replayed OctoCoder candidates matched StarCoderBase's H2 pattern: they
 passed the required-buffer NULL, both-outputs NULL, value-plus-size and short-
 buffer-with-size cases, but failed both cases where the optional size pointer
-was NULL. The parser improvement recovered logic evidence, not a fix.
+was NULL. This is the same 4/6 behavioral pattern as the broken baseline: the
+parser improvement recovered logic evidence, not a case-level improvement.
 
 Each cell records exact Spec/material hashes, model/runtime identity, actual
 prompt/output, sampling, input tokens, response characters, completion time,
@@ -225,7 +245,10 @@ run once per fixed task with no retry.
 | K2-65B 8-bit | Candidate compiled; **4/6 cases PASS** | Candidate compiled; **3/6 cases PASS** | **0/2** |
 
 This is the first 65B-class result in the ledger. It confirms that larger scale
-alone does not solve the optional-output contract. Signed private receipt
+alone does not solve the optional-output contract. Sandbox fixed one baseline
+failure but regressed the baseline's both-outputs-NULL behavior, remaining 4/6.
+Console fixed short-buffer-without-size but regressed two baseline passes,
+falling to 3/6. Signed private receipt
 SHA-256 values are
 `48455a8ac3236aeb4a7852c21294cc2dca25e63cce93b7300d3233cb4fdd8507`
 (sandbox) and
@@ -249,8 +272,27 @@ values:
 `4d693cfa2fb7392545ae549a148d462d17435a22258152342f981e4ac47524d2`
 (sandbox) and
 `f4c8ebed0f22d113ec5f3b378b27d83fed99cea4c7902c7cc7fc144dc24db485`
-(console). Strong HumanEval publication results did not transfer to this
-optional-output C repair matrix.
+(console). Sandbox fixed the optional-size-NULL baseline failure but regressed
+four baseline passes, ending at 1/6. Strong HumanEval publication results did
+not transfer to this optional-output C repair matrix.
+
+## Public evaluation record
+
+- Task source is pinned public `xgameruntime` code; the candidate oracle
+  compiles extracted functions with independent ABI stubs. It is not a native
+  Windows/GDK DLL, Wine integration or whole-repository test.
+- Builder inputs are the approved requirement, selected public function and six
+  public behavioral cases. Raw issue implementation advice, private fork fixes,
+  hidden tests and Auditor findings are excluded.
+- Each listed body/function cell is one model call unless explicitly labeled as
+  a zero-call replay. Sampling is greedy (`temperature=0`) with the exact input
+  token count and token budget retained in the private signed receipt.
+- Function/body extraction and unified-diff derivation are deterministic.
+  No frontier model or human repaired a generated candidate before validation.
+- Prompts, raw outputs and candidate patches remain private; public evidence
+  uses exact model/spec/receipt hashes and source-free case results.
+- Missing timing/token fields in older runs remain `UNAVAILABLE` or
+  `not recorded`; they are not reconstructed from estimates.
 
 These recommendations are encoded by
 `each.xodus_shadow.recommended_xodus_task_profile`; unknown/unqualified models

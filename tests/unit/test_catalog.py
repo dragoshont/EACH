@@ -163,7 +163,8 @@ def test_qualified_k2_requires_the_exact_provisioned_artifact(monkeypatch, tmp_p
 
 def test_qualified_k2_profile_binds_lineage_and_quantization() -> None:
     profile = json.loads((Path(catalog.__file__).with_name("k2_profile.json")).read_text())
-    assert catalog.K2_LINEAGE["status"] == "ELIGIBLE"
+    assert catalog.K2_LINEAGE["status"] == "RESEARCH_ONLY"
+    assert catalog.K2_LINEAGE["strictApprovedSourcePolicy"] is False
     assert profile["sourceRevision"] == catalog.K2_REVISION
     assert profile["lineageEvidence"]["datasetRevision"] == catalog.K2_LINEAGE["datasetRevision"]
     assert profile["quantization"] == {

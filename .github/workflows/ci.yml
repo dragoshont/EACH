@@ -3,14 +3,22 @@
 # docs/EACH_BOOTSTRAP_MANDATE.md §50).
 name: CI
 
+permissions:
+  contents: read
+
 on:
   push:
-    branches: [main, "dragoshont-each-project-bootstrap"]
+    branches: [main]
   pull_request:
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
   test:
     runs-on: macos-14
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
 
@@ -21,6 +29,9 @@ jobs:
 
       - name: uv sync
         run: uv sync --locked
+
+      - name: Build package
+        run: uv build
 
       - name: uv run ruff check
         run: uv run ruff check each/ tests/

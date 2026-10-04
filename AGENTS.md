@@ -62,9 +62,9 @@ Do not fabricate human approval of a sensitive spec, accept gated-model terms
 on the user's behalf, or convert unavailable evidence into PASS. Record a
 genuine blocker and continue only independent work permitted by the mandate.
 
-The development execution host is the user's Apple Silicon Mac, reached as
-`m5.hont.ro` over SSH. The Windows app workspace is the coordination checkout.
-Use dedicated feature checkouts, never overwrite another project's files, and
+The exercised development host is a private Apple Silicon Mac configured
+outside the repository. Coordination may occur from another checkout. Use
+dedicated feature checkouts, never overwrite another project's files, and
 never run imported target code on the host in strong mode.
 
 <!-- architrave:begin -->

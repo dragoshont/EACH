@@ -1,6 +1,13 @@
 {
   "reviewed_at": "2026-10-04",
   "scope": "Finite qualification of exact checkpoints for documented, inspectable training-dataset-stage lineage and bounded EACH research. Not exact training-sample reconstruction, legal certification, upstream acceptance, or whole-Run release approval.",
+  "policy_dimensions": {
+    "artifact_identity": "Exact checkpoint/revision plus conversion and local runtime identity.",
+    "lineage": "Documented and inspectable base/post-training stages with explicit unknowns.",
+    "strict_approved_source_policy": "Narrow EACH Builder admission; stricter than reproducible research lineage and still not legal clearance.",
+    "rights": "Weight, dataset-package and upstream source rights are recorded separately.",
+    "capability": "Measured task shapes and results; compilation or partial cases are not complete repairs."
+  },
   "catalog_source": "each/models/catalog.py",
   "launch_result_verified_source_commit": "a47cd153227a875c395b84e3d52140e6fd543267",
   "artifact_verification_source_commit": "2440d2ff887e0ac8dc27212b4b4cfbb5140aaa2a",
@@ -22,7 +29,7 @@
   "model_qualification_blocks_launch": false,
   "new_inference_performed_during_artifact_verification": false,
   "qualified_xodus_inference_performed": true,
-  "launch_scope": "Model qualification is closed for the initial Builder. One approved private Xodus task has executed with a complete negative result. Destination policy, production qualification and legal questions remain separate.",
+  "launch_scope": "The initial Builder launch is closed. Later explicitly authorized research-only evaluations are recorded separately and do not widen the strict approved-source policy. Destination policy, production qualification and legal questions remain separate.",
   "verification_evidence": {
     "run": "each-provenance-first-20261003",
     "artifact_id": "finite-model-artifact-verification-e879dbd62362",
@@ -594,7 +601,7 @@
       "model": {
         "exact_identity": "IFM/K2",
         "upstream_revision": "400af6cd7de09fc9349cc6b5b24db20f778d5b72",
-        "status": "AUTHORIZED",
+        "status": "RESEARCH_ONLY",
         "catalog_key": "k2-65b-mlx",
         "artifact_model_id": "IFM/K2@400af6cd7de09fc9349cc6b5b24db20f778d5b72#sha256:8266ff62e09c6985"
       },
@@ -653,8 +660,9 @@
         }
       },
       "decision": {
-        "status": "AUTHORIZED",
-        "blocker": null,
+        "status": "EVALUATION_ALLOWED_RESEARCH_ONLY",
+        "blocker": "SOURCE_RIGHTS_GAPS",
+        "strict_approved_source_policy": false,
         "scope": "Private bounded research under exact published dataset-stage lineage; mixed source rights preserved; not production or legal clearance.",
         "evidence_refs": [
           "docs/model-qualifications/k2-progress.md",
@@ -726,6 +734,7 @@
       "decision": {
         "status": "AUTHORIZED",
         "blocker": null,
+        "strict_approved_source_policy": true,
         "scope": "Private bounded research under the existing StarCoderData stage assessment; mono and instruct variants excluded.",
         "evidence_refs": [
           "docs/model-qualifications/codegen25-multi.md",

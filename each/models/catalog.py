@@ -213,7 +213,8 @@ K2_MODEL_ID = (
     "#sha256:8266ff62e09c6985"
 )
 K2_LINEAGE = {
-    "status": "ELIGIBLE",
+    "status": "RESEARCH_ONLY",
+    "strictApprovedSourcePolicy": False,
     "scope": "documented-inspectable-training-dataset-lineage",
     "modelRepo": "IFM/K2",
     "modelRevision": K2_REVISION,
@@ -394,7 +395,8 @@ def _k2_mlx(*, max_tokens: int = 512) -> RepairModel:
     except (OSError, UnicodeDecodeError, json.JSONDecodeError) as exc:
         raise UnavailableModelError("qualified K2 artifact profile is unreadable") from exc
     if (
-        K2_LINEAGE.get("status") != "ELIGIBLE"
+        K2_LINEAGE.get("status") != "RESEARCH_ONLY"
+        or K2_LINEAGE.get("strictApprovedSourcePolicy") is not False
         or K2_LINEAGE.get("modelRepo") != "IFM/K2"
         or K2_LINEAGE.get("modelRevision") != K2_REVISION
         or K2_LINEAGE.get("datasetRevision") != profile.get("lineageEvidence", {}).get("datasetRevision")
@@ -917,10 +919,13 @@ _CATALOG: dict[str, Callable[..., RepairModel]] = {
 
 
 def load_model(key: str, **kwargs) -> RepairModel:
-    """Load only an explicitly qualified model; all other entries fail closed.
+    """Load only an explicitly reviewed exact artifact; all others fail closed.
 
     Historical builders remain for adapter tests and receipt interpretation;
     their availability is not permission to use them for new target generation.
+    Some reviewed entries (currently K2) are research-only and are not admitted
+    to the stricter approved-source Builder track; their manifests and registry
+    retain that distinction.
     """
     if key not in _CATALOG:
         raise UnavailableModelError(f"unknown model key: {key!r}; known keys: {sorted(_CATALOG)}")

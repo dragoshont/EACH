@@ -1,12 +1,18 @@
 # START HERE — EACH
 
+For the public preview, begin with the repository
+[`README`](../README.md), then read
+[`claims-and-nonclaims.md`](claims-and-nonclaims.md),
+[`threat-model.md`](threat-model.md) and
+[`model-provenance.md`](model-provenance.md).
+
 The archive instructions below are historical bootstrap guidance. The user
 subsequently authorized sequential M0-M8 completion and the current
 [dual-lane launch addendum](EACH_DUAL_LANE_ADDENDUM.md).
-Start with [current development control](DEVELOPMENT_CONTROL.md), the
+Development-history readers can continue with
+[current development control](DEVELOPMENT_CONTROL.md), the
 [qualification registry](model-qualifications/registry.json), and the
 [provenance-first execution state](provenance-first-evaluation-plan.md).
-Do not restart completed milestones or delay launch to search for more models.
 
 ## Original bootstrap pack
 

@@ -1,39 +1,14 @@
 {
-  "recorded_at": "2026-10-04",
-  "scope": "Source-free deterministic evidence for the final CrystalCoder qualification/runtime/evaluation file set before commit.",
-  "host": "m5.hont.ro Apple Silicon Mac",
   "configured_gate": {
     "command": "bash gates/checks.sh",
-    "status": "PASS",
-    "tests_passed": 737,
-    "optional_skips": 11,
     "doctor": "PASS",
-    "stdout_sha256": "272ac61451d3a50caeb651e711b61b2fee1b661cf84ab8fe71eed08beb6bdd7e"
-  },
-  "extras_gate": {
-    "command": "uv sync --locked --extra models --extra audit && uv run pytest -q",
+    "optional_skips": 11,
     "status": "PASS",
-    "tests_passed": 748,
-    "skips": 0,
-    "stdout_sha256": "55b72b5d70490eba382a040dc2442e2bd955111fe0883ddb9676a802fe46c202"
+    "stdout_sha256": "272ac61451d3a50caeb651e711b61b2fee1b661cf84ab8fe71eed08beb6bdd7e",
+    "tests_passed": 737
   },
-  "ruff": {
-    "command": "uv run ruff check each tests",
-    "status": "PASS",
-    "stdout_sha256": "82b3e6a6c090a57601d22943bd23fca9218d1031dbe5a7b754092f9a156b4f18"
-  },
-  "runtime_reality": {
-    "status": "PASS",
-    "python": "3.12.14",
-    "torch": "2.14.1",
-    "transformers": "4.44.2",
-    "network_denied": true,
-    "private_file_probes_denied": 2,
-    "outside_work_write_denied": true,
-    "sandbox_receipt_sha256": "6e03d88280a48644d683a0c367ec11bda3f9b7098ff572942d9500b1a950e141",
-    "console_receipt_sha256": "d635c463030f99fb26e8a5a51809932ef5aca94c14ed66a1c150a58fdb0f3da6"
-  },
-  "evaluated_files_sha256": {
+  "evaluated_files_note": "Hashes bind the pre-release model-evaluation slice; later release-only documentation and policy edits are not part of that historical gate.",
+  "evaluated_files_sha256_at_run": {
     "AGENTS.md": "c65ae6ceb9b03f828341618341a590a407853e95faf24c19268b6aa41eb29d4f",
     "docs/model-qualifications/crystalcoder.md": "f926f8a3156fd151ab4947c6da4814278a24bb670b49dd4752ab33aabcc978f0",
     "docs/model-qualifications/registry.json": "b7ab11a12ada998eb52a5cd29b1946e3866ecac78b651c6819ddb2a5b1081ece",
@@ -50,5 +25,31 @@
     "tests/unit/test_model_manifest.py": "0c746b89d0821b2d31a7a3f8e0f3742028652deb8c3532dccd982ab7518ad8f1",
     "tests/unit/test_transformers_model.py": "a6d5eeb63b75e54fc3544841a0fb8e66bfc32783a6ab52a799d0f58e29c99070",
     "tests/unit/test_xodus_shadow_selftest.py": "c3ad788a0b810123ebc205f5a42574759b7fd1551ac5e01f5031c728af9e7737"
-  }
+  },
+  "extras_gate": {
+    "command": "uv sync --locked --extra models --extra audit && uv run pytest -q",
+    "skips": 0,
+    "status": "PASS",
+    "stdout_sha256": "55b72b5d70490eba382a040dc2442e2bd955111fe0883ddb9676a802fe46c202",
+    "tests_passed": 748
+  },
+  "host": "private Apple Silicon Mac",
+  "recorded_at": "2026-10-04",
+  "ruff": {
+    "command": "uv run ruff check each tests",
+    "status": "PASS",
+    "stdout_sha256": "82b3e6a6c090a57601d22943bd23fca9218d1031dbe5a7b754092f9a156b4f18"
+  },
+  "runtime_reality": {
+    "console_receipt_sha256": "d635c463030f99fb26e8a5a51809932ef5aca94c14ed66a1c150a58fdb0f3da6",
+    "network_denied": true,
+    "outside_work_write_denied": true,
+    "private_file_probes_denied": 2,
+    "python": "3.12.14",
+    "sandbox_receipt_sha256": "6e03d88280a48644d683a0c367ec11bda3f9b7098ff572942d9500b1a950e141",
+    "status": "PASS",
+    "torch": "2.14.1",
+    "transformers": "4.44.2"
+  },
+  "scope": "Source-free deterministic evidence for the final CrystalCoder qualification/runtime/evaluation file set before commit."
 }

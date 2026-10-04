@@ -1,0 +1,12 @@
+xgameruntime XSystem test fixture
+
+Source repository: https://github.com/xodus-gaming/xgameruntime
+Revision: 791710510d9ba0746bbd60754215eb321800e4f0
+Source path: dlls/xgameruntime/xsystem.c
+Tracked excerpt: tests/unit/data/xsystem_selftest_source.c
+Copyright notice: preserved in the tracked excerpt
+License: LGPL-2.1-or-later; complete license text is in LICENSE
+
+The independently written validator and ABI stubs under
+examples/xodus-m8-sandbox-id are original EACH test scaffolding and are not
+copied from xgameruntime, Microsoft or Wine headers.

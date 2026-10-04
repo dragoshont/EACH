@@ -1,9 +1,10 @@
 # K2-65B qualification progress
 
-Status on 2026-10-04: **AUTHORIZED for bounded private research; evaluated
-with zero verified Xodus fixes**. All original publisher hashes, local 8-bit
-conversion, official loader and private runtime evidence verified. This is not
-commercial-use clearance, legal certification or production qualification.
+Status on 2026-10-04: **RESEARCH-ONLY; not admitted to EACH's strict
+approved-source Builder track; evaluated with zero verified Xodus fixes**.
+All original publisher hashes, local 8-bit conversion, exact evaluation loader
+and private runtime evidence verified. Source-rights gaps remain, so this is
+not commercial-use clearance, legal certification or production qualification.
 
 Exact base checkpoint:
 `IFM/K2@400af6cd7de09fc9349cc6b5b24db20f778d5b72`.

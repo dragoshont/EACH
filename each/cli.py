@@ -1,9 +1,9 @@
 """EACH command-line interface.
 
-v0.1 implements only ``each doctor``. Later milestones add ``each issue``,
-``each spec``, ``each run``, ``each audit``, ``each attest``, and
-``each verify`` (see docs/EACH_MILESTONE_PROMPTS.md). The CLI intentionally
-has no daemon: every command is a single, auditable invocation.
+Every command is a single, auditable invocation; EACH intentionally has no
+daemon or hosted control plane. The deterministic demo and receipt verifier are
+the supported public-preview entry points. Model evaluation commands remain
+opt-in and require exact locally provisioned catalog artifacts.
 """
 
 from __future__ import annotations

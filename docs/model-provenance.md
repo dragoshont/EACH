@@ -7,22 +7,36 @@ provenance**. This is an eligibility requirement before new target generation,
 not a preference traded away for repair performance.
 
 The [finite qualification registry](model-qualifications/registry.json) records
-the current exact-artifact decisions. StarCoderBase is **AUTHORIZED** and the
-initial/reference Builder after retained original weights, conversion, runtime
-identity and signed evidence verified. OctoCoder is separately **AUTHORIZED**
-under its independently reviewed dataset-stage scope. StarCoder2 is **BLOCKED**
-on synthetic ancestry; Comma is **DEFERRED** after one bounded document pass.
-Model research is closed for this launch cycle under the
-[dual-lane addendum](EACH_DUAL_LANE_ADDENDUM.md).
+the current exact-artifact decisions and keeps four questions separate:
 
-The catalog keys `starcoderbase-mlx` and `octocoder-mlx` require the exact
-qualified artifacts; other entries fail closed before loading weights or
-invoking an adapter. Historical
-builders and receipts are retained for reproducibility and tests; their presence
-does not authorize new generation. FixtureModel is a deterministic harness test.
-Enforcement is at `catalog.load_model` and its official CLI callers. Low-level
-Python adapters remain callable for development; using them to bypass
-eligibility is prohibited, not claimed mechanically impossible.
+1. Is the exact checkpoint and conversion reproducibly identified?
+2. Is base/post-training lineage documented and inspectable?
+3. Does it meet EACH's strict approved-source policy, or only the narrower
+   private research/evaluation scope?
+4. What coding behavior was actually measured?
+
+Current catalog entries are `starcoderbase-mlx`, `octocoder-mlx`,
+`crystalcoder-transformers`, `k2-65b-mlx` and
+`codegen25-7b-multi-mlx`. Every key is bound to one exact checkpoint and local
+artifact; authorization never extends by family name. FixtureModel remains a
+deterministic harness test.
+
+StarCoderBase and OctoCoder are the initial strict-track Builders under their
+reviewed dataset-stage scope. CodeGen2.5-multi reuses that audited
+StarCoderData stage and excludes the unidentified mono/instruct stages.
+CrystalCoder is admitted only at its exact reviewed base checkpoint.
+**K2 is research-only and outside the strict approved-source track**: its full
+training sequence is reproducible, but the mixture includes heterogeneous web
+rights and a CC-BY-NC-SA-4.0 Pile-of-Law stage. StarCoder2 is blocked on
+synthetic ancestry; Granite Code is not admitted because its exact phase-2
+bytes are incompletely inspectable; Comma remains deferred. No model decision
+is legal certification.
+
+Enforcement is at `catalog.load_model` and its official CLI callers. Historical
+builders and receipts remain for reproducibility; their presence does not
+authorize generation. Low-level Python adapters remain callable for
+development; using them to bypass policy is prohibited, not claimed
+mechanically impossible.
 
 Qualification must separately establish the exact base-model identity;
 documented dataset identities/revisions and collection, filtering and license
@@ -43,6 +57,15 @@ Qwen was a capability fallback outside this corrected qualification scope.
 Its nine-call trial and other Qwen experiments remain signed historical records;
 they are not evidence that provenance-qualified models failed. Do not rewrite
 their identities or use them as a production provenance gate.
+
+## Measured result
+
+The current fixed Xodus matrix contains two optional-output C repairs and six
+behavioral cases per task. Across StarCoderBase, OctoCoder, CrystalCoder,
+K2-65B and CodeGen2.5-multi, **zero of ten model/task cells produced a complete
+verified fix**. Partial case counts and compilation are exploratory capability
+evidence, not repaired tasks. See
+[`two-model-evaluation-ledger.md`](two-model-evaluation-ledger.md).
 
 ## Historical model experiments, not current authorization
 

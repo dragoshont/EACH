@@ -113,6 +113,30 @@ evidence properties only, and every receipt restates that explicitly:
 }
 ```
 
+## Public-preview boundary summary (2026-10-04)
+
+- **Generated candidate execution:** the exercised strong profile is the
+  pinned, no-network `ContainerExecutor` described below. A temporary directory
+  or ordinary host subprocess is not represented as equivalent isolation.
+- **Local-model inference:** eligible model runtimes execute on the private
+  Apple Silicon host. Model inference is not candidate-code execution and is
+  not itself an OS container boundary. External custom tokenizer/model code is
+  either sandboxed with recorded probes or replaced by reviewed local code.
+- **Deterministic demo:** `each demo hello-repair` uses `FixtureModel`, a canned
+  response, and still validates the candidate in the strong container profile.
+  It requires no model weights, model terms, API key or private target.
+- **Private state:** specs, prompts, raw responses, candidates, receipts,
+  signing keys and model artifacts live under the private EACH home and remain
+  ignored by Git.
+- **Residual limitations:** the container runs as root inside its isolated
+  container; only macOS/Apple-Silicon integration has been exercised; external
+  corpus-membership and license scanners are incomplete; no result is legal or
+  originality certification.
+
+The milestone sections below are historical snapshots. Statements such as “no
+model has been integrated yet” describe that milestone at the time, not the
+current preview.
+
 ### M1 status
 
 M1 implements only the container executor profile (`--network none`, `--read-only`,

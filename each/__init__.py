@@ -6,4 +6,4 @@ safety. See docs/claims-and-nonclaims.md for the exact scope of what EACH
 claims and does not claim.
 """
 
-__version__ = "0.1.0"
+__version__ = "0.1.0a1"

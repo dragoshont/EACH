@@ -8,9 +8,9 @@ sequential and acceptance-gated; completing one is not permission to omit the
 next milestone's prerequisites.
 
 Repository: <https://github.com/dragoshont/EACH>.
-Development host: `m5.hont.ro`, Apple M5 Max, 128 GiB unified memory.
-Working checkout: `~/src/EACH` on the feature branch matching the app workspace.
-Architrave source: `~/src/architrave`, canonical
+Exercised development host: private Apple Silicon Mac with 128 GiB unified
+memory; hostnames, SSH aliases and local checkout paths are intentionally not
+published. Architrave source: canonical
 <https://github.com/dragoshont/architrave>.
 
 ## First acceptance matrix
