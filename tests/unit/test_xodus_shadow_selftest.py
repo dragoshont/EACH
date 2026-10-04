@@ -297,6 +297,20 @@ def test_recommended_profiles_follow_observed_model_failures() -> None:
     )
     assert k2["proposalFormat"] == "body"
     assert k2["promptStyle"] == "code-continuation"
+    codegen = xodus_shadow_module.recommended_xodus_task_profile(
+        {
+            "modelId": (
+                "Salesforce/codegen25-7b-multi_P@3cfb2194ec55e4a229f2d2184623b747fa24ab94"
+                "#sha256:e164c1a2b77be037"
+            ),
+            "modelManifest": {
+                "repoId": "Salesforce/codegen25-7b-multi_P",
+                "revision": "3cfb2194ec55e4a229f2d2184623b747fa24ab94",
+            },
+        }
+    )
+    assert codegen["proposalFormat"] == "body"
+    assert codegen["promptStyle"] == "code-continuation"
     with pytest.raises(ValueError):
         xodus_shadow_module.recommended_xodus_task_profile(
             {"modelManifest": {"repoId": "unqualified/model"}}

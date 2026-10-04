@@ -33,6 +33,7 @@ class MLXRepairModel(RepairModel):
         *,
         max_tokens: int = 512,
         model_config: dict[str, Any] | None = None,
+        tokenizer_config: dict[str, Any] | None = None,
         prompt_format: str = "auto",
     ) -> None:
         if prompt_format not in {"auto", "question-answer"}:
@@ -51,6 +52,7 @@ class MLXRepairModel(RepairModel):
         self._max_tokens = max_tokens
         self._snapshot_dir = str(snapshot_dir)
         self._model_config = dict(model_config) if model_config is not None else {}
+        self._tokenizer_config = dict(tokenizer_config) if tokenizer_config is not None else {}
         self._prompt_format = prompt_format
         self._model = None
         self._tokenizer = None
@@ -81,9 +83,12 @@ class MLXRepairModel(RepairModel):
                     )
                 import mlx_lm
 
-                model, tokenizer = mlx_lm.load(
-                    self._snapshot_dir, **({"model_config": self._model_config} if self._model_config else {})
-                )
+                load_options = {}
+                if self._model_config:
+                    load_options["model_config"] = self._model_config
+                if self._tokenizer_config:
+                    load_options["tokenizer_config"] = self._tokenizer_config
+                model, tokenizer = mlx_lm.load(self._snapshot_dir, **load_options)
                 post_load_drift = verify_snapshot_matches(snapshot, self._manifest)
                 if post_load_drift:
                     raise RuntimeError(
@@ -121,6 +126,8 @@ class MLXRepairModel(RepairModel):
         identity["generationAttempted"] = self.last_generation_attempted
         if self._model_config:
             identity["runtimeModelConfig"] = dict(self._model_config)
+        if self._tokenizer_config:
+            identity["runtimeTokenizerConfig"] = dict(self._tokenizer_config)
         if self._prompt_format != "auto":
             identity["promptFormat"] = self._prompt_format
         return identity

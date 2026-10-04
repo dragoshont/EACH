@@ -232,6 +232,26 @@ SHA-256 values are
 `be6d4f51352b40c8eb5907d54c9b930f55bd10f6df80fd44c80e7266894c0a7a`
 (console).
 
+## CodeGen2.5 clean code-specialist follow-up
+
+The `mono` checkpoint was rejected because its additional Python stage is not
+identified. The selected `Salesforce/codegen25-7b-multi_P` checkpoint is
+Apache-2.0 and trained only on the already-inspected StarCoderData stage for
+1.4T tokens using repeated epochs and deterministic span-corruption/infill
+transformations.
+
+| Model | Sandbox | Console | Distinct verified fixes |
+|---|---|---|---:|
+| CodeGen2.5-7B-multi 8-bit | Candidate compiled; **1/6 cases PASS** | Signature repeated three times; cases NOT RUN | **0/2** |
+
+Exact artifact suffix: `e164c1a2b77be037`. Private signed receipt SHA-256
+values:
+`4d693cfa2fb7392545ae549a148d462d17435a22258152342f981e4ac47524d2`
+(sandbox) and
+`f4c8ebed0f22d113ec5f3b378b27d83fed99cea4c7902c7cc7fc144dc24db485`
+(console). Strong HumanEval publication results did not transfer to this
+optional-output C repair matrix.
+
 These recommendations are encoded by
 `each.xodus_shadow.recommended_xodus_task_profile`; unknown/unqualified models
 fail closed rather than inheriting one of these profiles.

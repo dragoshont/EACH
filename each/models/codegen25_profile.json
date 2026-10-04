@@ -1,0 +1,65 @@
+{
+  "fp16ConversionSha256": "371d9a9ce1089a16d6bdddfa94b194757001cc10e2e1b23b0b947b94588beec3",
+  "fp16TensorRoundTripVerified": true,
+  "generationPerformed": false,
+  "lineageEvidence": {
+    "datasetManifestSha256": "3636743c1f4356db564aa82f6379e0e9b59fed59f0e53faf9edac6c1fece7a34",
+    "datasetRepo": "bigcode/starcoderdata",
+    "datasetRevision": "9fc30b578cedaec69e47302df72cf00feed7c8c4"
+  },
+  "operation": "publisher-fp32-pytorch-to-verified-fp16-safetensors-to-mlx-affine-int8",
+  "outputBytes": 7327091357,
+  "outputFilesSha256": {
+    "README.md": "748c964f9b7e5f2c3770ce013bbc0153be7c54311d9692c343b6188eefe77ac6",
+    "config.json": "e0a78bef40a5d8e04e24f30474dedee72b8296de435280841ef72b223c88a202",
+    "generation_config.json": "ba98ce436484dcaf16b25cd8a9774913652b869557c22466f33d6759c9c98315",
+    "model-00001-of-00002.safetensors": "eecdf1abc04e8148fd14067ca53752e0c0fceb5ab4bb6cdf50a59a5426881a33",
+    "model-00002-of-00002.safetensors": "5f7e1f7f5160e9ab8882bc79973e72a04e4b212e1de8c9b3a0ea407f47fedaa3",
+    "model.safetensors.index.json": "90b12d70fbd32304d8b1be1e0305d0f304887ce0ce91e5d2acc59d60f0faace4",
+    "tokenization_codegen25.py": "8a6718384a609bcdda49504fb1fa38568940f27a2f96ac99badb945234f2171f",
+    "tokenizer_config.json": "34e2943b6d864bb5fd0cb9bb1e70a0fc6dadca8f076436d198e94d77822078a2"
+  },
+  "outputHashingSeconds": 2.515,
+  "outputWeightsSha256": {
+    "model-00001-of-00002.safetensors": "eecdf1abc04e8148fd14067ca53752e0c0fceb5ab4bb6cdf50a59a5426881a33",
+    "model-00002-of-00002.safetensors": "5f7e1f7f5160e9ab8882bc79973e72a04e4b212e1de8c9b3a0ea407f47fedaa3"
+  },
+  "quantization": {
+    "bits": 8,
+    "effectiveBitsPerWeightReported": 8.5,
+    "groupSize": 64,
+    "mode": "affine"
+  },
+  "runtime": {
+    "mlx": "0.32.3",
+    "mlx-lm": "0.32.0",
+    "python": "3.12.14",
+    "safetensors": "0.8.0",
+    "tiktoken": "0.4.0",
+    "torch": "2.14.1",
+    "transformers": "5.18.0"
+  },
+  "schemaVersion": "0.1",
+  "sourceIndexTensorCount": 323,
+  "sourceRepo": "Salesforce/codegen25-7b-multi_P",
+  "sourceRepositoryManifestSha256": "09818758c2f96946748d0036cdc29bba299593ac81637333d36fad8dc546ef35",
+  "sourceRevision": "3cfb2194ec55e4a229f2d2184623b747fa24ab94",
+  "sourceVerificationRecordSha256": "f93fb3edfc99dd76f4e0c95372c0f849dfe8b327e99e5f68deb0840098cf954d",
+  "sourceWeightsSha256": {
+    "pytorch_model-00001-of-00003.bin": "413d9efb8dd1054c2a8d446f91d75b3d1a2cf248b3e9dd97af5def620fd09353",
+    "pytorch_model-00002-of-00003.bin": "66510d416015acac63e610d9b21cac7f9f165f13db513f1aa1acedc3c809f226",
+    "pytorch_model-00003-of-00003.bin": "57c07a5cc02ed84845258c4644a6276835ab3f3d49702427534bf420ba5821fa"
+  },
+  "tokenizerCompatibilityPatch": {
+    "behaviorPreserved": "constructor flag still controls tiktoken_tokenizer(add_special=...)",
+    "initializationOrder": "initialize exact tiktoken encoder before Transformers 5 base constructor calls get_vocab",
+    "outputSha256": "8a6718384a609bcdda49504fb1fa38568940f27a2f96ac99badb945234f2171f",
+    "reason": "Transformers 5 reserves add_special_tokens as a method name; do not forward the existing constructor flag to PreTrainedTokenizer",
+    "removedExactLine": "add_special_tokens=add_special_tokens",
+    "secondSourceSha256": "4ed6a3b7190ebf59c9ef5b69e7db5c5b3b40dfb44b4f86cc1ca97160929a0d74",
+    "sourceSha256": "965c68328a5d2d810f585f0528ea80da2dc48fabc37bea9186168f072794b6cf",
+    "thirdSourceSha256": "850ad21b2e25cac09f07dd9b1d2e068d6b7c830e80037320d007cbeeddcef47d",
+    "vocabInspection": "replacement decoding only for get_vocab byte-token introspection; tiktoken encode/decode paths unchanged"
+  },
+  "trainingPerformed": false
+}

@@ -72,7 +72,13 @@ def test_load_model_rejects_unsupported_kwarg_for_entries_without_tunable_params
 
 @pytest.mark.parametrize("key", [
     key for key in catalog._CATALOG
-    if key not in {"starcoderbase-mlx", "octocoder-mlx", "crystalcoder-transformers", "k2-65b-mlx"}
+    if key not in {
+        "starcoderbase-mlx",
+        "octocoder-mlx",
+        "crystalcoder-transformers",
+        "k2-65b-mlx",
+        "codegen25-7b-multi-mlx",
+    }
 ])
 def test_catalog_blocks_unqualified_training_provenance_before_loading(key, monkeypatch) -> None:
     def must_not_load(**kwargs):
@@ -189,6 +195,48 @@ def test_qualified_k2_rejects_converted_artifact_drift(monkeypatch, tmp_path):
     )
     with pytest.raises(UnavailableModelError, match="converted artifact has changed"):
         load_model("k2-65b-mlx")
+
+
+def test_qualified_codegen25_requires_the_exact_provisioned_artifact(monkeypatch, tmp_path):
+    monkeypatch.setattr(catalog, "models_dir", lambda: tmp_path)
+    with pytest.raises(UnavailableModelError, match="not provisioned"):
+        load_model("codegen25-7b-multi-mlx")
+
+
+def test_qualified_codegen25_profile_binds_lineage_and_tokenizer_patch() -> None:
+    profile = json.loads((Path(catalog.__file__).with_name("codegen25_profile.json")).read_text())
+    assert catalog.CODEGEN25_LINEAGE["status"] == "ELIGIBLE"
+    assert profile["sourceRevision"] == catalog.CODEGEN25_REVISION
+    assert profile["lineageEvidence"]["datasetRevision"] == catalog.CODEGEN25_LINEAGE["datasetRevision"]
+    assert profile["tokenizerCompatibilityPatch"]["outputSha256"] == (
+        "8a6718384a609bcdda49504fb1fa38568940f27a2f96ac99badb945234f2171f"
+    )
+    assert profile["runtime"]["tiktoken"] == "0.4.0"
+    assert len(profile["sourceWeightsSha256"]) == 3
+    assert len(profile["outputWeightsSha256"]) == 2
+
+
+def test_qualified_codegen25_rejects_runtime_version_drift(monkeypatch, tmp_path):
+    monkeypatch.setattr(catalog, "models_dir", lambda: tmp_path)
+    root = tmp_path / "qualified" / "codegen25-multi-int8" / catalog.CODEGEN25_REVISION
+    root.mkdir(parents=True)
+    profile_path = Path(catalog.__file__).with_name("codegen25_profile.json")
+    (root / "conversion.json").write_bytes(profile_path.read_bytes())
+    expected = {
+        "mlx": "0.32.3",
+        "mlx-lm": "0.32.0",
+        "transformers": "5.18.0",
+        "tiktoken": "0.4.0",
+        "torch": "2.14.1",
+        "safetensors": "0.8.0",
+    }
+    monkeypatch.setattr(
+        catalog,
+        "version",
+        lambda package: "9.9.9" if package == "transformers" else expected[package],
+    )
+    with pytest.raises(UnavailableModelError, match="runtime drift: transformers"):
+        load_model("codegen25-7b-multi-mlx")
 
 
 def test_unrelated_conversion_cannot_enter_qualified_base(monkeypatch, tmp_path):

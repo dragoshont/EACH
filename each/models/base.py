@@ -17,6 +17,7 @@ from typing import Any
 from each.hashing import sha256_file
 
 REAL_MODEL_ADAPTER_CLASS_PATHS = frozenset({
+    "each.models.codegen25_model.CodeGen25RepairModel",
     "each.models.mlx_model.MLXRepairModel",
     "each.models.transformers_model.TransformersRepairModel",
 })
@@ -167,4 +168,13 @@ def validate_recorded_real_model_identity(model_identity: dict[str, Any]) -> tup
             )
         ):
             raise ValueError("receipt Transformers runtime identity is missing or malformed")
+    if adapter_class_path == "each.models.codegen25_model.CodeGen25RepairModel":
+        tokenizer = model_identity.get("tokenizerProvenance")
+        if (
+            not isinstance(tokenizer, dict)
+            or tokenizer.get("mode") != "reviewed-local-code"
+            or not re.fullmatch(r"[0-9a-f]{64}", str(tokenizer.get("sha256", "")))
+            or tokenizer.get("tiktokenVersion") != "0.4.0"
+        ):
+            raise ValueError("receipt CodeGen2.5 tokenizer identity is missing or malformed")
     return model_id, adapter_class_path

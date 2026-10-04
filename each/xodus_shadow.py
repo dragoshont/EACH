@@ -462,6 +462,16 @@ def recommended_xodus_task_profile(model_identity: dict[str, Any]) -> dict[str, 
             "promptStyle": "code-continuation",
             "reason": "Ordinary code continuation produced a nonempty smoke; FIM produced only whitespace.",
         }
+    if repo == "Salesforce/codegen25-7b-multi_P":
+        from each.models.catalog import CODEGEN25_MODEL_ID, CODEGEN25_REVISION
+
+        if revision != CODEGEN25_REVISION or model_id != CODEGEN25_MODEL_ID:
+            raise ValueError("model identity is not the exact authorized CodeGen2.5 artifact")
+        return {
+            "proposalFormat": "body",
+            "promptStyle": "code-continuation",
+            "reason": "Use the base model's strongest documented ordinary code-completion mode.",
+        }
     raise ValueError("no Xodus task profile exists for this model identity")
 
 
@@ -663,7 +673,11 @@ def run_xodus_shadow_build(
         selected_source = declaration + original_body + "}\n"
         model_repo = (initial_model_identity.get("modelManifest") or {}).get("repoId")
         cases = _behavioral_case_prompt(selected_api)
-        if model_repo in {"LLM360/Crystal", "IFM/K2"}:
+        if model_repo in {
+            "LLM360/Crystal",
+            "IFM/K2",
+            "Salesforce/codegen25-7b-multi_P",
+        }:
             requirement = (packet.problem_statement + "\n\n" + cases).replace("*/", "* /")
             base_prompt = (
                 f"/* Approved requirement:\n{requirement}\n"

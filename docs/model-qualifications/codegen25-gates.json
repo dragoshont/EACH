@@ -1,0 +1,69 @@
+{
+  "artifact": {
+    "final_conversion_sha256": "11ad1401525a01985c99746ce7fe56f758f9bb19bc98a21fc5c79b4a514eafe2",
+    "fp16_conversion_sha256": "371d9a9ce1089a16d6bdddfa94b194757001cc10e2e1b23b0b947b94588beec3",
+    "model_id": "Salesforce/codegen25-7b-multi_P@3cfb2194ec55e4a229f2d2184623b747fa24ab94#sha256:e164c1a2b77be037",
+    "publisher_tokenizer_reference_sha256": "965c68328a5d2d810f585f0528ea80da2dc48fabc37bea9186168f072794b6cf",
+    "smoke_record_sha256": "222726771b631d215aabbb0452cafcbe502d1d9deb070bfd157f2f0c666eb0d9",
+    "source_verification_record_sha256": "f93fb3edfc99dd76f4e0c95372c0f849dfe8b327e99e5f68deb0840098cf954d",
+    "tokenizer_mode": "reviewed-local-code",
+    "tokenizer_sha256": "8a6718384a609bcdda49504fb1fa38568940f27a2f96ac99badb945234f2171f"
+  },
+  "configured_gate": {
+    "command": "bash gates/checks.sh",
+    "exit_code": 0,
+    "status": "PASS",
+    "stdout": "== Architrave checks (root: /Users/dragoshont/src/EACH) ==\nok    config    architrave.config.json\ninfo  profile knowledge: UI design JSON validation not applicable\nskip  generate (not configured)\n== build: uv sync --locked ==\nResolved 79 packages in 2ms\nUninstalled 41 packages in 1.15s\n - annotated-doc==0.0.5\n - anyio==4.15.1\n - certifi==2026.7.22\n - charset-normalizer==3.5.2\n - click==8.5.0\n - filelock==4.0.8\n - fsspec==2026.9.0\n - h11==0.16.0\n - hf-xet==1.6.0\n - httpcore==1.0.9\n - httpx==0.28.1\n - huggingface-hub==1.33.0\n - idna==3.20\n - jinja2==3.1.6\n - markdown-it-py==4.2.0\n - markupsafe==3.0.3\n - mdurl==0.1.2\n - mlx==0.32.3\n - mlx-lm==0.32.0\n - mlx-metal==0.32.3\n - mpmath==1.3.0\n - networkx==3.7\n - numpy==2.5.3\n - protobuf==7.36.2\n - regex==2026.9.29\n - requests==2.34.2\n - rich==15.0.0\n - safetensors==0.8.0\n - sentencepiece==0.2.2\n - setuptools==84.0.0\n - shellingham==1.5.4\n - sympy==1.14.0\n - tiktoken==0.4.0\n - tokenizers==0.23.2\n - torch==2.14.1\n - tqdm==4.70.1\n - transformers==5.18.0\n - tree-sitter==0.26.0\n - tree-sitter-python==0.25.0\n - typer==0.27.2\n - urllib3==2.8.0\nok    build\n== test: uv run pytest -q && uv run each doctor ==\n...sss.................................................................. [  9%]\n........................................................................ [ 19%]\n........................................................................ [ 28%]\n........................................................................ [ 38%]\n........................................................................ [ 47%]\n..............................................ssssssss.................. [ 57%]\n........................................................................ [ 66%]\n........................................................................ [ 76%]\n........................................................................ [ 85%]\n........................................................................ [ 95%]\n....................................                                     [100%]\n745 passed, 12 skipped in 83.78s (0:01:23)\n\u2705 python              [OK   required]  Python 3.12.14\n\u2705 platform            [OK   optional]  Darwin/arm64 (Apple Silicon)\n\u2705 git                 [OK   required]  git version 2.56.0\n\u2705 uv                  [OK   optional]  uv 0.12.21 (Homebrew 2026-09-29 aarch64-apple-darwin)\n\u2705 docker:colima-each  [OK   optional]  colima-each daemon reachable (server 29.5.2)\n\u2705 each-home           [OK   required]  private store writable at /Users/dragoshont/.each\n\neach doctor: PASS (all required checks satisfied)\nok    test\nCHECKS: PASS\n",
+    "stdout_sha256": "25d960f5389cd1a2774616682ac8d562978364f1a63d703b5168d6bb6b9baa35"
+  },
+  "evaluated_files_sha256": {
+    "docs/model-qualifications/codegen25-multi.md": "bb48d7d4b55e49f080cacd2c682209fe0fc14cff1b7adfb6a5dfa51e27f4d849",
+    "docs/model-qualifications/registry.json": "c10525f1374414dd4ea8dd3e459ae76f2e9e9c561e48653836b80e8d6be4080a",
+    "docs/two-model-evaluation-ledger.md": "cdd26986f25cbca9c0c1cd64846d75c66919cfafa7114e1d37f83f432ae79892",
+    "each/model_manifest.py": "784a6994018bd117e0b8d7cf48a292409b89659e8b83a9e2a395b2411948affe",
+    "each/models/base.py": "4292ca787153c3f8b1417761e6196952834663e4ba39af87699ddb94cdc43aa2",
+    "each/models/catalog.py": "21a4296303c4f215ad85cd5aa3c0c2972ac212e38370ed6977fcd8f8583af625",
+    "each/models/codegen25_model.py": "aacfe54023c5910de652a1e0e6f5e76cc0da8c337fa5b88dee2eb035fbbf6f0d",
+    "each/models/codegen25_profile.json": "11ad1401525a01985c99746ce7fe56f758f9bb19bc98a21fc5c79b4a514eafe2",
+    "each/models/codegen25_tokenizer.py": "8a6718384a609bcdda49504fb1fa38568940f27a2f96ac99badb945234f2171f",
+    "each/models/mlx_model.py": "e57173f660d46743b1c7027250c6361a36f5e9c7113b5db1190263b4fbf517db",
+    "each/xodus_shadow.py": "ed76728593dcde2628a38e92659433c1b63b9d56350718f28cb6e098d435ea0c",
+    "pyproject.toml": "7cc5bd3c8fed2d9fb1f322ca149be50a4ea5875e48bd79258067f4dd4f06c004",
+    "tests/unit/test_catalog.py": "a8c313ec3dc1825836c69734eab17b5e759ed2ca4443cdb7543a997cfd64eed3",
+    "tests/unit/test_codegen25_tokenizer.py": "ee4793627394c8bccdf5c0858dfae9cd6c01395dd304e8df7b7f653450dade3a",
+    "tests/unit/test_mlx_model.py": "860d627447e7114ca1934d398c1ac6296075a20b0eb1472065722a4fa4421b3e",
+    "tests/unit/test_model_manifest.py": "2cc0ff02cff8db7cd825c71f5b6d459f92943ad846212dab2da873514debbe50",
+    "tests/unit/test_xodus_shadow_selftest.py": "772cdfa00b76abc7c488a00a46fbca79c2805ff10f1ff4a6a43ddedd8f32dc0f",
+    "uv.lock": "61bc741d89b5bbac3a50e844c16a76a760406527a5cb70ac20422c06ab44e077"
+  },
+  "evaluation": {
+    "console_cases": "NOT_RUN",
+    "console_receipt_sha256": "f4c8ebed0f22d113ec5f3b378b27d83fed99cea4c7902c7cc7fc144dc24db485",
+    "sandbox_cases_passed": 1,
+    "sandbox_receipt_sha256": "4d693cfa2fb7392545ae549a148d462d17435a22258152342f981e4ac47524d2",
+    "tasks": 2,
+    "verified_fixes": 0
+  },
+  "extras_gate": {
+    "command": "uv sync --locked --extra models --extra audit && uv run pytest -q",
+    "exit_code": 0,
+    "status": "PASS",
+    "stdout": "Resolved 79 packages in 2ms\nInstalled 41 packages in 158ms\n + annotated-doc==0.0.5\n + anyio==4.15.1\n + certifi==2026.7.22\n + charset-normalizer==3.5.2\n + click==8.5.0\n + filelock==4.0.8\n + fsspec==2026.9.0\n + h11==0.16.0\n + hf-xet==1.6.0\n + httpcore==1.0.9\n + httpx==0.28.1\n + huggingface-hub==1.33.0\n + idna==3.20\n + jinja2==3.1.6\n + markdown-it-py==4.2.0\n + markupsafe==3.0.3\n + mdurl==0.1.2\n + mlx==0.32.3\n + mlx-lm==0.32.0\n + mlx-metal==0.32.3\n + mpmath==1.3.0\n + networkx==3.7\n + numpy==2.5.3\n + protobuf==7.36.2\n + regex==2026.9.29\n + requests==2.34.2\n + rich==15.0.0\n + safetensors==0.8.0\n + sentencepiece==0.2.2\n + setuptools==84.0.0\n + shellingham==1.5.4\n + sympy==1.14.0\n + tiktoken==0.4.0\n + tokenizers==0.23.2\n + torch==2.14.1\n + tqdm==4.70.1\n + transformers==5.18.0\n + tree-sitter==0.26.0\n + tree-sitter-python==0.25.0\n + typer==0.27.2\n + urllib3==2.8.0\n........................................................................ [  9%]\n........................................................................ [ 18%]\n........................................................................ [ 28%]\n........................................................................ [ 37%]\n........................................................................ [ 47%]\n........................................................................ [ 56%]\n........................................................................ [ 66%]\n........................................................................ [ 75%]\n........................................................................ [ 85%]\n........................................................................ [ 94%]\n.......................................                                  [100%]\n759 passed in 101.80s (0:01:41)\n",
+    "stdout_sha256": "a98414579b427ceb7b9f48fab81b8c5b19b19aba650decebda038ac2155c39a3"
+  },
+  "lineage": {
+    "dataset_manifest_sha256": "3636743c1f4356db564aa82f6379e0e9b59fed59f0e53faf9edac6c1fece7a34",
+    "dataset_repo": "bigcode/starcoderdata",
+    "dataset_revision": "9fc30b578cedaec69e47302df72cf00feed7c8c4",
+    "status": "PASS"
+  },
+  "recorded_at": "2026-10-04",
+  "ruff": {
+    "command": "uv run ruff check each tests",
+    "exit_code": 0,
+    "status": "PASS",
+    "stdout": "All checks passed!\n",
+    "stdout_sha256": "82b3e6a6c090a57601d22943bd23fca9218d1031dbe5a7b754092f9a156b4f18"
+  },
+  "scope": "Captured source-free CodeGen2.5-multi lineage, conversion, reviewed-local-tokenizer runtime and fixed-task evidence."
+}

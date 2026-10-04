@@ -116,6 +116,24 @@ def test_runtime_model_configuration_is_applied_and_recorded(tmp_path, monkeypat
     assert model.identity()["runtimeModelConfig"] == {"tie_word_embeddings": False}
 
 
+def test_runtime_tokenizer_configuration_is_applied_and_recorded(tmp_path, monkeypatch):
+    root = _snapshot(tmp_path, max_position_embeddings=8192)
+    manifest = build_manifest_from_snapshot(
+        root, repo_id="fixture/model", license="Apache-2.0",
+        runtime_name="fixture", runtime_version="1", conversion_chain="fixture",
+    )
+    observed = []
+    monkeypatch.setattr(
+        "mlx_lm.load",
+        lambda path, **kwargs: observed.append(kwargs) or (_FakeModel(), _FakeTokenizer()),
+        raising=False,
+    )
+    model = MLXRepairModel(root, manifest, tokenizer_config={"trust_remote_code": True})
+    model._ensure_loaded()
+    assert observed == [{"tokenizer_config": {"trust_remote_code": True}}]
+    assert model.identity()["runtimeTokenizerConfig"] == {"trust_remote_code": True}
+
+
 def test_question_answer_rendering_is_idempotent_for_official_repair_prompt(tmp_path, monkeypatch):
     root = _snapshot(tmp_path, max_position_embeddings=8192)
     manifest = build_manifest_from_snapshot(

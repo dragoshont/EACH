@@ -664,6 +664,77 @@
         ],
         "reviewed_at": "2026-10-04"
       }
+    },
+    "codegen25-7b-multi": {
+      "model": {
+        "exact_identity": "Salesforce/codegen25-7b-multi_P",
+        "upstream_revision": "3cfb2194ec55e4a229f2d2184623b747fa24ab94",
+        "status": "AUTHORIZED",
+        "catalog_key": "codegen25-7b-multi-mlx",
+        "artifact_model_id": "Salesforce/codegen25-7b-multi_P@3cfb2194ec55e4a229f2d2184623b747fa24ab94#sha256:e164c1a2b77be037"
+      },
+      "artifact": {
+        "original_weights_retained": true,
+        "original_format": "three publisher FP32 PyTorch shards",
+        "original_weight_bytes": 27582926880,
+        "original_verification_record_sha256": "f93fb3edfc99dd76f4e0c95372c0f849dfe8b327e99e5f68deb0840098cf954d",
+        "fp16_conversion_sha256": "371d9a9ce1089a16d6bdddfa94b194757001cc10e2e1b23b0b947b94588beec3",
+        "final_conversion_sha256": "11ad1401525a01985c99746ce7fe56f758f9bb19bc98a21fc5c79b4a514eafe2",
+        "converted_bytes": 7327091357,
+        "converted_weight_shards": 2,
+        "tokenizer_compatibility_sha256": "8a6718384a609bcdda49504fb1fa38568940f27a2f96ac99badb945234f2171f"
+      },
+      "pretraining": {
+        "starts_from_scratch": true,
+        "dataset": "bigcode/starcoderdata",
+        "dataset_revision": "9fc30b578cedaec69e47302df72cf00feed7c8c4",
+        "dataset_manifest_sha256": "3636743c1f4356db564aa82f6379e0e9b59fed59f0e53faf9edac6c1fece7a34",
+        "tokens": 1400000000000,
+        "recipe": "more than four epochs with deterministic span-corruption/infill transformations",
+        "intentional_llm_teacher_generated_stage": "NONE_IDENTIFIED"
+      },
+      "posttraining": {
+        "present": false,
+        "datasets": [],
+        "excluded_variants": [
+          "CodeGen2.5-7B-mono: additional Python stage not identified",
+          "CodeGen2.5-7B-instruct: separate instruction stage and research-only license"
+        ]
+      },
+      "rights": {
+        "model_license": "Apache-2.0",
+        "unresolved_risks": [
+          "StarCoderData retains heterogeneous source licenses and attribution obligations.",
+          "Individual source records may contain generated material.",
+          "No legal, originality, memorization or output-license certification."
+        ]
+      },
+      "each": {
+        "local_runtime_verified": true,
+        "trajectory_recording_verified": true,
+        "official_loader": "each.models.catalog.load_model",
+        "runtime": "exact-version-checked MLX 0.32.3 / MLX-LM 0.32.0 / Transformers 5.18.0 / tiktoken 0.4.0 / Torch 2.14.1 / safetensors 0.8.0; reviewed local tokenizer code; no trust_remote_code",
+        "smoke_record_sha256": "222726771b631d215aabbb0452cafcbe502d1d9deb070bfd157f2f0c666eb0d9",
+        "xodus_verified_fixes": 0,
+        "xodus_tasks": 2,
+        "capability_result": "0/2; sandbox 1/6, console structurally rejected before cases.",
+        "receipts": {
+          "sandbox": "sha256:4d693cfa2fb7392545ae549a148d462d17435a22258152342f981e4ac47524d2",
+          "console": "sha256:f4c8ebed0f22d113ec5f3b378b27d83fed99cea4c7902c7cc7fc144dc24db485"
+        }
+      },
+      "decision": {
+        "status": "AUTHORIZED",
+        "blocker": null,
+        "scope": "Private bounded research under the existing StarCoderData stage assessment; mono and instruct variants excluded.",
+        "evidence_refs": [
+          "docs/model-qualifications/codegen25-multi.md",
+          "each/models/codegen25_profile.json",
+          "each/models/catalog.py",
+          "docs/two-model-evaluation-ledger.md"
+        ],
+        "reviewed_at": "2026-10-04"
+      }
     }
   }
 }

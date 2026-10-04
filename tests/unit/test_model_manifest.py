@@ -142,3 +142,20 @@ def test_snapshot_manifest_accepts_publisher_pytorch_shards(tmp_path: Path) -> N
         conversion_chain="publisher bytes",
     )
     assert set(manifest.weights_sha256) == {"pytorch_model-00001-of-00001.bin"}
+
+
+def test_snapshot_manifest_accepts_pinned_custom_tokenizer_code(tmp_path: Path) -> None:
+    root = tmp_path / "revision"
+    root.mkdir()
+    (root / "config.json").write_text('{"max_position_embeddings":2048}')
+    (root / "tokenization_custom.py").write_text("class Tokenizer: pass\n")
+    (root / "model.safetensors").write_bytes(b"weights")
+    manifest = build_manifest_from_snapshot(
+        root,
+        repo_id="publisher/model",
+        license="Apache-2.0",
+        runtime_name="mlx-lm",
+        runtime_version="test",
+        conversion_chain="publisher bytes",
+    )
+    assert manifest.tokenizer_sha256 == sha256_file(root / "tokenization_custom.py")

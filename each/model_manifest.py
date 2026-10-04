@@ -137,13 +137,17 @@ def build_manifest_from_snapshot(
             entry.suffix == ".bin" and entry.name.startswith("pytorch_model")
         ):
             weights[relative_path] = files[relative_path]
-        elif relative_path == "tokenizer.json":
+        elif relative_path == "tokenizer.json" or (
+            not tokenizer_sha256
+            and entry.name.startswith("tokenization_")
+            and entry.suffix == ".py"
+        ):
             tokenizer_sha256 = files[relative_path]
 
     if not weights:
         raise ValueError(f"no supported model weight files found under {snapshot_dir}")
     if not tokenizer_sha256:
-        raise ValueError(f"no tokenizer.json found under {snapshot_dir}")
+        raise ValueError(f"no supported tokenizer artifact found under {snapshot_dir}")
 
     config_path = snapshot_dir / "config.json"
     if "config.json" not in files:

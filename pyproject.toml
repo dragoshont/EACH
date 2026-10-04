@@ -20,6 +20,7 @@ dependencies = [
 models = [
     "mlx-lm>=0.19",
     "huggingface_hub>=0.24",
+    "tiktoken==0.4.0",
     "transformers>=4.44",
     "torch>=2.4",
 ]
@@ -56,6 +57,11 @@ dev = [
 [tool.ruff]
 line-length = 110
 target-version = "py312"
+
+[tool.ruff.lint.per-file-ignores]
+# Exact reviewed Apache-2.0 publisher tokenizer with only the recorded
+# Transformers-5 compatibility edits; keep byte identity instead of restyling.
+"each/models/codegen25_tokenizer.py" = ["C408", "RUF012", "UP006", "UP035", "UP045"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

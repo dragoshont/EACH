@@ -234,6 +234,33 @@ K2_LINEAGE = {
     ],
 }
 
+CODEGEN25_REVISION = "3cfb2194ec55e4a229f2d2184623b747fa24ab94"
+CODEGEN25_PROFILE_SHA256 = "11ad1401525a01985c99746ce7fe56f758f9bb19bc98a21fc5c79b4a514eafe2"
+CODEGEN25_MODEL_ID = (
+    "Salesforce/codegen25-7b-multi_P@3cfb2194ec55e4a229f2d2184623b747fa24ab94"
+    "#sha256:e164c1a2b77be037"
+)
+CODEGEN25_LINEAGE = {
+    "status": "ELIGIBLE",
+    "scope": "documented-inspectable-training-dataset-lineage",
+    "modelRepo": "Salesforce/codegen25-7b-multi_P",
+    "modelRevision": CODEGEN25_REVISION,
+    "startsFromScratch": True,
+    "datasetRepo": "bigcode/starcoderdata",
+    "datasetRevision": "9fc30b578cedaec69e47302df72cf00feed7c8c4",
+    "datasetManifestSha256": "3636743c1f4356db564aa82f6379e0e9b59fed59f0e53faf9edac6c1fece7a34",
+    "trainingTokens": 1_400_000_000_000,
+    "trainingRecipe": "more than four epochs with deterministic span-corruption/infill transformations",
+    "postTraining": "NONE_FOR_SELECTED_MULTI_RELEASE",
+    "dossier": "docs/model-qualifications/codegen25-multi.md",
+    "limitations": [
+        "The mono checkpoint's unidentified additional Python stage is excluded.",
+        "The instruct checkpoint and its research-only license are excluded.",
+        "StarCoderData retains heterogeneous source rights and record-level generated-content uncertainty.",
+        "No legal, originality, memorization or output-license certification.",
+    ],
+}
+
 
 def qualified_profile(name: str) -> dict:
     """Only the two independently assessed original artifacts; no family fallback."""
@@ -431,6 +458,122 @@ def _k2_mlx(*, max_tokens: int = 512) -> RepairModel:
     from each.models.mlx_model import MLXRepairModel
 
     return MLXRepairModel(snapshot_dir, manifest, max_tokens=max_tokens)
+
+
+def _codegen25_mlx(*, max_tokens: int = 512) -> RepairModel:
+    profile_path = Path(__file__).with_name("codegen25_profile.json")
+    if not profile_path.is_file() or sha256_file(profile_path) != CODEGEN25_PROFILE_SHA256:
+        raise UnavailableModelError("qualified CodeGen2.5 artifact profile is absent or has changed")
+    try:
+        profile = json.loads(profile_path.read_text())
+    except (OSError, UnicodeDecodeError, json.JSONDecodeError) as exc:
+        raise UnavailableModelError("qualified CodeGen2.5 artifact profile is unreadable") from exc
+    if (
+        CODEGEN25_LINEAGE.get("status") != "ELIGIBLE"
+        or CODEGEN25_LINEAGE.get("modelRepo") != profile.get("sourceRepo")
+        or CODEGEN25_LINEAGE.get("modelRevision") != profile.get("sourceRevision")
+        or CODEGEN25_LINEAGE.get("datasetRevision")
+        != profile.get("lineageEvidence", {}).get("datasetRevision")
+        or CODEGEN25_LINEAGE.get("datasetManifestSha256")
+        != profile.get("lineageEvidence", {}).get("datasetManifestSha256")
+        or CODEGEN25_LINEAGE.get("postTraining") != "NONE_FOR_SELECTED_MULTI_RELEASE"
+    ):
+        raise UnavailableModelError("CodeGen2.5 training-data provenance is not qualified")
+    if (
+        profile.get("sourceRepo") != "Salesforce/codegen25-7b-multi_P"
+        or profile.get("sourceRevision") != CODEGEN25_REVISION
+        or profile.get("sourceRepositoryManifestSha256")
+        != "09818758c2f96946748d0036cdc29bba299593ac81637333d36fad8dc546ef35"
+        or profile.get("sourceVerificationRecordSha256")
+        != "f93fb3edfc99dd76f4e0c95372c0f849dfe8b327e99e5f68deb0840098cf954d"
+        or profile.get("sourceIndexTensorCount") != 323
+        or len(profile.get("sourceWeightsSha256", {})) != 3
+        or profile.get("fp16ConversionSha256")
+        != "371d9a9ce1089a16d6bdddfa94b194757001cc10e2e1b23b0b947b94588beec3"
+        or profile.get("fp16TensorRoundTripVerified") is not True
+        or profile.get("tokenizerCompatibilityPatch", {}).get("outputSha256")
+        != "8a6718384a609bcdda49504fb1fa38568940f27a2f96ac99badb945234f2171f"
+        or profile.get("operation")
+        != "publisher-fp32-pytorch-to-verified-fp16-safetensors-to-mlx-affine-int8"
+        or profile.get("quantization")
+        != {"mode": "affine", "bits": 8, "groupSize": 64, "effectiveBitsPerWeightReported": 8.5}
+        or len(profile.get("outputWeightsSha256", {})) != 2
+        or profile.get("runtime", {}).get("tiktoken") != "0.4.0"
+        or profile.get("trainingPerformed") is not False
+        or profile.get("generationPerformed") is not False
+    ):
+        raise UnavailableModelError("CodeGen2.5 conversion does not match its qualified source artifact")
+
+    snapshot_dir = models_dir() / "qualified" / "codegen25-multi-int8" / CODEGEN25_REVISION
+    assert_no_symlink_escape(snapshot_dir, label="qualified CodeGen2.5 artifact")
+    conversion_path = snapshot_dir / "conversion.json"
+    if not conversion_path.is_file() or sha256_file(conversion_path) != CODEGEN25_PROFILE_SHA256:
+        raise UnavailableModelError(
+            "qualified CodeGen2.5 artifact is not provisioned or conversion evidence changed"
+        )
+    tokenizer_module = Path(__file__).with_name("codegen25_tokenizer.py")
+    tokenizer_hash = profile["tokenizerCompatibilityPatch"]["outputSha256"]
+    if not tokenizer_module.is_file() or sha256_file(tokenizer_module) != tokenizer_hash:
+        raise UnavailableModelError("qualified CodeGen2.5 local tokenizer code has changed")
+    for package, expected in {
+        "mlx": "0.32.3",
+        "mlx-lm": "0.32.0",
+        "transformers": "5.18.0",
+        "tiktoken": "0.4.0",
+        "torch": "2.14.1",
+        "safetensors": "0.8.0",
+    }.items():
+        try:
+            actual = version(package)
+        except PackageNotFoundError as exc:
+            raise UnavailableModelError(f"qualified CodeGen2.5 runtime package is missing: {package}") from exc
+        if actual != expected:
+            raise UnavailableModelError(
+                f"qualified CodeGen2.5 runtime drift: {package} expected {expected}, found {actual}"
+            )
+    manifest = build_manifest_from_snapshot(
+        snapshot_dir,
+        repo_id="Salesforce/codegen25-7b-multi_P",
+        license="Apache-2.0",
+        runtime_name="mlx-lm",
+        runtime_version=_mlx_runtime_version(),
+        conversion_chain=(
+            "publisher FP32 PyTorch -> verified FP16 safetensors -> local MLX affine 8-bit "
+            "(group_size=64); exact tokenizer compatibility patch retained"
+        ),
+    )
+    if any(
+        manifest.files_sha256.get(name) != digest
+        for name, digest in profile["outputFilesSha256"].items()
+    ):
+        raise UnavailableModelError("qualified CodeGen2.5 converted artifact has changed")
+    if (
+        set(manifest.files_sha256) != set(profile["outputFilesSha256"]) | {"conversion.json"}
+        or manifest.weights_sha256 != profile["outputWeightsSha256"]
+        or manifest.quantization != {"group_size": 64, "bits": 8, "mode": "affine"}
+        or manifest.max_position_embeddings != 2048
+    ):
+        raise UnavailableModelError(
+            "qualified CodeGen2.5 converted artifact structure does not match its trusted profile"
+        )
+    manifest = replace(manifest, training_data_provenance=dict(CODEGEN25_LINEAGE))
+    if manifest.model_id != CODEGEN25_MODEL_ID:
+        raise UnavailableModelError(
+            "qualified CodeGen2.5 artifact identity does not match its trusted pin"
+        )
+    from each.models.codegen25_model import CodeGen25RepairModel
+
+    return CodeGen25RepairModel(
+        snapshot_dir,
+        manifest,
+        max_tokens=max_tokens,
+        tokenizer_provenance={
+            "mode": "reviewed-local-code",
+            "sha256": tokenizer_hash,
+            "sourceRevision": CODEGEN25_REVISION,
+            "tiktokenVersion": "0.4.0",
+        },
+    )
 
 
 def _qualified_mlx(name: str, *, max_tokens: int) -> RepairModel:
@@ -760,6 +903,7 @@ _CATALOG: dict[str, Callable[..., RepairModel]] = {
     "octocoder-mlx": _octocoder_mlx,
     "crystalcoder-transformers": _crystalcoder_transformers,
     "k2-65b-mlx": _k2_mlx,
+    "codegen25-7b-multi-mlx": _codegen25_mlx,
     "granite-3b-code-base-mlx": _granite_3b_code_base_mlx,
     "granite-3b-code-instruct-mlx": _granite_3b_code_instruct_mlx,
     "granite-8b-code-instruct-128k-mlx": _granite_8b_code_instruct_128k_mlx,
@@ -780,7 +924,13 @@ def load_model(key: str, **kwargs) -> RepairModel:
     """
     if key not in _CATALOG:
         raise UnavailableModelError(f"unknown model key: {key!r}; known keys: {sorted(_CATALOG)}")
-    if key in {"starcoderbase-mlx", "octocoder-mlx", "crystalcoder-transformers", "k2-65b-mlx"}:
+    if key in {
+        "starcoderbase-mlx",
+        "octocoder-mlx",
+        "crystalcoder-transformers",
+        "k2-65b-mlx",
+        "codegen25-7b-multi-mlx",
+    }:
         return _CATALOG[key](**kwargs)
     raise UnavailableModelError(
         f"training-data provenance is not qualified for {key!r}; "
