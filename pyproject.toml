@@ -4,6 +4,14 @@ version = "0.1.0a1"
 description = "EACH (Evidence-Audited Cleanroom Harness): authoring-provenance evidence for AI-assisted software repair, not legal certification."
 readme = "README.md"
 license = "Apache-2.0"
+license-files = [
+    "LICENSE",
+    "NOTICE",
+    "third_party/architrave/LICENSE",
+    "third_party/architrave/SOURCE.txt",
+    "third_party/xgameruntime/LICENSE",
+    "third_party/xgameruntime/SOURCE.txt",
+]
 requires-python = ">=3.12"
 authors = [{ name = "Dragos Hont" }]
 dependencies = [

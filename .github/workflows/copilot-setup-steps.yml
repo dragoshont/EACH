@@ -6,6 +6,9 @@
 # toolchain (node, dotnet, xcode, etc.) below so the agent can run the full gates.
 name: "Copilot Setup Steps"
 
+permissions:
+  contents: read
+
 on: workflow_dispatch
 
 jobs:
