@@ -46,6 +46,21 @@ _CACHED_SOURCE = (Path(__file__).parent / "data" / "xsystem_selftest_source.c").
 _APPLIES_BUT_LEAVES_BUG_PATCH = (
     Path(__file__).parent / "data" / "xodus_shadow_selftest_patch_applies_but_leaves_bug.txt"
 ).read_text()
+_CORRECT_FIM_BODY = """    /* Always assume RETAIL environment for Wine */
+    const char *Id = "RETAIL";
+
+    TRACE( "iface %p, sandboxIdSize %d, sandboxId %p, sandboxIdUsed %p\\n", iface, sandboxIdSize, sandboxId, sandboxIdUsed );
+
+    if (!sandboxId)
+        return E_POINTER;
+
+    if (sandboxIdSize < XSystemXboxLiveSandboxIdMaxBytes)
+        return HRESULT_FROM_WIN32( ERROR_INSUFFICIENT_BUFFER );
+
+    strcpy_s( sandboxId, sandboxIdSize, Id );
+    if (sandboxIdUsed) *sandboxIdUsed = strlen( Id ) + 1;
+    return S_OK;
+"""
 
 
 def _native_image_available() -> bool:
@@ -99,6 +114,103 @@ def _approve_selftest_spec(task_id: str) -> ApprovedSpec:
     approved_path = task_dir / "approved.json"
     approved_path.write_text(json.dumps(approved.to_dict(), indent=2, sort_keys=True) + "\n", encoding="utf-8")
     return approved
+
+
+def test_fim_split_ignores_braces_inside_strings_comments_and_nested_blocks() -> None:
+    source = """
+// static HRESULT WINAPI x_system_XSystemGetXboxLiveSandboxId(void) { ignored }
+const char *ignored = "static HRESULT WINAPI x_system_XSystemGetXboxLiveSandboxId {";
+static HRESULT WINAPI x_system_XSystemGetXboxLiveSandboxId(void)
+/* comment with { before the real opening brace */
+{
+    const char *value = "}";
+    /* } */
+    char brace = '}';
+    // }
+    if (value) { value++; }
+    return S_OK;
+}
+int after;
+""".lstrip().replace("\n", "\r\n")
+    prefix, suffix = xodus_shadow_module._split_sandbox_function_body(source)
+    assert prefix.endswith("{\r\n")
+    assert suffix.startswith("}\r\nint after;")
+    assert prefix + '    return E_FAIL;\n' + suffix != source
+
+
+@pytest.mark.parametrize(
+    ("source", "valid"),
+    [
+        ("int unrelated;\n", False),
+        ((
+            "static HRESULT WINAPI x_system_XSystemGetXboxLiveSandboxId(void);\n"
+        ), False),
+        ((
+            "static HRESULT WINAPI x_system_XSystemGetXboxLiveSandboxId(void) { return S_OK; }\n"
+            "static HRESULT WINAPI x_system_XSystemGetXboxLiveSandboxId(int x) { return E_FAIL; }\n"
+        ), False),
+        ((
+            "// ignored continued comment \\\n"
+            "static HRESULT WINAPI x_system_XSystemGetXboxLiveSandboxId(void) { return E_FAIL; }\n"
+            "static HRESULT WINAPI x_system_XSystemGetXboxLiveSandboxId(void)\n"
+            "{\n    return S_OK;\n}\n"
+        ), True),
+    ],
+)
+def test_fim_split_rejects_missing_declaration_duplicate_and_ignores_spliced_comment(
+    source, valid,
+) -> None:
+    if valid:
+        prefix, suffix = xodus_shadow_module._split_sandbox_function_body(source)
+        assert prefix.endswith("{\n")
+        assert suffix.startswith("}\n")
+    else:
+        with pytest.raises(xodus_shadow_module.PatchRejected):
+            xodus_shadow_module._split_sandbox_function_body(source)
+
+
+def test_fim_derives_a_scoped_diff_and_rejects_control_tokens() -> None:
+    patch = xodus_shadow_module._extract_patch_text_for_mode(
+        _CORRECT_FIM_BODY,
+        "fim",
+        path="xsystem.c",
+        original_text=_CACHED_SOURCE,
+    )
+    assert "--- a/xsystem.c" in patch
+    assert "+++ b/xsystem.c" in patch
+    with pytest.raises(xodus_shadow_module.PatchRejected, match="control tokens"):
+        xodus_shadow_module._extract_patch_text_for_mode(
+            "<fim_prefix>unexpected",
+            "fim",
+            path="xsystem.c",
+            original_text=_CACHED_SOURCE,
+        )
+    for invalid in ("", "   ", "<|endoftext|>"):
+        with pytest.raises(xodus_shadow_module.PatchRejected):
+            xodus_shadow_module._extract_patch_text_for_mode(
+                invalid,
+                "fim",
+                path="xsystem.c",
+                original_text=_CACHED_SOURCE,
+            )
+
+
+@pytest.mark.parametrize("attempts", [0, 2, 1.0, True])
+def test_fim_requires_exactly_one_integer_attempt(monkeypatch, attempts) -> None:
+    approved = _approve_selftest_spec("test-xodus-shadow-fim-one-attempt-policy")
+    monkeypatch.setattr(
+        xodus_shadow_module,
+        "fetch_file",
+        lambda *_a, **_k: pytest.fail("invalid FIM attempt policy must fail before fetching"),
+    )
+    with pytest.raises(ValueError, match="exactly one"):
+        run_xodus_shadow_build(
+            FixtureModel(_CORRECT_FIM_BODY),
+            approved,
+            max_attempts=attempts,
+            proposal_format="fim",
+            run_id=f"selftest-fim-policy-{uuid.uuid4().hex[:8]}",
+        )
 
 
 @requires_colima_each
@@ -214,6 +326,103 @@ def test_fixture_model_candidate_is_verified_and_signed(tmp_path, monkeypatch) -
     # F3: proposalFormat must be surfaced as a bounded enum, not an
     # arbitrary attempt-controlled string.
     assert summary["attemptProposalFormats"] == ["diff"]
+
+
+@requires_colima_each
+@requires_m8_native_image
+def test_fixture_model_fim_candidate_is_verified_and_signed(tmp_path, monkeypatch) -> None:
+    monkeypatch.setattr(xodus_shadow_module, "fetch_file", lambda *_a, **_k: _CACHED_SOURCE)
+    approved = _approve_selftest_spec("test-xodus-shadow-fim-selftest")
+
+    class CapturingFixture(FixtureModel):
+        def complete(self, prompt: str) -> str:
+            self.observed_prompt = prompt
+            return super().complete(prompt)
+
+    model = CapturingFixture(_CORRECT_FIM_BODY, model_id="fixture/xodus-shadow-selftest-v1")
+    result = run_xodus_shadow_build(
+        model,
+        approved,
+        max_attempts=1,
+        proposal_format="fim",
+        run_id=f"selftest-fim-{tmp_path.name}-{uuid.uuid4().hex[:8]}",
+    )
+
+    assert result["outcome"] == "REPAIR_VERIFIED"
+    source_prefix, source_suffix = xodus_shadow_module._split_sandbox_function_body(_CACHED_SOURCE)
+    expected_prompt = (
+        f"<fim_prefix>/* EACH approved requirement:\n{approved.packet.problem_statement}\n*/\n"
+        f"{source_prefix}<fim_suffix>{source_suffix}<fim_middle>"
+    )
+    assert model.observed_prompt == expected_prompt
+    receipt = json.loads(Path(result["receipt_json"]).read_text())
+    attempt = receipt["attempts"][0]
+    assert attempt["proposal_format"] == "fim"
+    assert attempt["infillPrefixSha256"] == xodus_shadow_module.sha256_bytes(source_prefix.encode())
+    assert attempt["infillSuffixSha256"] == xodus_shadow_module.sha256_bytes(source_suffix.encode())
+    assert receipt["baselineResult"]["exit_code"] == 1
+    assert receipt["repairedResult"]["exit_code"] == 0
+    from each.attestation import verify_materials_root, verify_receipt
+    from each.signing import public_key_path
+
+    assert verify_receipt(receipt, public_key_path().read_bytes())["status"] == "PASS"
+    assert verify_materials_root(receipt, Path(result["receipt_json"]).parent / "materials")["status"] == "PASS"
+    assert summarize_receipt(result["receipt_json"])["attemptProposalFormats"] == ["fim"]
+
+
+@requires_colima_each
+@requires_m8_native_image
+def test_fim_rejection_stops_after_one_call_and_retains_infill_hashes(tmp_path, monkeypatch) -> None:
+    monkeypatch.setattr(xodus_shadow_module, "fetch_file", lambda *_a, **_k: _CACHED_SOURCE)
+    approved = _approve_selftest_spec("test-xodus-shadow-fim-rejection-single-call")
+
+    class CountingFixture(FixtureModel):
+        def complete(self, prompt: str) -> str:
+            self.calls = getattr(self, "calls", 0) + 1
+            return super().complete(prompt)
+
+    model = CountingFixture("<fim_prefix>unexpected")
+    result = run_xodus_shadow_build(
+        model,
+        approved,
+        max_attempts=1,
+        proposal_format="fim",
+        run_id=f"selftest-fim-reject-{tmp_path.name}-{uuid.uuid4().hex[:8]}",
+    )
+    assert model.calls == 1
+    assert result["outcome"] == "PATCH_REJECTED"
+    receipt = json.loads(Path(result["receipt_json"]).read_text())
+    assert len(receipt["attempts"]) == 1
+    assert len(receipt["attempts"][0]["infillPrefixSha256"]) == 64
+    assert len(receipt["attempts"][0]["infillSuffixSha256"]) == 64
+
+
+@requires_colima_each
+@requires_m8_native_image
+def test_fim_generation_failure_retains_infill_hashes(tmp_path, monkeypatch) -> None:
+    monkeypatch.setattr(xodus_shadow_module, "fetch_file", lambda *_a, **_k: _CACHED_SOURCE)
+    approved = _approve_selftest_spec("test-xodus-shadow-fim-generation-failure")
+    model = FixtureModel("unused")
+
+    def fail_generation(prompt: str) -> str:
+        del prompt
+        model.last_generation_attempted = True
+        raise RuntimeError("private backend detail")
+
+    monkeypatch.setattr(model, "complete", fail_generation)
+    result = run_xodus_shadow_build(
+        model,
+        approved,
+        max_attempts=1,
+        proposal_format="fim",
+        run_id=f"selftest-fim-generation-error-{tmp_path.name}-{uuid.uuid4().hex[:8]}",
+    )
+    assert result["outcome"] == "EXECUTION_ERROR"
+    receipt = json.loads(Path(result["receipt_json"]).read_text())
+    attempt = receipt["attempts"][0]
+    assert len(attempt["infillPrefixSha256"]) == 64
+    assert len(attempt["infillSuffixSha256"]) == 64
+    assert "private backend detail" not in json.dumps(summarize_receipt(result["receipt_json"]))
 
 
 @requires_colima_each

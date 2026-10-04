@@ -63,6 +63,9 @@ _AUDIT_CHECK_NAMES = (
 NATIVE_IMAGE_DIGEST = (
     "each-m8-native-runtime@sha256:5e3fd3be8e066385dfa7eaf5bf7ef2a14a5e2090a6a8ba3227de5e9aeffb6baf"
 )
+_SANDBOX_ID_FUNCTION_SIGNATURE = (
+    "static HRESULT WINAPI x_system_XSystemGetXboxLiveSandboxId"
+)
 
 _PROMPT_TEMPLATE = """You are repairing exactly one bug in a real, existing C source file, described below by its own public issue report. You must fix ONLY the behavior the issue describes, using ONLY the file content shown below and the issue text -- do not invent, assume, or reference any other implementation, patch, or fix you may have seen elsewhere for this exact bug.
 
@@ -149,6 +152,18 @@ def _extract_patch_text_for_mode(raw_completion: str, proposal_format: str, *, p
     """
     if proposal_format == "diff":
         return extract_patch_text(raw_completion)
+    if proposal_format == "fim":
+        prefix, suffix = _split_sandbox_function_body(original_text)
+        if not raw_completion.strip() or "<fim_" in raw_completion or "<|endoftext|>" in raw_completion:
+            raise PatchRejected("FIM completion is empty or contains unexpected control tokens")
+        proposed = prefix + raw_completion + suffix
+        try:
+            diff_text = derive_unified_diff(path=path, original_text=original_text, proposed_text=proposed)
+        except RawProposalRejected as exc:
+            raise PatchRejected(str(exc)) from exc
+        if not diff_text:
+            raise PatchRejected("model proposed no change from the original file")
+        return diff_text
     try:
         proposed = extract_full_source(raw_completion)
     except RawProposalRejected as exc:
@@ -165,7 +180,156 @@ def _extract_patch_text_for_mode(raw_completion: str, proposal_format: str, *, p
 def _retry_suffix_for_mode(proposal_format: str, *, reason: str) -> str:
     if proposal_format == "diff":
         return _RETRY_SUFFIX.format(reason=reason)
+    if proposal_format == "fim":
+        return ""
     return _FULL_SOURCE_RETRY_SUFFIX.format(reason=reason)
+
+
+def _split_sandbox_function_body(source: str) -> tuple[str, str]:
+    """Return the exact public-source prefix/suffix around the target C body."""
+    matches: list[int] = []
+    state = "code"
+    index = 0
+    while index < len(source):
+        char = source[index]
+        nxt = source[index + 1] if index + 1 < len(source) else ""
+        if state == "code":
+            if source.startswith(_SANDBOX_ID_FUNCTION_SIGNATURE, index):
+                matches.append(index)
+                index += len(_SANDBOX_ID_FUNCTION_SIGNATURE)
+                continue
+            if char == "/" and nxt == "*":
+                state = "block-comment"
+                index += 2
+                continue
+            if char == "/" and nxt == "/":
+                state = "line-comment"
+                index += 2
+                continue
+            if char == '"':
+                state = "string"
+            elif char == "'":
+                state = "character"
+        elif state == "block-comment" and char == "*" and nxt == "/":
+            state = "code"
+            index += 2
+            continue
+        elif state == "line-comment":
+            if char == "\\" and nxt == "\r" and source[index + 2:index + 3] == "\n":
+                index += 3
+                continue
+            if char == "\\" and nxt == "\n":
+                index += 2
+                continue
+            if char in {"\r", "\n"}:
+                state = "code"
+        elif state in {"string", "character"}:
+            if char == "\\":
+                index += 2
+                continue
+            if (state == "string" and char == '"') or (state == "character" and char == "'"):
+                state = "code"
+        index += 1
+    if len(matches) != 1:
+        raise PatchRejected(f"target function signature count is {len(matches)}, expected exactly one")
+    signature = matches[0]
+    state = "code"
+    opening = -1
+    index = signature + len(_SANDBOX_ID_FUNCTION_SIGNATURE)
+    while index < len(source):
+        char = source[index]
+        nxt = source[index + 1] if index + 1 < len(source) else ""
+        if state == "code":
+            if char == "/" and nxt == "*":
+                state = "block-comment"
+                index += 2
+                continue
+            if char == "/" and nxt == "/":
+                state = "line-comment"
+                index += 2
+                continue
+            if char == '"':
+                state = "string"
+            elif char == "'":
+                state = "character"
+            elif char == ";":
+                raise PatchRejected("target signature is a declaration, not a function definition")
+            elif char == "{":
+                opening = index
+                break
+        elif state == "block-comment" and char == "*" and nxt == "/":
+            state = "code"
+            index += 2
+            continue
+        elif state == "line-comment":
+            if char == "\\" and nxt == "\r" and source[index + 2:index + 3] == "\n":
+                index += 3
+                continue
+            if char == "\\" and nxt == "\n":
+                index += 2
+                continue
+            if char in {"\r", "\n"}:
+                state = "code"
+        elif state in {"string", "character"}:
+            if char == "\\":
+                index += 2
+                continue
+            if (state == "string" and char == '"') or (state == "character" and char == "'"):
+                state = "code"
+        index += 1
+    if opening < 0:
+        raise PatchRejected("target function opening brace is absent")
+    depth = 0
+    state = "code"
+    index = opening
+    while index < len(source):
+        char = source[index]
+        nxt = source[index + 1] if index + 1 < len(source) else ""
+        if state == "code":
+            if char == "/" and nxt == "*":
+                state = "block-comment"
+                index += 2
+                continue
+            if char == "/" and nxt == "/":
+                state = "line-comment"
+                index += 2
+                continue
+            if char == '"':
+                state = "string"
+            elif char == "'":
+                state = "character"
+            elif char == "{":
+                depth += 1
+            elif char == "}":
+                depth -= 1
+                if depth == 0:
+                    body_start = opening + 1
+                    if source[body_start:body_start + 2] == "\r\n":
+                        body_start += 2
+                    elif source[body_start:body_start + 1] in {"\r", "\n"}:
+                        body_start += 1
+                    return source[:body_start], source[index:]
+        elif state == "block-comment" and char == "*" and nxt == "/":
+            state = "code"
+            index += 2
+            continue
+        elif state == "line-comment":
+            if char == "\\" and nxt == "\r" and source[index + 2:index + 3] == "\n":
+                index += 3
+                continue
+            if char == "\\" and nxt == "\n":
+                index += 2
+                continue
+            if char in {"\r", "\n"}:
+                state = "code"
+        elif state in {"string", "character"}:
+            if char == "\\":
+                index += 2
+                continue
+            if (state == "string" and char == '"') or (state == "character" and char == "'"):
+                state = "code"
+        index += 1
+    raise PatchRejected("target function closing brace is absent")
 
 
 def _assemble_source_root(fetched_source: str, allowed_path: str, dest: Path) -> None:
@@ -272,8 +436,12 @@ def run_xodus_shadow_build(
     ``each.raw_proposal``). Same approved spec, same scope, same
     validation/audit/receipt pipeline either way.
     """
-    if proposal_format not in {"diff", "full_source"}:
-        raise ValueError(f"proposal_format must be 'diff' or 'full_source', got {proposal_format!r}")
+    if proposal_format not in {"diff", "full_source", "fim"}:
+        raise ValueError(
+            f"proposal_format must be 'diff', 'full_source', or 'fim', got {proposal_format!r}"
+        )
+    if proposal_format == "fim" and (type(max_attempts) is not int or max_attempts != 1):
+        raise ValueError("FIM shadow runs require exactly one approved attempt")
     approved.verify()
     verify_xodus_shadow_binding(approved)
     validate_private_root()
@@ -320,13 +488,26 @@ def run_xodus_shadow_build(
 
     source_lines = fetched_source.splitlines()
     line_count = len(source_lines)
-    prompt_template = _PROMPT_TEMPLATE if proposal_format == "diff" else _FULL_SOURCE_PROMPT_TEMPLATE
-    base_prompt = prompt_template.format(
-        problem_statement=packet.problem_statement,
-        path=allowed_path,
-        line_count=line_count,
-        numbered_source=fetched_source,
-    )
+    if proposal_format == "fim":
+        fim_prefix, fim_suffix = _split_sandbox_function_body(fetched_source)
+        fim_evidence = {
+            "infillPrefixSha256": sha256_bytes(fim_prefix.encode()),
+            "infillSuffixSha256": sha256_bytes(fim_suffix.encode()),
+        }
+        requirement = packet.problem_statement.replace("*/", "* /")
+        base_prompt = (
+            f"<fim_prefix>/* EACH approved requirement:\n{requirement}\n*/\n"
+            f"{fim_prefix}<fim_suffix>{fim_suffix}<fim_middle>"
+        )
+    else:
+        fim_evidence = {}
+        prompt_template = _PROMPT_TEMPLATE if proposal_format == "diff" else _FULL_SOURCE_PROMPT_TEMPLATE
+        base_prompt = prompt_template.format(
+            problem_statement=packet.problem_statement,
+            path=allowed_path,
+            line_count=line_count,
+            numbered_source=fetched_source,
+        )
 
     common_fields = {
         "run_id": run_id,
@@ -516,6 +697,7 @@ def run_xodus_shadow_build(
                     "input_tokens": getattr(model, "last_prompt_tokens", None),
                     "generation_attempted": False,
                     "outcome": outcome,
+                    **fim_evidence,
                 }
             )
             final_outcome = outcome
@@ -540,6 +722,7 @@ def run_xodus_shadow_build(
                     "input_tokens": getattr(model, "last_prompt_tokens", None),
                     "generation_attempted": getattr(model, "last_generation_attempted", None),
                     "outcome": outcome,
+                    **fim_evidence,
                 }
             )
             final_outcome = outcome
@@ -564,6 +747,8 @@ def run_xodus_shadow_build(
             "input_tokens": getattr(model, "last_prompt_tokens", None),
             "generation_attempted": getattr(model, "last_generation_attempted", None),
         }
+        if proposal_format == "fim":
+            attempt_record.update(fim_evidence)
 
         try:
             patch_text = _extract_patch_text_for_mode(raw_completion, proposal_format, path=allowed_path, original_text=fetched_source)
