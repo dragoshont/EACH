@@ -1,0 +1,12 @@
+{
+  "status": "pass",
+  "exitCode": 0,
+  "command": [
+    "uv",
+    "run",
+    "each",
+    "doctor"
+  ],
+  "commit": "93888d252d263f995551bb78daa232da157d6bcd",
+  "note": "each doctor PASS"
+}

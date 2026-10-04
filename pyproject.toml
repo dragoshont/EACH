@@ -1,0 +1,78 @@
+[project]
+name = "each"
+version = "0.1.0a1"
+description = "EACH (Evidence-Audited Cleanroom Harness): authoring-provenance evidence for AI-assisted software repair, not legal certification."
+readme = "README.md"
+license = "Apache-2.0"
+license-files = [
+    "LICENSE",
+    "NOTICE",
+    "third_party/architrave/LICENSE",
+    "third_party/architrave/SOURCE.txt",
+    "third_party/xgameruntime/LICENSE",
+    "third_party/xgameruntime/SOURCE.txt",
+]
+requires-python = ">=3.12"
+authors = [{ name = "Dragos Hont" }]
+dependencies = [
+    "cryptography>=50.0.2",
+    "unidiff>=0.7",
+    "pyyaml>=6.0",
+]
+
+[project.optional-dependencies]
+# Local-model backends evaluated at M2. Deliberately optional: CI and the
+# deterministic hello-repair slice never require these (FixtureModel stays
+# CI-safe); only `uv sync --extra models` on the development Mac installs
+# them.
+models = [
+    "mlx-lm>=0.19",
+    "huggingface_hub>=0.24",
+    "tiktoken==0.4.0",
+    "transformers>=4.44",
+    "torch>=2.4",
+]
+audit = [
+    # M4 AST-normalized provenance comparator. Without this extra, the
+    # ast-similarity check honestly reports UNAVAILABLE rather than
+    # silently skipping; exact-substring/n-gram/corpus-membership checks
+    # never require it.
+    "tree-sitter>=0.26.0",
+    "tree-sitter-python>=0.25.0",
+]
+
+[project.scripts]
+each = "each.cli:main"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["each"]
+
+[tool.hatch.build.targets.wheel.force-include]
+"examples/hello-repair" = "examples/hello-repair"
+
+[dependency-groups]
+dev = [
+    "pytest>=8.0",
+    "ruff>=0.6",
+    # (F6) Real standards-conformant JSON Schema validation for the
+    # harness's own durable architrave.run.v2 state, replacing the prior
+    # ad-hoc hand-rolled required-key checks. Harness/test tooling only --
+    # never imported by the `each` product package itself.
+    "jsonschema>=4.23",
+]
+
+[tool.ruff]
+line-length = 110
+target-version = "py312"
+
+[tool.ruff.lint.per-file-ignores]
+# Exact reviewed Apache-2.0 publisher tokenizer with only the recorded
+# Transformers-5 compatibility edits; keep byte identity instead of restyling.
+"each/models/codegen25_tokenizer.py" = ["C408", "RUF012", "UP006", "UP035", "UP045"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

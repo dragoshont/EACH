@@ -1,0 +1,44 @@
+{
+  "id": "each-public-audit-calibration-v1",
+  "origin": "Self-authored public synthetic harness fixtures, 2026-10-03; not target repairs",
+  "license": "Apache-2.0",
+  "projects": [
+    {
+      "cluster": "cal-running-total",
+      "reference": "def running_total(values):\n    total = 0\n    result = []\n    for value in values:\n        total += value\n        result.append(total)\n    return result\n",
+      "renamed": "def prefix_counts(items):\n    count = 0\n    output = []\n    for item in items:\n        count += item\n        output.append(count)\n    return output\n",
+      "semantic": "from itertools import accumulate\n\ndef cumulative(numbers):\n    return list(accumulate(numbers))\n"
+    },
+    {
+      "cluster": "cal-clamp",
+      "reference": "def clamp(value, lower, upper):\n    if value < lower:\n        return lower\n    if value > upper:\n        return upper\n    return value\n",
+      "renamed": "def constrain(number, minimum, maximum):\n    if number < minimum:\n        return minimum\n    if number > maximum:\n        return maximum\n    return number\n",
+      "semantic": "def limited(x, lo, hi):\n    return min(hi, max(lo, x))\n"
+    },
+    {
+      "cluster": "cal-word-count",
+      "reference": "def word_counts(text):\n    counts = {}\n    for word in text.split():\n        counts[word] = counts.get(word, 0) + 1\n    return counts\n",
+      "renamed": "def tally_words(message):\n    totals = {}\n    for token in message.split():\n        totals[token] = totals.get(token, 0) + 1\n    return totals\n",
+      "semantic": "from collections import Counter\n\ndef frequencies(string):\n    return dict(Counter(string.split()))\n"
+    },
+    {
+      "cluster": "cal-common-main",
+      "common": true,
+      "reference": "if __name__ == '__main__':\n    print('ready')\n",
+      "renamed": "if __name__ == '__main__':\n    print('hello')\n",
+      "semantic": "def greeting():\n    return 'ready'\n"
+    }
+  ],
+  "benign": [
+    {"id": "cal-empty-class", "source": "class Message:\n    pass\n"},
+    {"id": "cal-imports", "source": "import json\nimport pathlib\n"},
+    {"id": "cal-constant", "source": "VERSION = '1.0'\n"},
+    {"id": "cal-decorator", "source": "@property\ndef active(self):\n    return self._enabled\n"},
+    {"id": "cal-generator", "source": "def odds(limit):\n    yield from range(1, limit, 2)\n"},
+    {"id": "cal-comprehension", "source": "squares = {k: k ** 2 for k in range(10)}\n"},
+    {"id": "cal-try", "source": "try:\n    import optional_module\nexcept ImportError:\n    optional_module = None\n"},
+    {"id": "cal-annotated", "source": "registry: dict[str, int] = {}\n"},
+    {"id": "cal-async", "source": "async def receive(channel):\n    async for event in channel:\n        yield event\n"},
+    {"id": "cal-lambda", "source": "identity = lambda value: value\n"}
+  ]
+}

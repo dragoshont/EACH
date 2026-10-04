@@ -1,0 +1,119 @@
+# Xodus shadow-demonstration policy (M8)
+#
+# Governs any EACH-generated candidate patch targeting xodus-gaming/xodus or
+# xodus-gaming/xgameruntime. This file is the enforced, machine-readable
+# counterpart to the project's broader commitments in docs/EACH_BOOTSTRAP_MANDATE.md
+# section 61-63 and docs/EACH_MILESTONE_PROMPTS.md's M8 prompt. It exists
+# because the *upstream* project has its own strict, currently-published
+# LLM/clean-room contribution policy (pinned below) that is stricter than
+# EACH's general shadow-only default and must be mechanically enforced, not
+# merely described in prose.
+#
+# Pinned upstream policy source (re-fetched fresh for this Run, not reused
+# from any earlier/cached knowledge):
+#   repo:        xodus-gaming/.github
+#   path:        CONTRIBUTING.md
+#   commit:      ae13b61ce23f68e376e6f0562d5a690e41bd1587
+#   fetched_at:  2026-10-02T14:xx:00Z (see docs/m8-xodus-policy-pin-20261002.md for exact timestamp + full text)
+#   key_clause:  "LLM assisted code will be rejected from most repositories ...
+#                 With the exception of parts of xodus-gaming/xodus that
+#                 don't interact with Microsoft or XBOX services."
+#   implication: xgameruntime (a GDK/XBOX-services API clean-room
+#                reimplementation) is squarely inside the repositories where
+#                upstream rejects LLM-assisted code outright. Any EACH
+#                candidate touching xgameruntime (or any xodus API-layer
+#                code interacting with Microsoft/XBOX services) MUST stay
+#                shadow-only and MUST NEVER be proposed upstream, regardless
+#                of EACH's own validation/audit outcome.
+
+schema_version: 1
+
+ai_source_upstream_promotion: false
+# No code candidate produced under this policy may ever be opened as an
+# upstream pull request, issue attachment, patch file reference, commit, or
+# any other form of proposed contribution to xodus-gaming/xodus or
+# xodus-gaming/xgameruntime. This is enforced procedurally (no PR tooling is
+# invoked anywhere in the EACH M8 pipeline) and by this explicit flag.
+
+default_visibility: private
+# Every M8 candidate patch, prompt/response trajectory, receipt, and audit
+# result is written only to the private EACH store (~/.each/runs/...),
+# mirroring the existing M7 private-shadow-storage precedent. Only a
+# source-free, hash-identified, sanitized summary may ever be committed to
+# the public EACH repository or shown in any cloud conversation.
+
+information_origin_policy:
+  allowed_material:
+    - public_github_issue_text          # e.g. xodus-gaming/xgameruntime#22, verbatim, inert
+    - public_vendor_api_documentation    # e.g. learn.microsoft.com GDK reference pages
+    - public_repository_source_at_pinned_sha   # the LGPL-2.1/GPL-3.0 xodus-gaming source itself
+    - independently_recorded_observations      # EACH's own structural/behavioral notes, never MS-sourced
+  forbidden_material:
+    - microsoft_proprietary_implementation
+    - disassembly
+    - decompilation
+    - unauthorized_runtime_tracing_of_proprietary_binaries
+    - hidden_or_undisclosed_llm_reverse_engineering_notes
+    - auditor_discovered_source_matches   # terminal M4 audit rule, reused unchanged for M8
+  llm_driven_reverse_engineering: false
+  # Matches upstream's own clause: "Reverse engineering efforts driven by
+  # LLM are not allowed." EACH's Builder receives only the allowed_material
+  # above, never used to infer undocumented proprietary behavior.
+
+terminal_audit: true
+# Same invariant enforced for M4/M6/M7: the Auditor runs once, after a
+# validated candidate, and its result (PASS/FLAG/FAIL/UNAVAILABLE) is
+# terminal for that run. No audit finding — including a discovered source
+# match — ever feeds back into another Builder attempt or a rewrite.
+
+cloud_llm_candidate_review: false
+# In a "strict" run (any candidate touching xgameruntime or Microsoft/XBOX-
+# service-adjacent xodus code), the generated candidate source, its prompt,
+# and its raw completion text must NEVER be read, printed, or reviewed by
+# the outer cloud conductor or any cloud-hosted model. Only source-free
+# evidence (hashes, test/audit outcomes, policy-compliance booleans, input
+# material identities, and documented limitations) may ever appear in the
+# cloud conversation or be committed publicly.
+
+strict_run_repositories:
+  - xodus-gaming/xgameruntime
+  - xodus-gaming/xodus   # API-layer code interacting with Microsoft/XBOX services only;
+                          # non-API-layer code quality/perf work is explicitly out of
+                          # scope for M8 (mandate: "select one bounded issue", not a
+                          # whole subsystem, and M8 targets the clean-room API surface).
+
+no_upstream_pr: true
+single_bounded_issue: true
+
+# Per-repository pinned strict-run envelope (F2 fix): a durably-approved
+# spec whose target repository matches ``strict_run_repositories`` must
+# ALSO match this exact, independently-pinned commit/path/command envelope
+# before any side effect -- never just trust the packet's own self-declared
+# fields once it is sensitive=True and binding-matched. This is what
+# actually rejects a spoofed/drifted spec claiming, e.g., an arbitrary
+# "deadbeef" commit or unrestricted allowed paths for a repo this policy
+# otherwise treats as strict.
+pinned_targets:
+  xodus-gaming/xgameruntime:
+    target_ref: "791710510d9ba0746bbd60754215eb321800e4f0"
+    allowed_paths:
+      - "xsystem.c"
+    build_commands:
+      - ["python3", "examples/xodus-m8-sandbox-id/build_check.py", "build", "xsystem.c"]
+    acceptance_commands:
+      - ["python3", "examples/xodus-m8-sandbox-id/build_check.py", "run"]
+    experiments:
+      each-two-model-ledger-sandbox-v1:
+        target_ref: "791710510d9ba0746bbd60754215eb321800e4f0"
+        allowed_paths: ["xsystem.c"]
+        build_commands:
+          - ["python3", "examples/xodus-m8-sandbox-id/build_check.py", "build", "xsystem.c", "sandbox"]
+        acceptance_commands:
+          - ["python3", "examples/xodus-m8-sandbox-id/build_check.py", "run", "sandbox"]
+      each-two-model-ledger-console-v1:
+        target_ref: "791710510d9ba0746bbd60754215eb321800e4f0"
+        allowed_paths: ["xsystem.c"]
+        build_commands:
+          - ["python3", "examples/xodus-m8-sandbox-id/build_check.py", "build", "xsystem.c", "console"]
+        acceptance_commands:
+          - ["python3", "examples/xodus-m8-sandbox-id/build_check.py", "run", "console"]

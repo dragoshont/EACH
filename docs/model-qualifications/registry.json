@@ -1,0 +1,749 @@
+{
+  "reviewed_at": "2026-10-04",
+  "scope": "Finite qualification of exact checkpoints for documented, inspectable training-dataset-stage lineage and bounded EACH research. Not exact training-sample reconstruction, legal certification, upstream acceptance, or whole-Run release approval.",
+  "policy_dimensions": {
+    "artifact_identity": "Exact checkpoint/revision plus conversion and local runtime identity.",
+    "lineage": "Documented and inspectable base/post-training stages with explicit unknowns.",
+    "strict_approved_source_policy": "Narrow EACH Builder admission; stricter than reproducible research lineage and still not legal clearance.",
+    "rights": "Weight, dataset-package and upstream source rights are recorded separately.",
+    "capability": "Measured task shapes and results; compilation or partial cases are not complete repairs."
+  },
+  "catalog_source": "each/models/catalog.py",
+  "launch_result_verified_source_commit": "a47cd153227a875c395b84e3d52140e6fd543267",
+  "artifact_verification_source_commit": "2440d2ff887e0ac8dc27212b4b4cfbb5140aaa2a",
+  "initial_builder": "starcoderbase-mlx",
+  "accepted_harness_source_commit": "d433af83dd5a45f2f21f41dcccf3dab680a301eb",
+  "launch_acceptance": {
+    "run_id": "each-qualified-xodus-launch-accepted-20261004",
+    "revision": 12,
+    "status": "COMPLETED",
+    "criterion": "qualified-provenance-launch",
+    "deterministic_gate": "PASS",
+    "reality_gate": "PASS",
+    "gpt_family_gate": "PASS",
+    "claude_family_gate": "PASS",
+    "experiment_outcome": "PATCH_REJECTED",
+    "repair_verified": false,
+    "production_qualified": false
+  },
+  "model_qualification_blocks_launch": false,
+  "new_inference_performed_during_artifact_verification": false,
+  "qualified_xodus_inference_performed": true,
+  "launch_scope": "The initial Builder launch is closed. Later explicitly authorized research-only evaluations are recorded separately and do not widen the strict approved-source policy. Destination policy, production qualification and legal questions remain separate.",
+  "verification_evidence": {
+    "run": "each-provenance-first-20261003",
+    "artifact_id": "finite-model-artifact-verification-e879dbd62362",
+    "sha256": "7cd24f928ea8ea96140a5314e86d3b817a28a650bc2fc31a59b5c455a5e8dcb4",
+    "checks": "All 16 retained source files and 16 converted output files per authorized model verified; all seven original weights matched catalog pins and conversion source files. Conversion hashes and complete signed model manifests matched. The three pre-launch wiring receipts each verified two declared materials. The later qualified Xodus receipt independently verified all three declared materials.",
+    "conversion_round_trip": "Retained tensor-by-tensor conversion evidence verified by hash binding; conversion and tensor comparisons were not rerun.",
+    "runtime_identity": "Current official lazy-loader manifest/configuration matched retained successful local invocation identities; no backend weight loading or generation was requested by this verification.",
+    "formal_cross_family_release_pass": false
+  },
+  "runtime_versions": {
+    "python": "3.12.14",
+    "mlx": "0.32.3",
+    "mlx-lm": "0.32.0",
+    "torch": "2.14.1",
+    "transformers": "5.18.0",
+    "safetensors": "0.8.0"
+  },
+  "models": {
+    "starcoderbase": {
+      "model": {
+        "exact_identity": "bigcode/starcoderbase",
+        "upstream_revision": "88ec5781ad071a9d9e925cd28f327dea22eb5188",
+        "status": "AUTHORIZED",
+        "catalog_key": "starcoderbase-mlx",
+        "artifact_model_id": "bigcode/starcoderbase@88ec5781ad071a9d9e925cd28f327dea22eb5188#sha256:97c8813f705fc8c1"
+      },
+      "artifact": {
+        "original_weights_retained": true,
+        "hash_algorithm": "SHA-256",
+        "weight_hashes": {
+          "pytorch_model-00001-of-00007.bin": "dfde5c06da1a9b64727a04b1dd6b2414ead32b8513cef9b54eb12c6ba82b6c86",
+          "pytorch_model-00002-of-00007.bin": "437479f655b31775554991fdabec6472244d334354ee03aea3a4c20b5d0b819b",
+          "pytorch_model-00003-of-00007.bin": "a27c41541d9584e63f8bf5da6d493c053157b75e69d10928dff5ded809b16604",
+          "pytorch_model-00004-of-00007.bin": "f4c16714179039c91190a9bec5935d7c25f7053d0423e3173257163fce16346f",
+          "pytorch_model-00005-of-00007.bin": "fdaf103942e2a0757e576c2d64811b7a9f9c093f77bbfb7635235eeca7ece52b",
+          "pytorch_model-00006-of-00007.bin": "aa2f8410b362aad53a0dea6511fac7460fd2e64a3c0bbe2c142324ed15587f1a",
+          "pytorch_model-00007-of-00007.bin": "a0a6a38cfae8b0418e8b79ec30b6e14a0dfdd24a8237c238e98c80da6f3f5d1c"
+        },
+        "tokenizer_hash": "42b5a37ba11199f024f2b8873e1ecba98da33166e16f700bf7cb2304b0a5583f",
+        "config_hash": "15388cc9aec122696c90ea09eef715b3eabbb40dbd163e2ef3022558486ef652",
+        "original_config_hash": "2fca34b552f689faca44a9ccb5d00530152cbe12cba2e330ce9987dd41649ccf",
+        "original_tokenizer_hash": "42b5a37ba11199f024f2b8873e1ecba98da33166e16f700bf7cb2304b0a5583f",
+        "conversion_chain": {
+          "operation": "pytorch-fp32-to-safetensors-fp16",
+          "conversion_hash": "48bc14f9240345e8c81a5586e71a9f0ce7102fdc9ac80ded74199869653dbed7",
+          "source_file_count": 16,
+          "output_file_count": 16,
+          "tensor_count": 485,
+          "tensor_round_trip_verified_in_retained_record": true,
+          "training_performed": false,
+          "precision_change": "Explicit FP32-to-FP16 rounding; not byte-identical weights.",
+          "output_weight_hashes": {
+            "model-00001-of-00007.safetensors": "13aa8525c8cb80dcc4993813e826ee15361718ddbe2304618d9d8363ed0bbc68",
+            "model-00002-of-00007.safetensors": "b6ad083c598a003f10c932ede91a509dcd0a394eff11c839d2554d737e4b1a19",
+            "model-00003-of-00007.safetensors": "2cde31a23a4765affc9137622eb35e5458af9af897e71846f7b699af91d05b84",
+            "model-00004-of-00007.safetensors": "cdf9da38c536b1cc07716226ee5a42f5b5372cbc7ab58bd89967bd8d768da1b6",
+            "model-00005-of-00007.safetensors": "4436bd44704e6669ac6f8cc82cf3a6dda380bbfc00f0ec93eae720cb9f7e3b60",
+            "model-00006-of-00007.safetensors": "c5fd0f2d564a8a2fdae479f45ef02a1b9c6622de675c52c217ba49ce979d1b9f",
+            "model-00007-of-00007.safetensors": "53bcdbb9f6b4b5eaf7af28caab333104a6f7f017ff350409e7e10b03491f2517"
+          },
+          "output_metadata_hashes": {
+            "tokenizer_config.json": "95684c52ad9a970dbbb17576ee2237cb62902c1eff6804c7c91a4d6219a4a6d7",
+            "special_tokens_map.json": "0823292e24ea07b89317e9ede9d08da2a1b6c014290c06908a7ad04f1efd6719",
+            "generation_config.json": "2cc1aa5aa9e15df6e1aff95c6f47a4dd8dca202b8f607a082a310122436dd6be",
+            "README.md": "d3da47af55f61b85039733235b3697ac62da2f86f9e2e3d267268f282906d26a",
+            "merges.txt": "74b0a4bc1a97ebc1d227f69231b18574374ba052fb945b0fa0aa91d3c32504a2",
+            "vocab.json": "20175afb9f164fad4829aca2279f8df7eeff1e2e3f671378aaa287a740aff09f",
+            "model.safetensors.index.json": "aadf1d70d35575587fdfe1dfeb7beda8a63bcd9663ff385818c0bcd2968f6c18"
+          }
+        }
+      },
+      "pretraining": {
+        "datasets": [
+          {
+            "identity": "bigcode/starcoderdata",
+            "revision": "9fc30b578cedaec69e47302df72cf00feed7c8c4",
+            "release_revision": "771a4a11d98f975ff1a8d5f29206f4ef57fd25d3",
+            "components": ["The Stack v1.2-derived code in 80+ languages", "GitHub issues", "Git commits", "Jupyter scripts and notebooks"],
+            "reported_training_tokens": 1000000000000,
+            "training_token_note": "Publisher paper training-token figure across sampling/epochs; not the unique byte/token size of the released dataset.",
+            "release_file_identities_matched": 863,
+            "comparison_manifest_sha256": "3636743c1f4356db564aa82f6379e0e9b59fed59f0e53faf9edac6c1fece7a34"
+          }
+        ],
+        "starts_from_scratch": true,
+        "ancestor_models": [],
+        "opaque_ancestors": "NONE_DOCUMENTED",
+        "synthetic_material": "UNKNOWN at individual corpus-record level; no identified opaque weight-ancestor stage in the accepted base-release assessment. Public code may contain generated material."
+      },
+      "posttraining": {
+        "present": false,
+        "datasets": [],
+        "exact_samples_known": "NOT_APPLICABLE",
+        "ancestor_models": [],
+        "synthetic_material": "NOT_APPLICABLE",
+        "scope": "Original selected base release; StarCoder's additional 35B Python tokens and instruction variants are not part of this checkpoint."
+      },
+      "rights": {
+        "model_license": "BigCode OpenRAIL-M",
+        "dataset_license_evidence": [
+          "docs/model-qualifications/starcoderbase.md",
+          "https://huggingface.co/datasets/bigcode/starcoderdata",
+          "https://huggingface.co/datasets/bigcode/the-stack-dedup"
+        ],
+        "unresolved_risks": [
+          "Dataset-stage inspection is not exhaustive original-source attribution or exact training membership.",
+          "Processed issues and commits omit separate repository/license columns.",
+          "License detection, source attribution, filtering and opt-out reconstruction may be incomplete or inaccurate.",
+          "No all-human-authorship, originality, non-memorization, lawful-training or output-license guarantee."
+        ]
+      },
+      "each": {
+        "local_runtime_verified": true,
+        "trajectory_recording_verified": true,
+        "official_loader": "each.models.catalog.load_model",
+        "runtime_model_class": "mlx_lm.models.gpt_bigcode.Model",
+        "runtime_model_config": {"tie_word_embeddings": false},
+        "runtime_config_reason": "Load the retained explicit output head; do not discard it as an implicit tied parameter.",
+        "max_position_embeddings": 8192,
+        "default_wiring_max_tokens": 512,
+        "sampling": "greedy",
+        "patch_attempts": [
+          {
+            "run_id": "starcoderbase-qualified-wiring-70e10a921950",
+            "proposal_format": "diff",
+            "receipt_sha256": "e4af7aa8eaffa5d441979a9b47bc0862a4baff4740a68c29b04ba58d6131bd10",
+            "trajectory_hash": "1ead239f101652a34a0577ec602cfac4574bc9dc102ea196d80d00f64e417376",
+            "signature_and_materials": "PASS",
+            "material_count": 2,
+            "materials_location": "Separately retained original-input recovery root; official verify --full requires --artifact-root.",
+            "outcome": "PATCH_REJECTED",
+            "baseline_exit": 1,
+            "candidate_exit": "NOT_RUN",
+            "input_tokens": 190
+          },
+          {
+            "run_id": "starcoderbase-fim-wiring-79a96302751d",
+            "proposal_format": "fim",
+            "receipt_sha256": "46813452709ab0056fc85e3430a2c3f7a746d78cf9bc7f92403a6d5c4ae95a40",
+            "trajectory_hash": "87b7a95937c0e65c9ad18720bbf3c4a6956b5f0bd3ca86838491f9a4d37f5af4",
+            "signature_and_materials": "PASS",
+            "material_count": 2,
+            "outcome": "REPAIR_NOT_VERIFIED",
+            "baseline_exit": 1,
+            "candidate_exit": 1,
+            "input_tokens": 36
+          },
+          {
+            "run_id": "reference-base-sandboxid-98510d3ac7c3",
+            "task": "xodus-gaming/xgameruntime XSystemGetXboxLiveSandboxId documented optional-output contract",
+            "proposal_format": "full_source",
+            "receipt_sha256": "28683ef83ac69c9954956391b0684035298f8fa8686fb1f68ae0b643f41a219b",
+            "trajectory_hash": "961c9b6b45563f478f2bb14927b518d2959f0c062d7670fba94a4a727e389c45",
+            "signature_and_materials": "PASS",
+            "material_count": 3,
+            "outcome": "PATCH_REJECTED",
+            "outcome_detail": "NO_CHANGE_FROM_PINNED_PUBLIC_SOURCE",
+            "baseline_exit": 1,
+            "candidate_exit": "NOT_RUN",
+            "max_output_tokens": 4096,
+            "input_tokens": "UNAVAILABLE",
+            "completion_call_seconds": "UNAVAILABLE",
+            "audit": "NOT_RUN_NO_CANDIDATE",
+            "network_isolation_verified": true,
+            "receipt_assurance": "EACH-P1",
+            "assurance_note": "The network-denial probe passed, but no candidate reached protected-material verification; the shared receipt conservatively downgraded the overall run label."
+          }
+        ],
+        "capability_result": "Local invocation, nonempty responses, provenance capture and FIM candidate application verified. On the first qualified Xodus C task, one full-source response proposed no change and was rejected before candidate validation. This is a complete negative provenance experiment, not verified Xodus repair usefulness.",
+        "maximum_supported_assurance": "EACH-P2 for retained fixture wiring. The qualified Xodus attempt retained verified network denial but is labeled EACH-P1 because no candidate reached protected-material verification. No production/P3, legal, destination-policy or whole-Run approval."
+      },
+      "decision": {
+        "status": "AUTHORIZED",
+        "blocker": null,
+        "scope": "Initial Builder for the accepted bounded dataset-stage provenance research standard.",
+        "evidence_refs": [
+          "docs/model-qualifications/starcoderbase.md",
+          "each/models/catalog.py",
+          "sha256:1e45b956de3272fd56b9f06122d2ec09c307031408c8654da638d7c4218ab371",
+          "sha256:51d20c147b50e97c73ae916286d6c1ee51fdcf00556b01afa99205cfa99b6d4b",
+          "sha256:dd63684f193106bbff376e810ab6499bb93cf4cf4d934bf132c97f74f393a13a",
+          "sha256:7cd24f928ea8ea96140a5314e86d3b817a28a650bc2fc31a59b5c455a5e8dcb4"
+        ],
+        "reviewed_at": "2026-10-03"
+      }
+    },
+    "octocoder": {
+      "model": {
+        "exact_identity": "bigcode/octocoder",
+        "upstream_revision": "0f863c63e38ba80fc2c4010f34a7f46d537a9eee",
+        "status": "AUTHORIZED",
+        "catalog_key": "octocoder-mlx",
+        "artifact_model_id": "bigcode/octocoder@0f863c63e38ba80fc2c4010f34a7f46d537a9eee#sha256:553d84a480a0c794"
+      },
+      "artifact": {
+        "original_weights_retained": true,
+        "hash_algorithm": "SHA-256",
+        "weight_hashes": {
+          "model-00001-of-00007.safetensors": "09ac7601c3d2f981714b44d2b52c9caebd0c77b934e56203d6021d91e00bf41c",
+          "model-00002-of-00007.safetensors": "e983ec634521f4e32fb06de0a37de5a12adf1195f1d56ef662647a20179c2dd8",
+          "model-00003-of-00007.safetensors": "dc9b7beaba475db0578e79ecc545a2f6c7647c05deab03bed3b92da52b930341",
+          "model-00004-of-00007.safetensors": "1c3207001107e933840897b7b4f54f89c666115efa47c15e5624be58a8bae189",
+          "model-00005-of-00007.safetensors": "71f732da4a08546b712eed97021bf29aa7d57f40f817528eab4a46214c6b15e9",
+          "model-00006-of-00007.safetensors": "e3834928c2ea4919d6fe81e379ff16343f802dd57d9a00d1828c92df89a706ec",
+          "model-00007-of-00007.safetensors": "b053bc62199e0d4636f6819412fb45065311f71a886194a14309ebbb1608c69b"
+        },
+        "tokenizer_hash": "9af07a3123a1f4d75dcb85fbdc4c62f9b7873d23fa39c449d2240c3e33eb3ab5",
+        "config_hash": "747885d285914374fa4f630e1ecfcd3a35149d86b7598759b0bdcd58334ee439",
+        "original_config_hash": "0dc5b8bf6be78dfacc1a5ddb7e2224b69dfbe0a30e632db4891784ce3340f9bb",
+        "original_tokenizer_hash": "9af07a3123a1f4d75dcb85fbdc4c62f9b7873d23fa39c449d2240c3e33eb3ab5",
+        "conversion_chain": {
+          "operation": "safetensors-fp32-to-safetensors-fp16",
+          "conversion_hash": "6432ad00b631f340dee0665b8b9e29be678ed765c95a42f434184341ef3e0aca",
+          "source_file_count": 16,
+          "output_file_count": 16,
+          "tensor_count": 484,
+          "source_index_tensor_count": 485,
+          "source_index_omitted_aliases": {"lm_head.weight": "transformer.wte.weight"},
+          "tensor_round_trip_verified_in_retained_record": true,
+          "training_performed": false,
+          "precision_change": "Explicit FP32-to-FP16 rounding; not byte-identical weights.",
+          "output_weight_hashes": {
+            "model-00001-of-00007.safetensors": "b7a16a596bea36e9d7bcef51c39606511f7b71a9937765a9f1d31d2c3dac9f54",
+            "model-00002-of-00007.safetensors": "3fd47345858ece602413108baef3d378acba6d605637a0239216432dcb5ae4ab",
+            "model-00003-of-00007.safetensors": "b8e8f1ffa9650464fbb35463efed64c1cce204f0c249f847b6f7c70211837b15",
+            "model-00004-of-00007.safetensors": "c0361b47d87edd118bc3c8988771b12e98d16b228320fd4d7651fa1dfdf5ef91",
+            "model-00005-of-00007.safetensors": "385f422c14238b7823d8f69cc55507dc561164140e2325fdf708b60898d97ac2",
+            "model-00006-of-00007.safetensors": "6ea998c7c0699315afca94b9e403505faa688f9ba3d6f450b927f3c93cb75e21",
+            "model-00007-of-00007.safetensors": "84f561e0893eed749437a8f609c9cf5909a6a3c9a9bc0225321a61c533cf2dbc"
+          },
+          "output_metadata_hashes": {
+            "tokenizer_config.json": "4d8a576be1b7a37446e07a524202302c08ddc116e68b2e042d9fe4eaef46192e",
+            "special_tokens_map.json": "0823292e24ea07b89317e9ede9d08da2a1b6c014290c06908a7ad04f1efd6719",
+            "generation_config.json": "634b0b7323db9a5f1421a068af9f79c9a2b403496a74cd2ce44e6207af41d912",
+            "README.md": "3d935543684971419a2328817b84af5f16b52a218ddf595ffad586c6b62fa072",
+            "merges.txt": "303127a244b0078878156c17229f36d11b7a3a3f8e47b7cfdbb304ff46be5030",
+            "vocab.json": "20175afb9f164fad4829aca2279f8df7eeff1e2e3f671378aaa287a740aff09f",
+            "model.safetensors.index.json": "25fdee8041250cedc75ff77eb2354b854aa53d4832289ab23ba3939bfe25cb5b"
+          }
+        }
+      },
+      "pretraining": {
+        "datasets": [
+          {"identity": "bigcode/starcoderdata", "revision": "9fc30b578cedaec69e47302df72cf00feed7c8c4", "stage": "StarCoderBase multilingual 1T-token pretraining", "evidence": "docs/model-qualifications/starcoderbase.md"},
+          {"identity": "bigcode/starcoderdata", "stage": "StarCoder additional Python continuation", "tokens": 35000000000, "evidence": "https://arxiv.org/html/2305.06161v2"}
+        ],
+        "starts_from_scratch": false,
+        "ancestor_models": [
+          {"identity": "bigcode/starcoderbase", "revision": "88ec5781ad071a9d9e925cd28f327dea22eb5188", "role": "Qualified base-release ancestry"},
+          {"identity": "bigcode/starcoder", "revision": "UNKNOWN", "role": "Documented additional 35B Python-token ancestor stage; exact historical training-job checkpoint not reconstructed"}
+        ],
+        "opaque_ancestors": "NONE_IDENTIFIED at the accepted documented dataset-stage scope; historical ancestor checkpoint revision remains UNKNOWN.",
+        "synthetic_material": "UNKNOWN at individual base-corpus-record level; inherits the explicit StarCoderBase limitations."
+      },
+      "posttraining": {
+        "present": true,
+        "datasets": [
+          {
+            "identity": "bigcode/commitpackft",
+            "revision": "fc56fe33c030c6daa414c2b112c932b8eed085e6",
+            "selected_samples": 5000,
+            "exact_selected_row_ids": "UNKNOWN",
+            "languages": ["Python", "JavaScript", "Java", "Go", "C++", "Rust"],
+            "inspection_scope": "One released record per language; readable repository, commit, path and license metadata. Not the selected 5000-row training subset."
+          },
+          {
+            "identity": "bigcode/oasst-octopack",
+            "revision": "1f5db3451c66a64e37158fcdf8c1951db8e90b33",
+            "file_sha256": "de45760df5da837d265615a17f23fddefb13c18569481e75a522d2bbb5732ada",
+            "conversations": 8587,
+            "selected_messages_matched_by_id_and_text_hash": 17174,
+            "original_identity": "OpenAssistant/oasst1",
+            "original_revision": "fdf72ae0827c1cda404aff25b6603abec9e3399b",
+            "original_file_sha256": "2ff4aa8999c911ffec7972ddf70359f220b3da184b731f3649f68b1391e19341",
+            "synthetic_flag_true": 0,
+            "synthetic_flag_unknown": 0
+          }
+        ],
+        "exact_samples_known": "PARTIAL: released OASST selections matched; exact 5000 CommitPackFT row IDs UNKNOWN.",
+        "ancestor_models": ["bigcode/starcoder", "bigcode/starcoderbase"],
+        "synthetic_material": "Selected OASST originals explicitly mark synthetic=false; contributor assistance and CommitPackFT individual-record authorship remain UNKNOWN. Separate Self-Instruct ablations are not assumed final-model ingredients.",
+        "recipe_evidence": [
+          "https://arxiv.org/html/2308.07124v2",
+          "bigcode-project/octopack@e17a8f6470264286bc6a52eb8263582083bf3bf6"
+        ],
+        "historical_training_job_reconstructed": false
+      },
+      "rights": {
+        "model_license": "BigCode OpenRAIL-M",
+        "dataset_license_evidence": ["docs/model-qualifications/octocoder-progress.md", "docs/model-qualifications/starcoderbase.md"],
+        "unresolved_risks": [
+          "Mixed individual source licenses; sampled Rust CommitPackFT record is AGPL-3.0. Collection/model license is not a substitute.",
+          "Exact 5000 selected CommitPackFT rows and their comprehensive per-record licenses remain UNKNOWN.",
+          "Intermediate guanaco repository returned 404; direct final-to-original OASST matching does not reconstruct every filter.",
+          "False synthetic metadata is not proof of exclusively human authorship.",
+          "Inherits base-corpus attribution and license-detection limitations; no legal or output-license certification."
+        ]
+      },
+      "each": {
+        "local_runtime_verified": true,
+        "trajectory_recording_verified": true,
+        "official_loader": "each.models.catalog.load_model",
+        "runtime_model_class": "mlx_lm.models.gpt_bigcode.Model",
+        "runtime_model_config": {"tie_word_embeddings": true},
+        "runtime_config_reason": "Publisher index lists an unstored tied lm_head alias. All 484 stored tensors are preserved; no weight synthesized or discarded.",
+        "prompt_format": "question-answer",
+        "max_position_embeddings": 8192,
+        "max_tokens": 512,
+        "sampling": "greedy",
+        "patch_attempts": [
+          {
+            "run_id": "octocoder-qualified-wiring-256c03641b83",
+            "proposal_format": "diff",
+            "receipt_sha256": "3cac16bc725501f93066d93e3307c8c3d4cead2bf369df3a29ed66c5d8d1f8df",
+            "trajectory_hash": "cceba3e49ddeac6feb3e1ff62f5d801ace3e81bfcbd6442de40b397af0093160",
+            "signature_and_materials": "PASS",
+            "material_count": 2,
+            "outcome": "REPAIR_VERIFIED",
+            "baseline_exit": 1,
+            "candidate_exit": 0,
+            "input_tokens": 195
+          }
+        ],
+        "capability_result": "One successful protected hello-repair fixture response, not a benchmark or Xodus result. C/C++/Rust repair capability UNKNOWN.",
+        "maximum_supported_assurance": "EACH-P2 for retained fixture wiring; no production/P3, legal, destination-policy or whole-Run approval."
+      },
+      "decision": {
+        "status": "AUTHORIZED",
+        "blocker": null,
+        "scope": "Already independently accepted dataset-stage scope, including the distinct StarCoder Python continuation and explicit exact-subset limitations; no broadened eligibility claim.",
+        "evidence_refs": [
+          "docs/model-qualifications/octocoder-progress.md",
+          "docs/model-qualifications/starcoderbase.md",
+          "each/models/catalog.py",
+          "sha256:956d0fd646176fecee6922b2bdcac2ffca29d8ca1bffd8d05b84b9eb0cab36f7",
+          "sha256:7cd24f928ea8ea96140a5314e86d3b817a28a650bc2fc31a59b5c455a5e8dcb4"
+        ],
+        "reviewed_at": "2026-10-03"
+      }
+    },
+    "starcoder2-3b": {
+      "model": {
+        "exact_identity": "bigcode/starcoder2-3b",
+        "upstream_revision": "733247c55e3f73af49ce8e9c7949bf14af205928",
+        "status": "BLOCKED"
+      },
+      "artifact": {
+        "original_weights_retained": false,
+        "weight_hashes": "UNKNOWN",
+        "tokenizer_hash": "UNKNOWN",
+        "config_hash": "UNKNOWN",
+        "conversion_chain": "NOT_PERFORMED"
+      },
+      "pretraining": {
+        "datasets": ["The Stack v2 small repository-context subset", "Pull requests and issues", "Jupyter notebooks and scripts", "Kaggle scripts", "Library documentation", "StackOverflow", "LHQ including GSM8K-SciRel and MultiPL-T", "Intermediate representations"],
+        "starts_from_scratch": "UNKNOWN",
+        "ancestor_models": "UNKNOWN",
+        "opaque_ancestors": "Unqualified LLaMA/LLaMA2-family generator ancestry through GSM8K-SciRel reasoning; included subset not mapped.",
+        "synthetic_material": "GSM8K-SciRel generator base/SFT ancestry unqualified; MultiPL-T translator/test-generator roles and included release need mapping. Llama-2-70B-chat filtering labels are a distinct role, not automatically generated training answers.",
+        "continued_pretraining": "200B tokens from the same unresolved corpus; 4K-to-16K context continuation.",
+        "excluded_from_3b_recipe": ["OpenWebMath", "Wikipedia", "arXiv"]
+      },
+      "posttraining": {
+        "present": "UNKNOWN",
+        "datasets": "UNKNOWN",
+        "exact_samples_known": "UNKNOWN",
+        "ancestor_models": "UNKNOWN",
+        "synthetic_material": "UNKNOWN"
+      },
+      "rights": {
+        "model_license": "UNKNOWN",
+        "dataset_license_evidence": ["sha256:8a4a891921ee169acacb1131ae131fd14901f94c71b22f2cc4c1b29ea8a50e5f"],
+        "unresolved_risks": ["Accessible training IDs do not establish historical content, supplementary release mapping, synthetic ancestry or legal clearance."]
+      },
+      "each": {
+        "local_runtime_verified": false,
+        "trajectory_recording_verified": false,
+        "patch_attempts": [],
+        "capability_result": "NOT_EVALUATED; lineage blocks loading and generation.",
+        "maximum_supported_assurance": "NONE"
+      },
+      "decision": {
+        "status": "BLOCKED",
+        "blocker": "BLOCKED_SYNTHETIC_ANCESTRY",
+        "blocking_gate": "G4",
+        "scope": "Retained canonical assessment accepted without further research. No launch dependency.",
+        "evidence_refs": [
+          "sha256:8a4a891921ee169acacb1131ae131fd14901f94c71b22f2cc4c1b29ea8a50e5f",
+          "sha256:7cd24f928ea8ea96140a5314e86d3b817a28a650bc2fc31a59b5c455a5e8dcb4"
+        ],
+        "reviewed_at": "2026-10-03"
+      }
+    },
+    "comma-v0.1-2t": {
+      "model": {
+        "exact_identity": "common-pile/comma-v0.1-2t",
+        "upstream_revision": "3fba8938462ae9303c6e88770fc2d098370f0eaa",
+        "status": "DEFERRED",
+        "publisher_parameter_count": 7002656768,
+        "publisher_weight_dtype": "BF16",
+        "architecture": "LlamaForCausalLM",
+        "architecture_is_weight_ancestry": false
+      },
+      "artifact": {
+        "original_weights_retained": "UNKNOWN",
+        "weight_hashes": "UNKNOWN",
+        "tokenizer_hash": "UNKNOWN",
+        "config_hash": "UNKNOWN",
+        "conversion_chain": "UNKNOWN",
+        "local_artifact_identity": "UNKNOWN; desk-pass only, no weights downloaded or local weight/tokenizer/configuration bytes verified."
+      },
+      "pretraining": {
+        "datasets": [
+          {
+            "identity": "common-pile/comma_v0.1_training_dataset",
+            "revision": "UNKNOWN",
+            "description": "Public modified and filtered Common Pile v0.1 training dataset.",
+            "source_count": 30,
+            "published_mixture_table": {
+              "raw_tokens_billions": 463.6,
+              "effective_main_tokens_billions": 1034.4,
+              "scope": "Main 1T mixture table; doubled for the 2T release."
+            },
+            "stack_v2_educational_code": "Classifiers select existing code; this selection mechanism is not generation of training code."
+          }
+        ],
+        "starts_from_scratch": true,
+        "starts_from_scratch_evidence": {
+          "scope": "Publisher training-configuration evidence, not an independent reconstruction of the historical training job.",
+          "configuration": "common-pile/comma-v0.1-2t-checkpoints/config.yaml",
+          "configuration_revision": "UNKNOWN",
+          "init_ckpt_path": null,
+          "continue_training_from_init": false,
+          "seed_configuration": "seed=777; data/model=42, as reported by the bounded desk pass."
+        },
+        "ancestor_models": "NONE_IDENTIFIED by the publisher from-scratch configuration; LlamaForCausalLM denotes architecture, not inherited Llama weights.",
+        "opaque_ancestors": "UNKNOWN; no opaque ancestor identified is not proof that none exists, including indirect synthetic-data ancestry.",
+        "synthetic_material": "UNKNOWN across the complete 30-source mixture. The bounded desk pass did not resolve all required synthetic ancestry; G4 remains UNKNOWN.",
+        "stages": [
+          {"stage": "main pretraining", "tokens": 1930000000000},
+          {"stage": "cooldown", "tokens": 75500000000},
+          {"stage": "checkpoint averaging", "checkpoint_count": 10}
+        ]
+      },
+      "posttraining": {
+        "present": false,
+        "datasets": [],
+        "exact_samples_known": "NOT_APPLICABLE",
+        "ancestor_models": [],
+        "synthetic_material": "NOT_APPLICABLE",
+        "scope": "Publisher base-model card identifies no alignment stage; main training, cooldown and checkpoint averaging are recorded under pretraining."
+      },
+      "rights": {
+        "model_license": "Apache-2.0",
+        "dataset_license_evidence": [
+          "https://huggingface.co/datasets/common-pile/comma_v0.1_training_dataset/blob/main/README.md"
+        ],
+        "unresolved_risks": [
+          "Common Pile publisher explicitly states that inaccurate license metadata and license laundering prevent a guarantee that the corpus is exclusively openly licensed.",
+          "This residual source-license risk is retained, not treated as an automatic qualification failure or a legal certificate.",
+          "Full-mixture synthetic ancestry remains insufficiently reviewed independently of the license caveat."
+        ]
+      },
+      "each": {
+        "local_runtime_verified": false,
+        "trajectory_recording_verified": false,
+        "patch_attempts": [],
+        "capability_result": "UNEVALUATED; no provisioning or inference in the completed desk pass.",
+        "maximum_supported_assurance": "NONE; not authorized for EACH target generation."
+      },
+      "decision": {
+        "status": "DEFERRED",
+        "blocker": "INSUFFICIENT_REVIEWED_SYNTHETIC_ANCESTRY_EVIDENCE",
+        "blocking_gate": "G4",
+        "gate_states": {
+          "G1": "UNKNOWN_LOCAL_ARTIFACT_BYTES",
+          "G4": "UNKNOWN",
+          "G6": "UNEVALUATED"
+        },
+        "scope": "Terminal DEFERRED for this finite launch-cycle desk pass, not merely runtime-pending. Full 30-source synthetic ancestry remains unresolved; no further research or provisioning authorized here. Base authorization and launch are not blocked.",
+        "evidence_basis": "Completed bounded desk-pass findings supplied by the parent on 2026-10-03; no additional fetching or independent source reinspection performed for this registry update.",
+        "evidence_refs": [
+          "https://huggingface.co/api/models/common-pile/comma-v0.1-2t/revision/3fba8938462ae9303c6e88770fc2d098370f0eaa",
+          "https://huggingface.co/common-pile/comma-v0.1-2t/blob/3fba8938462ae9303c6e88770fc2d098370f0eaa/README.md",
+          "https://huggingface.co/common-pile/comma-v0.1-2t/blob/3fba8938462ae9303c6e88770fc2d098370f0eaa/config.json",
+          "https://huggingface.co/datasets/common-pile/comma_v0.1_training_dataset/blob/main/README.md",
+          "https://huggingface.co/common-pile/comma-v0.1-2t-checkpoints/blob/main/config.yaml"
+        ],
+        "wine_2026_precedent": {
+          "status": "USER_ASSERTION_UNVERIFIED",
+          "finding": "Comma-specific primary source not located in the bounded desk pass; no Wine acceptance or upstream authorization inferred."
+        },
+        "reviewed_at": "2026-10-03"
+      }
+    },
+    "crystalcoder": {
+      "model": {
+        "exact_identity": "LLM360/Crystal",
+        "upstream_revision": "34fc9cd58acd87002560379a95b432147cc9135a",
+        "status": "AUTHORIZED",
+        "catalog_key": "crystalcoder-transformers",
+        "artifact_model_id": "LLM360/Crystal@34fc9cd58acd87002560379a95b432147cc9135a#sha256:af277cbad887d6d0"
+      },
+      "artifact": {
+        "original_weights_retained": true,
+        "format": "publisher BF16 PyTorch, no conversion",
+        "weight_hashes": {
+          "pytorch_model-00001-of-00003.bin": "45d3ddd1d30058d55c8ccc250139aeeef318f14c39c53bbfa830fb669ac79ebe",
+          "pytorch_model-00002-of-00003.bin": "c1c03da74d41317a7e2c5a799e09a8ee5ce4a94ba19976befa9f1135c48cf93a",
+          "pytorch_model-00003-of-00003.bin": "c33c1d1ace28b1ac3a7afa7e82b18322446bacf76f12fd07401879dafd4d6cfe"
+        },
+        "tokenizer_hash": "c61adcb4e52988e4ee38ad9871e1f4e43ab128b0b5191225d307c2d022ca9569",
+        "config_hash": "f1fd9fba01f1fb3b26a04c8320b126d92602498a9d71fa20460e07e134fd5558"
+      },
+      "pretraining": {
+        "starts_from_scratch": true,
+        "dataset": "LLM360/CrystalCoderDatasets",
+        "dataset_revision": "e42bace8739ade3b2d73025746bdac8a38345427",
+        "stages": [
+          "first half of SlimPajama",
+          "second half of SlimPajama plus two StarCoderData epochs",
+          "selected Python/web StarCoderData plus SlimPajama"
+        ],
+        "opaque_ancestors": "NONE_IDENTIFIED",
+        "exact_training_samples": "NOT_RECONSTRUCTED"
+      },
+      "posttraining": {
+        "present": false,
+        "datasets": []
+      },
+      "rights": {
+        "model_license": "Apache-2.0",
+        "unresolved_risks": [
+          "Dataset-stage lineage is not exhaustive per-record attribution or legal certification.",
+          "Exact historical training membership and job reconstruction are not established."
+        ]
+      },
+      "each": {
+        "local_runtime_verified": true,
+        "trajectory_recording_verified": true,
+        "official_loader": "each.models.catalog.load_model",
+        "runtime": "lock/project/helper-hash-bound isolated runtime; child-verified Python 3.12.14 / Transformers 4.44.2 / Torch 2.14.1, MPS; scrubbed environment; timeout/output bounds; macOS sandbox network, multiple private-file and outside-work write probes passed",
+        "xodus_verified_fixes": 0,
+        "xodus_tasks": 2,
+        "capability_result": "0/2; compact FIM and code-continuation profiles produced structural rejection or build failure before behavioral validation.",
+        "secured_receipts": {
+          "sandbox": "sha256:6e03d88280a48644d683a0c367ec11bda3f9b7098ff572942d9500b1a950e141",
+          "console": "sha256:d635c463030f99fb26e8a5a51809932ef5aca94c14ed66a1c150a58fdb0f3da6"
+        },
+        "runtime_files_sha256": {
+          "project": "d31427bccbf785deea774472cd1ae508d7634ac393646db4fca6ad95db618b22",
+          "lock": "91038254ab4b87f2651de4244fdf1dd4e95386b1907260ce6f734ee366cf3505",
+          "helper": "d74afbb52f27468a0cfe108e6f0e9d520b3e05f4693b1f14eb778c386f809938"
+        }
+      },
+      "decision": {
+        "status": "AUTHORIZED",
+        "blocker": null,
+        "scope": "Bounded research under documented, inspectable training-dataset-stage lineage; not production or legal certification.",
+        "evidence_refs": [
+          "docs/model-qualifications/crystalcoder.md",
+          "each/models/catalog.py",
+          "docs/two-model-evaluation-ledger.md"
+        ],
+        "reviewed_at": "2026-10-04"
+      }
+    },
+    "k2-65b": {
+      "model": {
+        "exact_identity": "IFM/K2",
+        "upstream_revision": "400af6cd7de09fc9349cc6b5b24db20f778d5b72",
+        "status": "RESEARCH_ONLY",
+        "catalog_key": "k2-65b-mlx",
+        "artifact_model_id": "IFM/K2@400af6cd7de09fc9349cc6b5b24db20f778d5b72#sha256:8266ff62e09c6985"
+      },
+      "artifact": {
+        "original_weights_retained": true,
+        "original_format": "27 publisher FP16 safetensors shards",
+        "repository_total_bytes": 130580505345,
+        "original_weight_bytes": 130572453976,
+        "original_verification_record_sha256": "3a422e34687df44aeaad75063e50fa552d14e47e755aaaac0c369a99396e12f3",
+        "conversion": "local MLX affine 8-bit, group size 64, 8.5 effective bits per weight",
+        "conversion_sha256": "8b157bd5a49e8f0fa129c3e0278e0e823f8a4500eeb70adc4795d38bdb4d6d58",
+        "converted_bytes": 69371802420,
+        "converted_weight_shards": 14
+      },
+      "pretraining": {
+        "starts_from_scratch": true,
+        "dataset": "IFM/K2Datasets",
+        "dataset_revision": "17cd6d34bf7d2a5c68df74d3f5fc0b4d19c4bdf4",
+        "dataset_manifest_sha256": "4a731053c01bdcde19a6c97e4341b507c0b698e75f40b5f0f8b2198362dfee84",
+        "chunk_source_map_sha256": "726bff67a872a87cc6b1e73924e3e3abf196e25b1a348c546f741c2b86af7878",
+        "stages": [
+          "1.3T-token 2048-context mixed public sequence, chunks 0-359",
+          "69.4B-token 8192-context code/math/science continuation, chunks 360-379"
+        ],
+        "opaque_weight_ancestors": "NONE",
+        "intentional_llm_teacher_generated_stage": "NONE_IDENTIFIED",
+        "procedural_material": "DeepMind Mathematics public generator; deterministic StarCoder FIM transformation"
+      },
+      "posttraining": {
+        "present": false,
+        "datasets": [],
+        "excluded_variants": ["K2-Chat", "later safety-tuned checkpoints"]
+      },
+      "rights": {
+        "model_license": "Apache-2.0",
+        "sequence_license": "ODC-By-1.0",
+        "unresolved_risks": [
+          "Pile of Law is CC-BY-NC-SA-4.0.",
+          "RefinedWeb/Common Crawl and public web/code records retain heterogeneous upstream copyrights and terms.",
+          "Proof-Pile-2 preserves underlying source licenses rather than assigning blanket clearance.",
+          "Private bounded research authorization is not commercial-use or legal certification."
+        ]
+      },
+      "each": {
+        "local_runtime_verified": true,
+        "trajectory_recording_verified": true,
+        "official_loader": "each.models.catalog.load_model",
+        "runtime": "MLX 0.32.3 / MLX-LM 0.32.0, Apple Silicon, affine 8-bit",
+        "smoke_record_sha256": "8241c7af544633e3c4256c3313852e07190f86d6d25f1ec379f6105945d1b284",
+        "xodus_verified_fixes": 0,
+        "xodus_tasks": 2,
+        "capability_result": "0/2; sandbox 4/6 and console 3/6, both compiled and failed behavioral validation.",
+        "receipts": {
+          "sandbox": "sha256:48455a8ac3236aeb4a7852c21294cc2dca25e63cce93b7300d3233cb4fdd8507",
+          "console": "sha256:be6d4f51352b40c8eb5907d54c9b930f55bd10f6df80fd44c80e7266894c0a7a"
+        }
+      },
+      "decision": {
+        "status": "EVALUATION_ALLOWED_RESEARCH_ONLY",
+        "blocker": "SOURCE_RIGHTS_GAPS",
+        "strict_approved_source_policy": false,
+        "scope": "Private bounded research under exact published dataset-stage lineage; mixed source rights preserved; not production or legal clearance.",
+        "evidence_refs": [
+          "docs/model-qualifications/k2-progress.md",
+          "each/models/k2_profile.json",
+          "each/models/catalog.py",
+          "docs/two-model-evaluation-ledger.md"
+        ],
+        "reviewed_at": "2026-10-04"
+      }
+    },
+    "codegen25-7b-multi": {
+      "model": {
+        "exact_identity": "Salesforce/codegen25-7b-multi_P",
+        "upstream_revision": "3cfb2194ec55e4a229f2d2184623b747fa24ab94",
+        "status": "AUTHORIZED",
+        "catalog_key": "codegen25-7b-multi-mlx",
+        "artifact_model_id": "Salesforce/codegen25-7b-multi_P@3cfb2194ec55e4a229f2d2184623b747fa24ab94#sha256:e164c1a2b77be037"
+      },
+      "artifact": {
+        "original_weights_retained": true,
+        "original_format": "three publisher FP32 PyTorch shards",
+        "original_weight_bytes": 27582926880,
+        "original_verification_record_sha256": "f93fb3edfc99dd76f4e0c95372c0f849dfe8b327e99e5f68deb0840098cf954d",
+        "fp16_conversion_sha256": "371d9a9ce1089a16d6bdddfa94b194757001cc10e2e1b23b0b947b94588beec3",
+        "final_conversion_sha256": "11ad1401525a01985c99746ce7fe56f758f9bb19bc98a21fc5c79b4a514eafe2",
+        "converted_bytes": 7327091357,
+        "converted_weight_shards": 2,
+        "tokenizer_compatibility_sha256": "8a6718384a609bcdda49504fb1fa38568940f27a2f96ac99badb945234f2171f"
+      },
+      "pretraining": {
+        "starts_from_scratch": true,
+        "dataset": "bigcode/starcoderdata",
+        "dataset_revision": "9fc30b578cedaec69e47302df72cf00feed7c8c4",
+        "dataset_manifest_sha256": "3636743c1f4356db564aa82f6379e0e9b59fed59f0e53faf9edac6c1fece7a34",
+        "tokens": 1400000000000,
+        "recipe": "more than four epochs with deterministic span-corruption/infill transformations",
+        "intentional_llm_teacher_generated_stage": "NONE_IDENTIFIED"
+      },
+      "posttraining": {
+        "present": false,
+        "datasets": [],
+        "excluded_variants": [
+          "CodeGen2.5-7B-mono: additional Python stage not identified",
+          "CodeGen2.5-7B-instruct: separate instruction stage and research-only license"
+        ]
+      },
+      "rights": {
+        "model_license": "Apache-2.0",
+        "unresolved_risks": [
+          "StarCoderData retains heterogeneous source licenses and attribution obligations.",
+          "Individual source records may contain generated material.",
+          "No legal, originality, memorization or output-license certification."
+        ]
+      },
+      "each": {
+        "local_runtime_verified": true,
+        "trajectory_recording_verified": true,
+        "official_loader": "each.models.catalog.load_model",
+        "runtime": "exact-version-checked MLX 0.32.3 / MLX-LM 0.32.0 / Transformers 5.18.0 / tiktoken 0.4.0 / Torch 2.14.1 / safetensors 0.8.0; reviewed local tokenizer code; no trust_remote_code",
+        "smoke_record_sha256": "222726771b631d215aabbb0452cafcbe502d1d9deb070bfd157f2f0c666eb0d9",
+        "xodus_verified_fixes": 0,
+        "xodus_tasks": 2,
+        "capability_result": "0/2; sandbox 1/6, console structurally rejected before cases.",
+        "receipts": {
+          "sandbox": "sha256:4d693cfa2fb7392545ae549a148d462d17435a22258152342f981e4ac47524d2",
+          "console": "sha256:f4c8ebed0f22d113ec5f3b378b27d83fed99cea4c7902c7cc7fc144dc24db485"
+        }
+      },
+      "decision": {
+        "status": "AUTHORIZED",
+        "blocker": null,
+        "strict_approved_source_policy": true,
+        "scope": "Private bounded research under the existing StarCoderData stage assessment; mono and instruct variants excluded.",
+        "evidence_refs": [
+          "docs/model-qualifications/codegen25-multi.md",
+          "each/models/codegen25_profile.json",
+          "each/models/catalog.py",
+          "docs/two-model-evaluation-ledger.md"
+        ],
+        "reviewed_at": "2026-10-04"
+      }
+    }
+  }
+}

@@ -1,0 +1,62 @@
+BEGIN_PATCH
+--- a/shadow/m7/clean_room_lru_cache.py
++++ b/shadow/m7/clean_room_lru_cache.py
+@@ -16,3 +16,54 @@
+-def lru_cache_clean_room(maxsize: int | None = 128, typed: bool = False):
+-    """See the approved EACH M7 spec for the complete required behavior."""
+-    raise NotImplementedError("lru_cache_clean_room: not yet implemented (EACH M7 Builder target)")
++def lru_cache_clean_room(maxsize: int | None = 128, typed: bool = False):
++    """See the approved EACH M7 spec for the complete required behavior."""
++
++    def decorator(func):
++        cache = {}
++        order = []
++        hits = [0]
++        misses = [0]
++
++        def make_key(args, kwargs):
++            key = args + tuple(sorted(kwargs.items()))
++            key = key + tuple(type(a) for a in args) + tuple(type(v) for v in kwargs.values())
++            return key
++
++        def wrapper(*args, **kwargs):
++            key = make_key(args, kwargs)
++            if key in cache:
++                hits[0] += 1
++                order.remove(key)
++                order.append(key)
++                return cache[key]
++            misses[0] += 1
++            result = func(*args, **kwargs)
++            cache[key] = result
++            order.append(key)
++            if maxsize is not None and len(order) > maxsize:
++                oldest = order.pop(0)
++                del cache[oldest]
++            return result
++
++        class _Info:
++            def __init__(self, hits, misses, maxsize, currsize):
++                self.hits = hits
++                self.misses = misses
++                self.maxsize = maxsize
++                self.currsize = currsize
++
++        def cache_info():
++            return _Info(hits[0], misses[0], maxsize, len(cache))
++
++        def cache_clear():
++            cache.clear()
++            order.clear()
++            hits[0] = 0
++            misses[0] = 0
++
++        wrapper.cache_info = cache_info
++        wrapper.cache_clear = cache_clear
++        wrapper.__wrapped__ = func
++        wrapper.__name__ = func.__name__
++        wrapper.__doc__ = func.__doc__
++        return wrapper
++
++    return decorator
+END_PATCH

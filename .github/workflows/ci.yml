@@ -1,0 +1,43 @@
+# Ordinary harness CI. Tests the EACH tool itself — never private model
+# weights, GitHub tokens, or commercial LLM APIs (see
+# docs/EACH_BOOTSTRAP_MANDATE.md §50).
+name: CI
+
+permissions:
+  contents: read
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    runs-on: macos-14
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v3
+        with:
+          python-version: "3.12"
+
+      - name: uv sync
+        run: uv sync --locked
+
+      - name: Build package
+        run: uv build
+
+      - name: uv run ruff check
+        run: uv run ruff check each/ tests/
+
+      - name: uv run pytest
+        run: uv run pytest -q
+
+      - name: uv run each doctor
+        run: uv run each doctor

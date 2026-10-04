@@ -1,0 +1,49 @@
+name: Bug report
+description: Report a reproducible EACH harness defect without private artifacts.
+title: "[Bug]: "
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Do not include credentials, private target source, model responses, signing keys or private receipts.
+        Report security vulnerabilities through the repository Security tab instead.
+  - type: input
+    id: version
+    attributes:
+      label: EACH version or commit
+      placeholder: v0.1.0-alpha.1 or full commit SHA
+    validations:
+      required: true
+  - type: input
+    id: platform
+    attributes:
+      label: Platform
+      placeholder: macOS version, architecture, Python and uv versions
+    validations:
+      required: true
+  - type: textarea
+    id: command
+    attributes:
+      label: Command and minimal reproduction
+      description: Redact local paths, credentials and private material.
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behavior
+    validations:
+      required: true
+  - type: textarea
+    id: actual
+    attributes:
+      label: Actual behavior and exit code
+    validations:
+      required: true
+  - type: checkboxes
+    id: redaction
+    attributes:
+      label: Publication hygiene
+      options:
+        - label: I removed credentials, private target artifacts and raw model output.
+          required: true

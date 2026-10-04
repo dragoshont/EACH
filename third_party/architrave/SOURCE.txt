@@ -1,0 +1,11 @@
+Architrave v0.11.1
+Source: https://github.com/dragoshont/architrave
+Revision: 165da5284e0fff5ecfa7b1fff18593c949ad8fd3
+Copyright: Copyright (c) 2026 dragoshont
+License: MIT; the complete upstream notice is in LICENSE.
+
+The canonical knowledge-profile installer copies Architrave assets into
+.github/agents/, .github/hooks/, gates/, harness/, and knowledge/, and
+generates the managed AGENTS.md stanza, config, and setup workflow.
+Those upstream assets retain their MIT license. The Apache-2.0 license
+for original EACH code does not replace Architrave's upstream notice.

@@ -1,0 +1,1286 @@
+"""M8: a sealed, source-isolated Builder run against a real, pinned, public
+upstream file (``xodus-gaming/xgameruntime``'s ``xsystem.c``), reusing the
+exact validated-before-audit / audit-terminal pipeline shape already proven
+in :mod:`each.bakeoff` and :mod:`each.clean_room` (M4/M5 fixes): a candidate
+must pass a real baseline-fails/repaired-passes acceptance run before the
+terminal audit ever runs; an audit rejection ends the run and is never fed
+back into another Builder attempt; only the original approved spec -- never
+a discovered match or audit finding -- can ever seed a later attempt.
+
+Unlike M7 (a from-scratch, black-box clean-room synthesis task), M8 is a
+real, scoped bug-fix task: the Builder is shown the complete current public
+``xsystem.c`` (the one file the approved spec's ``allowed_paths`` permits
+editing) plus the approved spec's own ``problem_statement`` (built entirely
+from the public GitHub issue text -- see the spec's own material origins).
+It is never shown any proprietary implementation, decompiled/disassembled
+material, or any human-authored fix -- only the real public source it is
+allowed to edit and the public issue describing the bug.
+
+The acceptance pipeline is two mechanical host-tool steps (compile, then
+run a tiny isolated C test binary -- see
+``examples/xodus-m8-sandbox-id/build_check.py``), not pytest: outcomes are
+plain process exit codes, classified honestly (a Docker-launch failure is
+never read as pass/fail evidence).
+"""
+
+from __future__ import annotations
+
+import shutil
+import time
+import uuid
+from pathlib import Path
+from typing import Any
+
+from each.audit.run import reject_on_audit_flag, run_audit
+from each.benchmark import BenchmarkExecutionError, fetch_file
+from each.demo import _DOCKER_LAUNCH_FAILURE_EXIT_CODES, _result_to_dict
+from each.executor.container import (
+    DOCKER_CONTEXT,
+    ContainerExecutor,
+    ContainerExecutorError,
+    derive_assurance_level,
+)
+from each.hashing import sha256_bytes
+from each.models.base import (
+    REAL_MODEL_ADAPTER_CLASS_PATHS,
+    ContextBudgetExceeded,
+    RepairModel,
+    validate_recorded_real_model_identity,
+)
+from each.models.fixture import FixtureModel
+from each.outcome import sanitize_outcome_class, sanitize_proposal_format
+from each.patch import PatchRejected, apply_patch, extract_patch_text, parse_patch
+from each.paths import assert_no_symlink_escape, each_home, runs_dir, validate_private_root, validate_task_id
+from each.raw_proposal import RawProposalRejected, derive_unified_diff, extract_full_source
+from each.receipt import Receipt
+from each.spec import ApprovedSpec
+from each.worktree import build_worktree, verify_unchanged
+from each.xodus_policy import verify_xodus_shadow_binding
+
+HARNESS_ROOT = Path(__file__).resolve().parent.parent / "examples" / "xodus-m8-sandbox-id"
+HARNESS_FILES = ("build_check.py", "winstubs.h")
+_AUDIT_CHECK_NAMES = (
+    "exact-substring",
+    "ngram-similarity",
+    "ast-similarity",
+    "license-scan",
+    "corpus-membership",
+)
+
+# Built from docker/m8-native-runtime/Dockerfile (python:3.12-slim + gcc +
+# libc6-dev only), pinned by digest before this sealed run -- "provision
+# dependencies before sealed run where possible" (mandate section 128),
+# matching the exact precedent of each.benchmark.BENCHMARK_IMAGE_DIGEST.
+NATIVE_IMAGE_DIGEST = (
+    "each-m8-native-runtime@sha256:5e3fd3be8e066385dfa7eaf5bf7ef2a14a5e2090a6a8ba3227de5e9aeffb6baf"
+)
+_SANDBOX_ID_FUNCTION_SIGNATURE = (
+    "static HRESULT WINAPI x_system_XSystemGetXboxLiveSandboxId"
+)
+_CONSOLE_ID_FUNCTION_SIGNATURE = "static HRESULT WINAPI x_system_XSystemGetConsoleId"
+
+_PROMPT_TEMPLATE = """You are repairing exactly one bug in a real, existing C source file, described below by its own public issue report. You must fix ONLY the behavior the issue describes, using ONLY the file content shown below and the issue text -- do not invent, assume, or reference any other implementation, patch, or fix you may have seen elsewhere for this exact bug.
+
+{problem_statement}
+
+Only this file may be changed: {path}
+
+The file has exactly {line_count} lines. Its current contents, shown verbatim between the two marker lines below (the marker lines themselves are NOT part of the file and must NOT appear in your diff):
+----- FILE CONTENT START -----
+{numbered_source}
+----- FILE CONTENT END -----
+
+Here is a complete, fully worked example on an UNRELATED 2-line toy file -- it illustrates the exact wire format only; its content has nothing to do with the real task below.
+
+Toy file "toy.c" (2 lines):
+int foo = 1;
+int bar = 2;
+
+A correct diff changing those 2 lines to "int foo = 10;" and "int bar = 20;" looks exactly like this, with no other text:
+BEGIN_PATCH
+--- a/toy.c
++++ b/toy.c
+@@ -1,2 +1,2 @@
+-int foo = 1;
+-int bar = 2;
++int foo = 10;
++int bar = 20;
+END_PATCH
+
+Now produce the REAL diff for {path} ({line_count} lines), making the smallest change that fixes the described bug, in the exact same wire format as the toy example above: reply with ONLY BEGIN_PATCH, the three diff header lines, a unified-diff hunk (or hunks) covering only the lines you actually change -- each unchanged context line as a " " (space-prefixed) line, each removed line as a "-" line, each added line as a "+" line -- then END_PATCH. Do not use "..." or any other elision. Do not add markdown fences.
+
+The number after "-N," in each hunk header must equal the number of context+removed lines in that hunk, and the number after "+N," must equal the number of context+added lines in that hunk -- both ordinary decimal integers computed by you from the hunk you write, not left as English text or anything other than digits.
+"""
+
+_RETRY_SUFFIX = (
+    "\n\nYour previous attempt was rejected: {reason}\n"
+    "Try again, following the exact wire format shown in the toy example above: a unified-diff "
+    "hunk with correct line counts in its header, context (\" \"), removed (\"-\"), and added "
+    "(\"+\") lines. Fix only the behavior the issue describes; do not reference any external "
+    "patch or implementation."
+)
+
+# (full-source proposal mode) An alternative to the diff-mode template above
+# for the SAME underlying bug-fix task. Instead of asking the model to
+# compute an accurate hunk-header line count for just the changed region,
+# this asks for the complete new file body -- the harness itself derives
+# the unified diff deterministically with ``difflib`` (see
+# each.raw_proposal), removing the model's hunk-header arithmetic as a
+# failure mode entirely. Same approved spec/behavior/scope; only the wire
+# format the model is asked to use changes.
+_FULL_SOURCE_PROMPT_TEMPLATE = """You are repairing exactly one bug in a real, existing C source file, described below by its own public issue report. You must fix ONLY the behavior the issue describes, using ONLY the file content shown below and the issue text -- do not invent, assume, or reference any other implementation, patch, or fix you may have seen elsewhere for this exact bug.
+
+{problem_statement}
+
+Only this file may be changed: {path}
+
+The file has exactly {line_count} lines. Its current contents, shown verbatim between the two marker lines below (the marker lines themselves are NOT part of the file and must NOT appear in your response):
+----- FILE CONTENT START -----
+{numbered_source}
+----- FILE CONTENT END -----
+
+Reply with ONLY the complete, corrected file content between BEGIN_SOURCE and END_SOURCE markers, with no other text, no markdown fences, and no explanation. Make the smallest change that fixes the described bug; leave everything else exactly as it was. Example wire format (unrelated toy file):
+BEGIN_SOURCE
+int foo = 10;
+int bar = 20;
+END_SOURCE
+
+Now produce the complete new content for {path} ({line_count} lines) between BEGIN_SOURCE and END_SOURCE.
+"""
+
+_FULL_SOURCE_RETRY_SUFFIX = (
+    "\n\nYour previous attempt was rejected: {reason}\n"
+    "Try again: reply with ONLY the complete, corrected file content between BEGIN_SOURCE and "
+    "END_SOURCE markers, with no other text, no markdown fences, and no explanation. Fix only "
+    "the behavior the issue describes; do not reference any external patch or implementation."
+)
+
+
+def _extract_patch_text_for_mode(raw_completion: str, proposal_format: str, *, path: str, original_text: str) -> str:
+    """Turn a raw completion into unified-diff text, branching on the
+    requested wire format. Both branches feed the exact same downstream
+    ``parse_patch``/``apply_patch`` scope and pre-image validation -- this
+    only changes how the diff text itself is obtained.
+    """
+    if proposal_format == "diff":
+        return extract_patch_text(raw_completion)
+    if proposal_format == "fim":
+        prefix, suffix = _split_sandbox_function_body(original_text)
+        if not raw_completion.strip() or "<fim_" in raw_completion or "<|endoftext|>" in raw_completion:
+            raise PatchRejected("FIM completion is empty or contains unexpected control tokens")
+        proposed = prefix + raw_completion + suffix
+        try:
+            diff_text = derive_unified_diff(path=path, original_text=original_text, proposed_text=proposed)
+        except RawProposalRejected as exc:
+            raise PatchRejected(str(exc)) from exc
+        if not diff_text:
+            raise PatchRejected("model proposed no change from the original file")
+        return diff_text
+    try:
+        proposed = extract_full_source(raw_completion)
+    except RawProposalRejected as exc:
+        raise PatchRejected(str(exc)) from exc
+    try:
+        diff_text = derive_unified_diff(path=path, original_text=original_text, proposed_text=proposed)
+    except RawProposalRejected as exc:
+        raise PatchRejected(str(exc)) from exc
+    if not diff_text:
+        raise PatchRejected("model proposed no change from the original file")
+    return diff_text
+
+
+def _retry_suffix_for_mode(proposal_format: str, *, reason: str) -> str:
+    if proposal_format == "diff":
+        return _RETRY_SUFFIX.format(reason=reason)
+    if proposal_format == "fim":
+        return ""
+    return _FULL_SOURCE_RETRY_SUFFIX.format(reason=reason)
+
+
+def _split_sandbox_function_body(
+    source: str, signature_text: str = _SANDBOX_ID_FUNCTION_SIGNATURE,
+) -> tuple[str, str]:
+    """Return the exact public-source prefix/suffix around the target C body."""
+    matches: list[int] = []
+    state = "code"
+    index = 0
+    while index < len(source):
+        char = source[index]
+        nxt = source[index + 1] if index + 1 < len(source) else ""
+        if state == "code":
+            if source.startswith(signature_text, index):
+                matches.append(index)
+                index += len(signature_text)
+                continue
+            if char == "/" and nxt == "*":
+                state = "block-comment"
+                index += 2
+                continue
+            if char == "/" and nxt == "/":
+                state = "line-comment"
+                index += 2
+                continue
+            if char == '"':
+                state = "string"
+            elif char == "'":
+                state = "character"
+        elif state == "block-comment" and char == "*" and nxt == "/":
+            state = "code"
+            index += 2
+            continue
+        elif state == "line-comment":
+            if char == "\\" and nxt == "\r" and source[index + 2:index + 3] == "\n":
+                index += 3
+                continue
+            if char == "\\" and nxt == "\n":
+                index += 2
+                continue
+            if char in {"\r", "\n"}:
+                state = "code"
+        elif state in {"string", "character"}:
+            if char == "\\":
+                index += 2
+                continue
+            if (state == "string" and char == '"') or (state == "character" and char == "'"):
+                state = "code"
+        index += 1
+    if len(matches) != 1:
+        raise PatchRejected(f"target function signature count is {len(matches)}, expected exactly one")
+    signature = matches[0]
+    state = "code"
+    opening = -1
+    index = signature + len(signature_text)
+    while index < len(source):
+        char = source[index]
+        nxt = source[index + 1] if index + 1 < len(source) else ""
+        if state == "code":
+            if char == "/" and nxt == "*":
+                state = "block-comment"
+                index += 2
+                continue
+            if char == "/" and nxt == "/":
+                state = "line-comment"
+                index += 2
+                continue
+            if char == '"':
+                state = "string"
+            elif char == "'":
+                state = "character"
+            elif char == ";":
+                raise PatchRejected("target signature is a declaration, not a function definition")
+            elif char == "{":
+                opening = index
+                break
+        elif state == "block-comment" and char == "*" and nxt == "/":
+            state = "code"
+            index += 2
+            continue
+        elif state == "line-comment":
+            if char == "\\" and nxt == "\r" and source[index + 2:index + 3] == "\n":
+                index += 3
+                continue
+            if char == "\\" and nxt == "\n":
+                index += 2
+                continue
+            if char in {"\r", "\n"}:
+                state = "code"
+        elif state in {"string", "character"}:
+            if char == "\\":
+                index += 2
+                continue
+            if (state == "string" and char == '"') or (state == "character" and char == "'"):
+                state = "code"
+        index += 1
+    if opening < 0:
+        raise PatchRejected("target function opening brace is absent")
+    depth = 0
+    state = "code"
+    index = opening
+    while index < len(source):
+        char = source[index]
+        nxt = source[index + 1] if index + 1 < len(source) else ""
+        if state == "code":
+            if char == "/" and nxt == "*":
+                state = "block-comment"
+                index += 2
+                continue
+            if char == "/" and nxt == "/":
+                state = "line-comment"
+                index += 2
+                continue
+            if char == '"':
+                state = "string"
+            elif char == "'":
+                state = "character"
+            elif char == "{":
+                depth += 1
+            elif char == "}":
+                depth -= 1
+                if depth == 0:
+                    body_start = opening + 1
+                    if source[body_start:body_start + 2] == "\r\n":
+                        body_start += 2
+                    elif source[body_start:body_start + 1] in {"\r", "\n"}:
+                        body_start += 1
+                    return source[:body_start], source[index:]
+        elif state == "block-comment" and char == "*" and nxt == "/":
+            state = "code"
+            index += 2
+            continue
+        elif state == "line-comment":
+            if char == "\\" and nxt == "\r" and source[index + 2:index + 3] == "\n":
+                index += 3
+                continue
+            if char == "\\" and nxt == "\n":
+                index += 2
+                continue
+            if char in {"\r", "\n"}:
+                state = "code"
+        elif state in {"string", "character"}:
+            if char == "\\":
+                index += 2
+                continue
+            if (state == "string" and char == '"') or (state == "character" and char == "'"):
+                state = "code"
+        index += 1
+    raise PatchRejected("target function closing brace is absent")
+
+
+def _function_profile_parts(source: str, signature: str) -> tuple[str, str, str, str]:
+    prefix, suffix = _split_sandbox_function_body(source, signature)
+    start = prefix.rfind(signature)
+    body = source[len(prefix):len(source) - len(suffix)]
+    declaration = prefix[start:]
+    return prefix[:start], declaration, body, suffix
+
+
+def _unwrap_function_output(completion: str) -> str:
+    text = completion.strip()
+    if "```" in text:
+        opening = text.find("```")
+        code_start = text.find("\n", opening)
+        closing = text.find("```", code_start + 1)
+        if code_start < 0 or closing < 0 or text.count("```") != 2:
+            raise PatchRejected("function output has an incomplete or ambiguous code fence")
+        text = text[code_start + 1:closing].strip()
+    if not text or "<fim_" in text or "<|fim_" in text or "<|endoftext|>" in text:
+        raise PatchRejected("function output is empty or contains unexpected control tokens")
+    return text + "\n"
+
+
+def _function_profile_proposal(
+    completion: str, source: str, path: str, signature: str, profile: str,
+) -> str:
+    before, declaration, _old_body, suffix = _function_profile_parts(source, signature)
+    text = _unwrap_function_output(completion)
+    if profile == "function":
+        generated_prefix, generated_suffix = _split_sandbox_function_body(text, signature)
+        if generated_prefix.split() != declaration.split():
+            raise PatchRejected("function output changed its public interface")
+        # Like a function-completion evaluator, consume only the selected function.
+        # Continued prose/source is retained in the receipt, never applied to the file.
+        text = text[len(generated_prefix):len(text) - len(generated_suffix)]
+    else:
+        # Body-completion models commonly emit the existing outer closing
+        # brace and continue with prose or later source. Evaluate exactly the
+        # selected function body, like a function-completion benchmark.
+        try:
+            generated_prefix, generated_suffix = _split_sandbox_function_body(
+                declaration + text, signature,
+            )
+        except PatchRejected:
+            pass
+        else:
+            if generated_prefix != declaration:
+                raise PatchRejected("body output changed its public interface")
+            text = (declaration + text)[
+                len(generated_prefix):len(declaration + text) - len(generated_suffix)
+            ]
+    proposal = before + declaration + text + suffix
+    # The original closing brace must remain the unique boundary of this body.
+    checked_prefix, checked_suffix = _split_sandbox_function_body(proposal, signature)
+    if checked_prefix != before + declaration or checked_suffix != suffix:
+        if profile == "body" and text.rstrip().endswith("}"):
+            # Some body completions include the existing outer closing brace.
+            # Accept only when removing that one delimiter restores the exact scope.
+            text = text.rstrip()[:-1] + "\n"
+            proposal = before + declaration + text + suffix
+            checked_prefix, checked_suffix = _split_sandbox_function_body(proposal, signature)
+        if checked_prefix != before + declaration or checked_suffix != suffix:
+            raise PatchRejected("function output escaped its selected body")
+    try:
+        patch = derive_unified_diff(path=path, original_text=source, proposed_text=proposal)
+    except RawProposalRejected as exc:
+        raise PatchRejected(str(exc)) from exc
+    if not patch:
+        raise PatchRejected("model proposed no change from the original function")
+    return patch
+
+
+def recommended_xodus_task_profile(model_identity: dict[str, Any]) -> dict[str, str]:
+    """Return the smallest empirically justified task shape for an authorized model."""
+    from each.models.catalog import qualified_profile
+
+    repo = str((model_identity.get("modelManifest") or {}).get("repoId") or "")
+    revision = str((model_identity.get("modelManifest") or {}).get("revision") or "")
+    model_id = str(model_identity.get("modelId") or "")
+    if repo == "bigcode/starcoderbase":
+        profile = qualified_profile("starcoderbase")
+        if revision != profile["revision"] or model_id != profile["model_id"]:
+            raise ValueError("model identity is not the exact authorized StarCoderBase artifact")
+        return {
+            "proposalFormat": "body",
+            "promptStyle": "fim",
+            "reason": "Full-function candidates compiled but missed required positive cases; reduce regeneration.",
+        }
+    if repo == "bigcode/octocoder":
+        profile = qualified_profile("octocoder")
+        if revision != profile["revision"] or model_id != profile["model_id"]:
+            raise ValueError("model identity is not the exact authorized OctoCoder artifact")
+        return {
+            "proposalFormat": "body",
+            "promptStyle": "question-answer-tests",
+            "reason": "Generic function instruction produced no change; use the official repair prompt and complete the body.",
+        }
+    if repo == "LLM360/Crystal":
+        from each.models.catalog import CRYSTAL_MODEL_ID, CRYSTAL_REVISION
+
+        if revision != CRYSTAL_REVISION or model_id != CRYSTAL_MODEL_ID:
+            raise ValueError("model identity is not the exact authorized CrystalCoder artifact")
+        return {
+            "proposalFormat": "body",
+            "promptStyle": "code-continuation",
+            "reason": "FIM saturated the output budget; continue only the selected declaration and body.",
+        }
+    if repo == "IFM/K2":
+        from each.models.catalog import K2_MODEL_ID, K2_REVISION
+
+        if revision != K2_REVISION or model_id != K2_MODEL_ID:
+            raise ValueError("model identity is not the exact authorized K2 artifact")
+        return {
+            "proposalFormat": "body",
+            "promptStyle": "code-continuation",
+            "reason": "Ordinary code continuation produced a nonempty smoke; FIM produced only whitespace.",
+        }
+    if repo == "Salesforce/codegen25-7b-multi_P":
+        from each.models.catalog import CODEGEN25_MODEL_ID, CODEGEN25_REVISION
+
+        if revision != CODEGEN25_REVISION or model_id != CODEGEN25_MODEL_ID:
+            raise ValueError("model identity is not the exact authorized CodeGen2.5 artifact")
+        return {
+            "proposalFormat": "body",
+            "promptStyle": "code-continuation",
+            "reason": "Use the base model's strongest documented ordinary code-completion mode.",
+        }
+    raise ValueError("no Xodus task profile exists for this model identity")
+
+
+def _behavioral_case_prompt(api: str) -> str:
+    output = "sandboxId" if api == "sandbox" else "consoleId"
+    used = output + "Used"
+    value = "RETAIL" if api == "sandbox" else "00000000.00000000.00000000.00000000.00"
+    return (
+        "Public behavioral cases:\n"
+        f"1. valid buffer, {used}=NULL -> S_OK and {output}={value!r}\n"
+        f"2. valid buffer, {used} non-NULL -> S_OK, same value, exact size including NUL\n"
+        f"3. {output}=NULL, {used} non-NULL -> E_POINTER\n"
+        f"4. both outputs NULL -> E_POINTER\n"
+        f"5. undersized buffer, {used} non-NULL -> ERROR_INSUFFICIENT_BUFFER\n"
+        f"6. undersized buffer, {used}=NULL -> ERROR_INSUFFICIENT_BUFFER"
+    )
+
+
+def _assemble_source_root(fetched_source: str, allowed_path: str, dest: Path) -> None:
+    """Materialize one merged source tree: the fetched real target file plus
+    this repo's own (never-Builder-input) validation harness scaffold, at
+    the exact relative layout the approved spec's build/acceptance commands
+    expect. This is a host-side, pre-sealed-run materialization step (like
+    M6's historical-task fetch), never performed inside the container.
+
+    ``allowed_path`` comes from an already hash-bound, durably approved
+    spec (see :func:`each.xodus_policy.verify_xodus_shadow_binding`), but a
+    write path is still independently contained here -- never simply
+    trusted -- before any host filesystem write happens.
+    """
+    if allowed_path.startswith("/") or ".." in Path(allowed_path).parts:
+        raise ValueError(f"refusing to write forbidden/traversal path: {allowed_path}")
+    assert_no_symlink_escape(dest, label="shadow source destination")
+    private_root = validate_private_root()
+    dest_resolved = dest.resolve()
+    if private_root not in dest_resolved.parents:
+        raise ValueError("shadow source destination escapes the private root")
+    if dest.exists():
+        raise FileExistsError(f"refusing to reuse a shadow source destination: {dest}")
+    target_unresolved = dest / allowed_path
+    # (C2) Check is_symlink() on the UNRESOLVED path first, matching the
+    # established pattern elsewhere (each/receipt.py materials copy): calling
+    # resolve() first already follows any symlink, so checking is_symlink()
+    # only AFTER resolve() is checking whether the final target is itself a
+    # (chained) symlink and would never actually catch a symlink anywhere
+    # along the path.
+    if target_unresolved.is_symlink():
+        raise ValueError(f"refusing to write through symlink: {allowed_path}")
+    target = target_unresolved.resolve()
+    if target != dest_resolved and dest_resolved not in target.parents:
+        raise ValueError(f"resolved write target escapes destination root: {allowed_path}")
+    dest.mkdir(parents=True, exist_ok=False)
+    target.parent.mkdir(parents=True, exist_ok=True)
+    target.write_text(fetched_source, encoding="utf-8")
+    harness_dest = dest / "examples" / "xodus-m8-sandbox-id"
+    harness_dest.mkdir(parents=True, exist_ok=True)
+    for name in HARNESS_FILES:
+        shutil.copyfile(HARNESS_ROOT / name, harness_dest / name)
+
+
+def _interpret_native_run(build_result, run_result) -> str:
+    """Classify one (build, run) command pair as 'passed' or 'failed'.
+
+    Raises BenchmarkExecutionError for anything that is not genuine
+    pass/fail evidence (a Docker-launch failure on either step).
+    """
+    if build_result.exit_code in _DOCKER_LAUNCH_FAILURE_EXIT_CODES:
+        raise BenchmarkExecutionError(
+            f"container launch failed during build (exit {build_result.exit_code}); "
+            f"this is not build evidence: {build_result.stderr or build_result.stdout}"
+        )
+    if build_result.exit_code != 0:
+        return "build_failed"
+    if run_result.exit_code in _DOCKER_LAUNCH_FAILURE_EXIT_CODES:
+        raise BenchmarkExecutionError(
+            f"container launch failed during run (exit {run_result.exit_code}); "
+            f"this is not test evidence: {run_result.stderr or run_result.stdout}"
+        )
+    return "passed" if run_result.exit_code == 0 else "failed"
+
+
+def _unavailable_audit(reason: str) -> dict[str, Any]:
+    return {
+        "checks": {
+            name: {"status": "UNAVAILABLE", "detail": reason, "evidence": {}}
+            for name in _AUDIT_CHECK_NAMES
+        },
+        "result": "UNAVAILABLE",
+        "reason": reason,
+    }
+
+
+def _read_candidate_bytes_for_audit(worktree: Path, touched: list[str]) -> bytes:
+    return b"\n".join((worktree / path).read_bytes() for path in touched)
+
+
+def run_xodus_shadow_build(
+    model: RepairModel,
+    approved: ApprovedSpec,
+    *,
+    max_attempts: int = 3,
+    run_id: str | None = None,
+    proposal_format: str = "diff",
+    docker_context: str = DOCKER_CONTEXT,
+) -> dict[str, Any]:
+    """Run one sealed Builder attempt sequence for ``approved`` (an M8-style
+    real, pinned, public-source bug-fix spec), reusing the proven isolation
+    / validation / terminal-audit / signed-receipt pipeline.
+
+    The candidate module is authored exclusively by ``model`` -- never by
+    this harness or any outer conductor. All strict candidate
+    source/prompt/completion/patch data is written only to the private
+    receipt under ``runs_dir()``; this function's return value is
+    deliberately source-free (outcome label + file paths only).
+
+    ``proposal_format`` selects the wire format the Builder model is asked
+    to use: ``"diff"`` (default, unchanged original behavior) asks for a
+    unified diff hunk with the model's own hunk-header arithmetic;
+    ``"full_source"`` asks for the complete new file body instead and has
+    the harness derive the unified diff deterministically (see
+    ``each.raw_proposal``). Same approved spec, same scope, same
+    validation/audit/receipt pipeline either way.
+    """
+    if proposal_format not in {"diff", "full_source", "fim", "function", "body"}:
+        raise ValueError(
+            f"unsupported proposal_format: {proposal_format!r}"
+        )
+    if proposal_format in {"fim", "function", "body"} and (
+        type(max_attempts) is not int or max_attempts != 1
+    ):
+        raise ValueError("FIM shadow runs require exactly one approved attempt")
+    initial_model_identity = model.identity()
+    adapter_class_path = str(initial_model_identity.get("adapterClassPath", ""))
+    if adapter_class_path in REAL_MODEL_ADAPTER_CLASS_PATHS:
+        actual_class_path = f"{type(model).__module__}.{type(model).__name__}"
+        if adapter_class_path != actual_class_path:
+            raise ValueError("model identity does not match the actual Builder adapter")
+        validate_recorded_real_model_identity(initial_model_identity)
+        recommended = recommended_xodus_task_profile(initial_model_identity)
+        if proposal_format != recommended["proposalFormat"]:
+            raise ValueError(
+                f"proposal format {proposal_format!r} does not match this exact model's "
+                f"authorized profile {recommended['proposalFormat']!r}"
+            )
+    elif not isinstance(model, FixtureModel):
+        raise ValueError("Xodus Builder must use an allowlisted real adapter or FixtureModel self-test")
+    approved.verify()
+    verify_xodus_shadow_binding(approved)
+    validate_private_root()
+    packet = approved.packet
+    if len(packet.allowed_paths) != 1 or len(packet.build_commands) != 1 or len(packet.acceptance_commands) != 1:
+        raise ValueError(
+            "run_xodus_shadow_build currently supports exactly one allowed path, "
+            "one build command, and one acceptance command"
+        )
+    allowed_path = packet.allowed_paths[0]
+    build_command = list(packet.build_commands[0])
+    acceptance_command = list(packet.acceptance_commands[0])
+    selected_api = build_command[-1] if build_command[-1] in {"sandbox", "console"} else "sandbox"
+    signature = (
+        _CONSOLE_ID_FUNCTION_SIGNATURE if selected_api == "console" else _SANDBOX_ID_FUNCTION_SIGNATURE
+    )
+
+    run_id = run_id or f"xodus-shadow-{uuid.uuid4().hex[:8]}"
+    validate_task_id(run_id)
+    if max_attempts < 1:
+        raise ValueError(f"max_attempts must be >= 1, got {max_attempts}")
+
+    # Host-side, pre-sealed-run materialization: fetch the exact pinned
+    # public upstream file over the network (like M6's historical-task
+    # fetch), never performed inside the no-network container.
+    materialize_root = each_home() / "shadow" / "m8" / run_id / "source"
+    assert_no_symlink_escape(materialize_root, label="shadow materialize root")
+    if materialize_root.exists():
+        raise FileExistsError(f"refusing to reuse a shadow source destination: {materialize_root}")
+    fetched_source = fetch_file(packet.target_repo.split("github.com/")[-1], packet.target_ref, allowed_path)
+    _assemble_source_root(fetched_source, allowed_path, materialize_root)
+    include_paths = [allowed_path] + [f"examples/xodus-m8-sandbox-id/{name}" for name in HARNESS_FILES]
+
+    executor = ContainerExecutor(image=NATIVE_IMAGE_DIGEST, docker_context=docker_context)
+    probe_worktree, _probe_manifest = build_worktree(materialize_root, include_paths)
+    try:
+        isolation_result = executor.verify_isolation(probe_worktree)
+    except (ContainerExecutorError, OSError) as exc:
+        assurance_level = "EACH-P1"
+        isolation_evidence = {"errorType": type(exc).__name__, "errorDetail": str(exc)}
+    else:
+        assurance_level = derive_assurance_level(executor, isolation_result)
+        isolation_evidence = _result_to_dict(isolation_result)
+    # Captured once, from the real pre-run probe only, and never itself
+    # downgraded later -- see the identical fix/rationale in
+    # each.clean_room.run_clean_room_build (F4).
+    network_isolation_verified = assurance_level == "EACH-P2"
+
+    source_lines = fetched_source.splitlines()
+    line_count = len(source_lines)
+    if proposal_format in {"function", "body"}:
+        before, declaration, original_body, suffix = _function_profile_parts(fetched_source, signature)
+        selected_source = declaration + original_body + "}\n"
+        model_repo = (initial_model_identity.get("modelManifest") or {}).get("repoId")
+        cases = _behavioral_case_prompt(selected_api)
+        if model_repo in {
+            "LLM360/Crystal",
+            "IFM/K2",
+            "Salesforce/codegen25-7b-multi_P",
+        }:
+            requirement = (packet.problem_statement + "\n\n" + cases).replace("*/", "* /")
+            base_prompt = (
+                f"/* Approved requirement:\n{requirement}\n"
+                "Return only this function's corrected implementation.\n*/\n"
+                f"{declaration}"
+            )
+        elif model_repo == "bigcode/starcoderbase":
+            middle_prefix = before if proposal_format == "function" else before + declaration
+            middle_suffix = suffix[1:] if proposal_format == "function" else suffix
+            requirement = (packet.problem_statement + "\n\n" + cases).replace("*/", "* /")
+            base_prompt = (
+                f"<fim_prefix>/* Approved requirement:\n{requirement}\n*/\n"
+                f"{middle_prefix}<fim_suffix>{middle_suffix}<fim_middle>"
+            )
+        else:
+            if proposal_format == "body":
+                entry_point = signature.split()[-1]
+                base_prompt = (
+                    f"Question: Fix bugs in {entry_point}.\n"
+                    f"{packet.problem_statement}\n\n{selected_source}\n{cases}\n\nAnswer:\n{declaration}"
+                )
+            else:
+                base_prompt = (
+                    f"Question: The following public C function is buggy and fails these public cases.\n"
+                    f"{packet.problem_statement}\n\n{cases}\n\nBuggy function:\n{selected_source}\n"
+                    "Return only the corrected complete function with the same interface. "
+                    "You must change the shown function. No diff, custom markers, explanation or other functions.\n\n"
+                    "Answer:"
+                )
+        fim_evidence = {
+            "selectedFunction": signature.split()[-1],
+            "infillPrefixSha256": sha256_bytes((before + declaration).encode()),
+            "infillSuffixSha256": sha256_bytes(suffix.encode()),
+        }
+    elif proposal_format == "fim":
+        fim_prefix, fim_suffix = _split_sandbox_function_body(fetched_source)
+        fim_evidence = {
+            "infillPrefixSha256": sha256_bytes(fim_prefix.encode()),
+            "infillSuffixSha256": sha256_bytes(fim_suffix.encode()),
+        }
+        requirement = packet.problem_statement.replace("*/", "* /")
+        base_prompt = (
+            f"<fim_prefix>/* EACH approved requirement:\n{requirement}\n*/\n"
+            f"{fim_prefix}<fim_suffix>{fim_suffix}<fim_middle>"
+        )
+    else:
+        fim_evidence = {}
+        prompt_template = _PROMPT_TEMPLATE if proposal_format == "diff" else _FULL_SOURCE_PROMPT_TEMPLATE
+        base_prompt = prompt_template.format(
+            problem_statement=packet.problem_statement,
+            path=allowed_path,
+            line_count=line_count,
+            numbered_source=fetched_source,
+        )
+
+    common_fields = {
+        "run_id": run_id,
+        "spec": approved.to_dict()["packet"],
+        "spec_hash": approved.approved_hash,
+        "model_identity": model.identity(),
+        "prompt": base_prompt,
+        "raw_completion": "",
+        "executor_identity": executor.identity(),
+        "isolation_evidence": isolation_evidence,
+        "audit": {
+            "checks": {},
+            "result": "UNAVAILABLE",
+            "reason": "no validated candidate exists; terminal audit has not run",
+        },
+        "assurance_level": assurance_level,
+        "network_isolation_verified": network_isolation_verified,
+        "legal_certification": False,
+        "cleanroom_certification": False,
+    }
+
+    if assurance_level != "EACH-P2":
+        outcome = "ISOLATION_UNVERIFIED"
+        receipt = Receipt(
+            patch_text="",
+            touched_paths=[],
+            materials=_probe_manifest,
+            baseline_result={},
+            repaired_result={},
+            outcome=outcome,
+            **common_fields,
+        )
+        json_path, md_path = receipt.write(runs_dir() / run_id, materials_source=probe_worktree)
+        return {"outcome": outcome, "receipt_json": str(json_path), "receipt_md": str(md_path), "attempts": 0}
+
+    # Baseline: the real, unmodified public source must build but genuinely
+    # fail the acceptance run (proving this harness actually exercises the
+    # reported bug, not a vacuous always-pass check). No patch has been
+    # applied yet, so the ENTIRE declared material set is protected here
+    # (unlike the candidate run below, where only the harness scaffold
+    # minus the one editable allowed_path stays protected).
+    baseline_worktree, baseline_manifest = build_worktree(materialize_root, include_paths)
+    baseline_protected_paths = tuple(include_paths)
+    try:
+        baseline_build = executor.run(build_command, baseline_worktree, protected_paths=baseline_protected_paths)
+    except (ContainerExecutorError, OSError) as exc:
+        outcome = f"EXECUTION_ERROR: baseline build failed to execute: {exc}"
+        receipt = Receipt(
+            patch_text="",
+            touched_paths=[],
+            materials=baseline_manifest,
+            baseline_result={},
+            repaired_result={},
+            outcome=outcome,
+            **common_fields,
+        )
+        json_path, md_path = receipt.write(runs_dir() / run_id, materials_source=baseline_worktree)
+        return {"outcome": "EXECUTION_ERROR", "receipt_json": str(json_path), "receipt_md": str(md_path), "attempts": 0}
+    if baseline_build.exit_code != 0:
+        outcome_class = (
+            "EXECUTION_ERROR"
+            if baseline_build.exit_code in _DOCKER_LAUNCH_FAILURE_EXIT_CODES
+            else "BASELINE_NOT_REPRODUCED"
+        )
+        outcome = f"{outcome_class}: baseline build exited {baseline_build.exit_code}"
+        receipt = Receipt(
+            patch_text="",
+            touched_paths=[],
+            materials=baseline_manifest,
+            baseline_result=_result_to_dict(baseline_build),
+            repaired_result={},
+            outcome=outcome,
+            **common_fields,
+        )
+        json_path, md_path = receipt.write(runs_dir() / run_id, materials_source=baseline_worktree)
+        return {"outcome": outcome_class, "receipt_json": str(json_path), "receipt_md": str(md_path), "attempts": 0}
+    try:
+        baseline_run = executor.run(acceptance_command, baseline_worktree, protected_paths=baseline_protected_paths)
+    except (ContainerExecutorError, OSError) as exc:
+        outcome = f"EXECUTION_ERROR: baseline acceptance failed to execute: {exc}"
+        receipt = Receipt(
+            patch_text="",
+            touched_paths=[],
+            materials=baseline_manifest,
+            baseline_result=_result_to_dict(baseline_build),
+            repaired_result={},
+            outcome=outcome,
+            **common_fields,
+        )
+        json_path, md_path = receipt.write(runs_dir() / run_id, materials_source=baseline_worktree)
+        return {"outcome": "EXECUTION_ERROR", "receipt_json": str(json_path), "receipt_md": str(md_path), "attempts": 0}
+    try:
+        baseline_verdict = _interpret_native_run(baseline_build, baseline_run)
+    except BenchmarkExecutionError as exc:
+        outcome = f"EXECUTION_ERROR: baseline result could not be classified: {exc}"
+        receipt = Receipt(
+            patch_text="",
+            touched_paths=[],
+            materials=baseline_manifest,
+            baseline_result=_result_to_dict(baseline_run),
+            repaired_result={},
+            outcome=outcome,
+            **common_fields,
+        )
+        json_path, md_path = receipt.write(runs_dir() / run_id, materials_source=baseline_worktree)
+        return {"outcome": "EXECUTION_ERROR", "receipt_json": str(json_path), "receipt_md": str(md_path), "attempts": 0}
+    if baseline_verdict != "failed":
+        outcome = f"BASELINE_NOT_REPRODUCED: verdict={baseline_verdict!r}"
+        receipt = Receipt(
+            patch_text="",
+            touched_paths=[],
+            materials=baseline_manifest,
+            baseline_result=_result_to_dict(baseline_run),
+            repaired_result={},
+            outcome=outcome,
+            **common_fields,
+        )
+        json_path, md_path = receipt.write(runs_dir() / run_id, materials_source=baseline_worktree)
+        return {
+            "outcome": "BASELINE_NOT_REPRODUCED",
+            "receipt_json": str(json_path),
+            "receipt_md": str(md_path),
+            "attempts": 0,
+        }
+    final_baseline = _result_to_dict(baseline_run)
+    final_materials = baseline_manifest
+
+    attempts: list[dict[str, Any]] = []
+    prompt = base_prompt
+    # No sentinel default: REPAIR_NOT_VERIFIED is only a valid final outcome
+    # once a patch actually applied and the candidate build/run was
+    # classified. If every attempt is exhausted on a PATCH_REJECTED retry
+    # (never reaching that point), this stays None and is resolved from the
+    # real last attempt's own outcome after the loop -- never silently
+    # mislabeled as a verified-but-failing repair that never happened.
+    # Matches each.benchmark's and the fixed each.clean_room's identical rule.
+    final_outcome: str | None = None
+    final_audit = common_fields["audit"]
+    # The attempt whose patch/build/run fields are actually reported as the
+    # receipt's top-level trajectory. Resolved to the real classified
+    # attempt below -- never left to default to "whatever attempt happened
+    # to run last", which can silently diverge from it (e.g. attempt 1
+    # produces a classified-but-failing candidate, attempt 2 then retries
+    # and is itself rejected before ever reaching a classified build/run:
+    # the final patch/result must still be attempt 1's, not mixed with
+    # attempt 2's prompt/completion). Every final_* field below is read
+    # back OUT of this one selected attempt's own recorded dict (F6 fix),
+    # never from a separate loop-scoped variable an unrelated later
+    # iteration could leave stale.
+    selected_attempt_record: dict[str, Any] | None = None
+
+    for attempt_num in range(1, max_attempts + 1):
+        worktree, manifest = build_worktree(materialize_root, include_paths)
+        # (see each/clean_room.py's identical comment) a bounded retry loop
+        # needs genuine sampling diversity on later attempts to be more than
+        # a repeat of the exact same greedy completion; attempt 1 stays
+        # fully deterministic.
+        model.configure_sampling(temperature=0.0 if attempt_num == 1 else 0.2, seed=None if attempt_num == 1 else attempt_num)
+        completion_started = time.perf_counter()
+        model.last_prompt = None
+        model.last_input_token_count = None
+        try:
+            raw_completion = model.complete(prompt)
+        except ContextBudgetExceeded as exc:
+            # A policy/input-construction error, not a repair-attempt
+            # failure: retrying would only make the prompt larger (the
+            # retry suffix appends to base_prompt), so this is terminal
+            # for the run rather than a consumable attempt -- the same
+            # established fix as each.benchmark.run_benchmark (F6). Must
+            # never propagate uncaught out of this function and discard
+            # every attempt already recorded.
+            outcome = f"BUILDER_CONTEXT_BUDGET_EXCEEDED: {exc}"
+            attempts.append(
+                {
+                    "attempt": attempt_num,
+                    "prompt": prompt,
+                    "raw_completion": "",
+                    "materials": manifest,
+                    "baseline_result": final_baseline,
+                    "patch_text": "",
+                    "touched_paths": [],
+                    "repaired_result": {},
+                    "model_identity": model.identity(),
+                    "materials_integrity": "UNAVAILABLE",
+                    "proposal_format": proposal_format,
+                    "completion_call_seconds": time.perf_counter() - completion_started,
+                    "input_tokens": getattr(model, "last_input_token_count", None),
+                    "generation_attempted": False,
+                    "outcome": outcome,
+                    **fim_evidence,
+                }
+            )
+            final_outcome = outcome
+            selected_attempt_record = attempts[-1]
+            break
+        except (RuntimeError, OSError, ValueError, TypeError, ImportError, MemoryError, KeyboardInterrupt) as exc:
+            outcome = f"EXECUTION_ERROR: model generation failed: {exc}"
+            attempts.append(
+                {
+                    "attempt": attempt_num,
+                    "prompt": getattr(model, "last_prompt", None) or prompt,
+                    "raw_completion": "",
+                    "materials": manifest,
+                    "baseline_result": final_baseline,
+                    "patch_text": "",
+                    "touched_paths": [],
+                    "repaired_result": {},
+                    "model_identity": model.identity(),
+                    "materials_integrity": "UNAVAILABLE",
+                    "proposal_format": proposal_format,
+                    "completion_call_seconds": time.perf_counter() - completion_started,
+                    "input_tokens": getattr(model, "last_input_token_count", None),
+                    "generation_attempted": getattr(model, "last_generation_attempted", None),
+                    "outcome": outcome,
+                    **fim_evidence,
+                }
+            )
+            final_outcome = outcome
+            selected_attempt_record = attempts[-1]
+            break
+        completion_call_seconds = time.perf_counter() - completion_started
+        rendered_prompt = getattr(model, "last_prompt", None)
+        attempt_record: dict[str, Any] = {
+            "attempt": attempt_num,
+            "prompt": rendered_prompt if rendered_prompt is not None else prompt,
+            "raw_completion": raw_completion,
+            "materials": manifest,
+            "baseline_result": final_baseline,
+            "patch_text": "",
+            "touched_paths": [],
+            "build_result": None,
+            "run_result": None,
+            "repaired_result": {},
+            "model_identity": model.identity(),
+            "proposal_format": proposal_format,
+            "completion_call_seconds": completion_call_seconds,
+            "input_tokens": getattr(model, "last_input_token_count", None),
+            "generation_attempted": getattr(model, "last_generation_attempted", None),
+        }
+        if proposal_format in {"fim", "function", "body"}:
+            attempt_record.update(fim_evidence)
+
+        try:
+            if proposal_format in {"function", "body"}:
+                patch_text = _function_profile_proposal(
+                    raw_completion, fetched_source, allowed_path, signature, proposal_format,
+                )
+            else:
+                patch_text = _extract_patch_text_for_mode(
+                    raw_completion, proposal_format, path=allowed_path, original_text=fetched_source,
+                )
+            patch = parse_patch(patch_text)
+            touched = apply_patch(patch, worktree, {allowed_path})
+        except PatchRejected as exc:
+            attempt_record["outcome"] = f"PATCH_REJECTED: {exc}"
+            attempts.append(attempt_record)
+            prompt = base_prompt + _retry_suffix_for_mode(proposal_format, reason=str(exc))
+            continue
+
+        # Record the real applied patch immediately, before any
+        # build/run/classification step that could itself raise: a later
+        # EXECUTION_ERROR must never lose evidence of a patch that was, in
+        # fact, successfully applied (F6).
+        attempt_record["patch_text"] = patch_text
+        attempt_record["touched_paths"] = touched
+        candidate_source_bytes = _read_candidate_bytes_for_audit(worktree, touched)
+        attempt_record["audit_subject_sha256"] = sha256_bytes(candidate_source_bytes)
+
+        # The harness's own scaffold files (everything in include_paths
+        # except the one path the candidate is actually allowed to edit)
+        # are mounted read-only for this execution (F4): the candidate's
+        # build/run process cannot write through them even if it tries,
+        # not merely have that attempt caught afterwards by re-hashing.
+        harness_relative_paths = tuple(include_paths[1:])
+        try:
+            candidate_build = executor.run(build_command, worktree, protected_paths=harness_relative_paths)
+        except (ContainerExecutorError, OSError) as exc:
+            # A genuine container-launch/timeout failure during the build
+            # step itself (not a classification of its result) is an infra
+            # failure, not test feedback to retry against: the applied
+            # patch is already recorded above, but the build step never
+            # produced real pass/fail evidence at all. Finalize this
+            # attempt with the real (absent) stage recorded honestly and
+            # stop the bounded run -- this must never propagate out of the
+            # whole function uncaught and discard every attempt already
+            # recorded (F6). The private diagnostic text stays in this
+            # attempt's own outcome field only; it never crosses into a
+            # source-free export.
+            attempt_record["materials_integrity"] = "UNAVAILABLE"
+            attempt_record["outcome"] = f"EXECUTION_ERROR: {exc}"
+            attempts.append(attempt_record)
+            final_outcome = attempt_record["outcome"]
+            selected_attempt_record = attempt_record
+            break
+        # Record the real build result immediately -- before the
+        # acceptance run or classification -- so a build that genuinely
+        # completed is never lost if a LATER step raises (F6). Both the
+        # build and run command results are kept in their own distinct
+        # fields; ``repaired_result`` (the final reported view) is only
+        # ever reassigned once classification actually succeeds below.
+        attempt_record["build_result"] = _result_to_dict(candidate_build)
+        if candidate_build.exit_code in _DOCKER_LAUNCH_FAILURE_EXIT_CODES:
+            attempt_record["materials_integrity"] = "UNAVAILABLE"
+            attempt_record["repaired_result"] = attempt_record["build_result"]
+            attempt_record["outcome"] = "EXECUTION_ERROR: candidate build did not launch"
+            attempts.append(attempt_record)
+            final_outcome = attempt_record["outcome"]
+            selected_attempt_record = attempt_record
+            break
+        if candidate_build.exit_code != 0:
+            materials_drift = verify_unchanged(worktree, manifest, harness_relative_paths)
+            attempt_record["materials_integrity"] = (
+                "PASS" if not materials_drift else f"FAIL: {len(materials_drift)} path(s) drifted"
+            )
+            attempt_record["repaired_result"] = attempt_record["build_result"]
+            attempt_record["outcome"] = "BUILD_FAILED"
+            attempt_record["build_failure_result"] = attempt_record["build_result"]
+            attempts.append(attempt_record)
+            final_outcome = attempt_record["outcome"]
+            selected_attempt_record = attempt_record
+            prompt = base_prompt + _retry_suffix_for_mode(
+                proposal_format,
+                reason=(
+                    "patch applied but the validation harness scaffold was altered during execution"
+                    if materials_drift else "patch applied but did not compile"
+                ),
+            )
+            continue
+        try:
+            candidate_run = executor.run(acceptance_command, worktree, protected_paths=harness_relative_paths)
+        except (ContainerExecutorError, OSError) as exc:
+            # The build genuinely completed (already recorded above and
+            # preserved as ``build_result``); the run step itself never
+            # produced evidence. ``run_result`` stays an explicit None --
+            # never a fabricated exit-code-0 result -- and the attempt is
+            # finalized the same way as a build-step failure (F6).
+            attempt_record["materials_integrity"] = "UNAVAILABLE"
+            attempt_record["outcome"] = f"EXECUTION_ERROR: {exc}"
+            attempts.append(attempt_record)
+            final_outcome = attempt_record["outcome"]
+            selected_attempt_record = attempt_record
+            break
+        attempt_record["run_result"] = _result_to_dict(candidate_run)
+        attempt_record["repaired_result"] = attempt_record["run_result"]
+        try:
+            test_verdict = _interpret_native_run(candidate_build, candidate_run)
+        except BenchmarkExecutionError as exc:
+            attempt_record["outcome"] = f"EXECUTION_ERROR: {exc}"
+            attempts.append(attempt_record)
+            final_outcome = attempt_record["outcome"]
+            selected_attempt_record = attempt_record
+            break
+
+        # Candidate-authored C runs with full read/write access to the same
+        # mount the harness scaffold files live in (see
+        # examples/xodus-m8-sandbox-id/build_check.py's docstring): the
+        # read-only mount above already prevents a candidate from WRITING
+        # to them during execution; this re-verifies the actual retained
+        # bytes immediately after execution as defense in depth (e.g.
+        # against a host-side or mount-layering mistake), before any
+        # outcome can be REPAIR_VERIFIED, and conservatively downgrades on
+        # drift -- this is a narrow materials-integrity check, not a
+        # redefinition of the shared container assurance level.
+        materials_drift = verify_unchanged(worktree, manifest, harness_relative_paths)
+        attempt_record["materials_integrity"] = (
+            "PASS" if not materials_drift else f"FAIL: {len(materials_drift)} path(s) drifted"
+        )
+
+        # The classification-dependent choice of which raw result to report
+        # (the run result normally, but the build result when the build
+        # itself failed) is only finalized once classification has actually
+        # succeeded; the unconditional assignment above already preserves
+        # the real candidate_run result against a classification raise.
+        attempt_record["repaired_result"] = (
+            _result_to_dict(candidate_run) if test_verdict != "build_failed" else _result_to_dict(candidate_build)
+        )
+        if materials_drift:
+            outcome = "REPAIR_NOT_VERIFIED"
+        else:
+            outcome = "REPAIR_VERIFIED" if test_verdict == "passed" else "REPAIR_NOT_VERIFIED"
+        if test_verdict == "passed" and not materials_drift:
+            # Terminal audit only after generation/validation ends; no
+            # proprietary/forbidden-source corpus exists for this task (the
+            # approved spec's forbidden_sources are enforced by never
+            # fetching such material in the first place), so corpus-backed
+            # checks honestly report UNAVAILABLE -- never a fabricated PASS.
+            try:
+                final_candidate_source = candidate_source_bytes.decode("utf-8")
+            except UnicodeDecodeError:
+                final_audit = _unavailable_audit("candidate source is not valid UTF-8")
+            else:
+                final_audit = run_audit(final_candidate_source)
+            if reject_on_audit_flag(final_audit):
+                outcome = "REPAIR_REJECTED_AUDIT"
+
+        if test_verdict == "build_failed":
+            # The raw build-failure diagnostics (compiler stdout/stderr,
+            # which routinely echoes verbatim fragments of the candidate's
+            # own source around each error) are kept in their own private
+            # field, never embedded in the outcome label itself -- this
+            # label is a bounded class that crosses into
+            # ``run_xodus_shadow_build``'s own documented source-free
+            # return value and into ``summarize_receipt``.
+            attempt_record["outcome"] = "BUILD_FAILED"
+            attempt_record["build_failure_result"] = _result_to_dict(candidate_build)
+        else:
+            attempt_record["outcome"] = outcome
+        attempts.append(attempt_record)
+        final_outcome = attempt_record["outcome"]
+        selected_attempt_record = attempt_record
+
+        if outcome in {"REPAIR_VERIFIED", "REPAIR_REJECTED_AUDIT"}:
+            break
+        if materials_drift:
+            reason = "patch applied but the validation harness scaffold was altered during execution"
+        else:
+            reason = "patch applied but did not compile" if test_verdict == "build_failed" else (
+                "patch applied and compiled but did not fix the reported bug"
+            )
+        prompt = base_prompt + _retry_suffix_for_mode(proposal_format, reason=reason)
+
+    if final_outcome is None:
+        # Every attempt was exhausted on a PATCH_REJECTED/EXECUTION_ERROR
+        # retry without ever reaching a classified candidate run: the honest
+        # final outcome is that last attempt's own recorded outcome class
+        # (e.g. "PATCH_REJECTED"), never a silent "REPAIR_NOT_VERIFIED" that
+        # would misrepresent a never-applied patch as one that was applied,
+        # built, run, and simply failed to verify. Sanitized through the
+        # same bounded-class whitelist a source-free export uses, since
+        # this value crosses into this function's own documented
+        # source-free return value.
+        final_outcome = sanitize_outcome_class(attempts[-1]["outcome"]) if attempts else "REPAIR_NOT_VERIFIED"
+
+    # The trajectory fields (prompt/raw_completion/model_identity) must
+    # describe the SAME attempt the patch/result fields above came from --
+    # ``selected_attempt_record`` is that one classified attempt, not
+    # whichever attempt merely happened to run last (a later retry can be
+    # rejected before classification while an earlier attempt's real,
+    # if failing, result remains the reported one).
+    reported_attempt = selected_attempt_record or (attempts[-1] if attempts else None)
+    if reported_attempt is not None:
+        final_patch_text = reported_attempt["patch_text"]
+        final_touched = reported_attempt["touched_paths"]
+        final_materials = reported_attempt["materials"]
+        final_baseline = reported_attempt["baseline_result"]
+        final_repaired = reported_attempt["repaired_result"]
+        common_fields["prompt"] = reported_attempt["prompt"]
+        common_fields["raw_completion"] = reported_attempt["raw_completion"]
+        # Refresh the receipt's top-level model identity from the actual
+        # reported attempt's own post-inference snapshot: the identity
+        # captured in common_fields above was taken before the first
+        # model.complete() call, so its lastInputTokenCount is always null.
+        common_fields["model_identity"] = reported_attempt["model_identity"]
+        # See the identical rationale in each.clean_room.run_clean_room_build:
+        # a selected attempt whose own validation scaffold drifted during
+        # execution -- or never even reached the point the check runs at
+        # all (e.g. every attempt was rejected before a candidate build
+        # ever happened) -- must never still be reported under the
+        # strongest assurance label, even though the raw network probe
+        # genuinely passed (F4). An UNPERFORMED check defaults to
+        # "UNAVAILABLE", never silently to "PASS": only an explicit "PASS"
+        # keeps the configured assurance level, anything else (including a
+        # missing key) downgrades it.
+        if reported_attempt.get("materials_integrity", "UNAVAILABLE") != "PASS" and common_fields["assurance_level"] == "EACH-P2":
+            common_fields["assurance_level"] = "EACH-P1"
+    else:
+        final_patch_text = ""
+        final_touched = []
+    common_fields["audit"] = final_audit
+    common_fields["selected_attempt"] = reported_attempt["attempt"] if reported_attempt is not None else None
+    receipt = Receipt(
+        patch_text=final_patch_text,
+        touched_paths=final_touched,
+        materials=final_materials,
+        baseline_result=final_baseline,
+        repaired_result=final_repaired,
+        outcome=final_outcome,
+        attempts=attempts,
+        audit_subject_sha256=reported_attempt.get("audit_subject_sha256") if reported_attempt is not None else None,
+        **common_fields,
+    )
+    # materialize_root is the pristine host-side source tree: never
+    # mutated by apply_patch() (patches are applied only to a disposable
+    # per-attempt worktree copy), so it is always the correct -- and
+    # attempt-invariant -- source for the materials this receipt declared
+    # BEFORE any attempt's patch was ever applied (F5).
+    json_path, md_path = receipt.write(runs_dir() / run_id, materials_source=materialize_root)
+    return {
+        "outcome": sanitize_outcome_class(final_outcome),
+        "receipt_json": str(json_path),
+        "receipt_md": str(md_path),
+        "attempts": len(attempts),
+    }
+
+
+def summarize_receipt(receipt_json_path: str | Path) -> dict[str, Any]:
+    """Read a private receipt and return ONLY source-free, hash/outcome/
+    exit-code-level fields -- never the prompt, raw completion, or patch
+    text. This is the one permitted way M8 (and future shadow-only) receipt
+    content may be surfaced to an outer/cloud caller: strict candidate
+    source must never be read or reviewed here, only this sanitized view.
+    """
+    import json
+
+    data = json.loads(Path(receipt_json_path).read_text(encoding="utf-8"))
+    return {
+        "runId": data["runId"],
+        "createdAt": data["createdAt"],
+        "outcome": sanitize_outcome_class(data["outcome"]),
+        "assuranceLevel": data["assuranceLevel"],
+        "specHash": data["specHash"],
+        "patchHash": data["patchHash"],
+        "trajectoryHash": data["trajectoryHash"],
+        "touchedPaths": data["touchedPaths"],
+        "legalCertification": data["legalCertification"],
+        "cleanroomCertification": data["cleanroomCertification"],
+        "modelIdentity": {
+            "modelId": data["modelIdentity"].get("modelId"),
+            "implementationModule": data["modelIdentity"].get("implementationModule"),
+            "implementationSha256": data["modelIdentity"].get("implementationSha256"),
+            "generationParameters": data["modelIdentity"].get("generationParameters"),
+            "contextPolicy": data["modelIdentity"].get("contextPolicy"),
+        },
+        "executorIdentity": data["executorIdentity"],
+        "isolationEvidence": {
+            "command": data["isolationEvidence"].get("command"),
+            "exit_code": data["isolationEvidence"].get("exit_code"),
+            "stdout": data["isolationEvidence"].get("stdout", "").strip(),
+        },
+        "baselineExitCode": data["baselineResult"].get("exit_code"),
+        "repairedExitCode": data["repairedResult"].get("exit_code"),
+        "audit": {
+            "result": data["audit"].get("result"),
+            "checks": {
+                name: (check.get("status") if isinstance(check, dict) else check)
+                for name, check in data["audit"].get("checks", {}).items()
+            },
+        },
+        "attemptCount": len(data.get("attempts", [])),
+        "attemptOutcomes": [sanitize_outcome_class(a.get("outcome", "")) for a in data.get("attempts", [])],
+        "attemptProposalFormats": [sanitize_proposal_format(a.get("proposal_format")) for a in data.get("attempts", [])],
+        "attemptMetrics": [
+            {
+                "completionCallSeconds": a.get("completion_call_seconds"),
+                "inputTokens": a.get("input_tokens"),
+                "generationAttempted": a.get("generation_attempted"),
+            }
+            for a in data.get("attempts", [])
+        ],
+        "selectedAttempt": data.get("selectedAttempt"),
+        "materialsManifest": data.get("materials", {}),
+    }

@@ -1,0 +1,10 @@
+{
+  "status": "pass",
+  "exitCode": 0,
+  "command": [
+    "bash",
+    "gates/checks.sh"
+  ],
+  "commit": "93888d252d263f995551bb78daa232da157d6bcd",
+  "note": "base gate: uv sync --locked + pytest (293 passed/3 skipped) + each doctor PASS"
+}

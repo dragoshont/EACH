@@ -1,0 +1,14 @@
+{
+  "status": "pass",
+  "exitCode": 0,
+  "command": [
+    "uv",
+    "run",
+    "ruff",
+    "check",
+    "each",
+    "tests"
+  ],
+  "commit": "93888d252d263f995551bb78daa232da157d6bcd",
+  "note": "owned-code Ruff clean"
+}

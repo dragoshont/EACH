@@ -8,9 +8,9 @@ sequential and acceptance-gated; completing one is not permission to omit the
 next milestone's prerequisites.
 
 Repository: <https://github.com/dragoshont/EACH>.
-Development host: `m5.hont.ro`, Apple M5 Max, 128 GiB unified memory.
-Working checkout: `~/src/EACH` on the feature branch matching the app workspace.
-Architrave source: `~/src/architrave`, canonical
+Exercised development host: private Apple Silicon Mac with 128 GiB unified
+memory; hostnames, SSH aliases and local checkout paths are intentionally not
+published. Architrave source: canonical
 <https://github.com/dragoshont/architrave>.
 
 ## First acceptance matrix
@@ -30,6 +30,14 @@ Architrave source: `~/src/architrave`, canonical
 | M1 | Honest receipt | Private JSON and Markdown; material/trajectory/test hashes; unavailable audit checks explicit |
 
 ## Continuation
+
+The [dual-lane launch addendum](EACH_DUAL_LANE_ADDENDUM.md) now makes model
+qualification finite. Verify the retained exact StarCoderBase artifact and use
+it as initial Builder if authorized; finish the defined OctoCoder work and
+record other candidate blockers without delaying launch. Do not repeat passed
+milestones or require a successful repair as proof of model provenance.
+The exact-artifact [registry](model-qualifications/registry.json) keeps lineage,
+runtime, rights evidence and capability outcomes separate.
 
 Use `docs/EACH_MILESTONE_PROMPTS.md` for the milestone-specific work, with the
 user-authorized continuation to the next milestone only after the current gate
