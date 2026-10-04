@@ -20,6 +20,11 @@ def sha256_file(path: Path) -> str:
     return sha256_bytes(path.read_bytes())
 
 
+def sha256_text_file_lf(path: Path) -> str:
+    """Hash UTF-8 text after normalizing Git's CRLF/LF checkout difference."""
+    return sha256_bytes(path.read_bytes().replace(b"\r\n", b"\n"))
+
+
 def canonical_json(obj: Any) -> str:
     """Stable JSON serialization used for hashing (sorted keys, no extra whitespace)."""
     return json.dumps(obj, sort_keys=True, separators=(",", ":"), ensure_ascii=True)

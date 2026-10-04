@@ -16,7 +16,7 @@ from dataclasses import replace
 from importlib.metadata import PackageNotFoundError, version
 from pathlib import Path
 
-from each.hashing import sha256_file
+from each.hashing import sha256_file, sha256_text_file_lf
 from each.model_manifest import ModelManifest, build_manifest_from_snapshot, verify_snapshot_matches
 from each.models.base import RepairModel
 from each.paths import assert_no_symlink_escape, models_dir
@@ -174,9 +174,9 @@ CRYSTAL_MODEL_ID = (
     "#sha256:af277cbad887d6d0"
 )
 CRYSTAL_RUNTIME_FILES = {
-    "pyproject.toml": "b92c4a1013562ab224cf6aef6e246a6d60a954432ec9d7c02515d4eb5d30c5ed",
+    "pyproject.toml": "d31427bccbf785deea774472cd1ae508d7634ac393646db4fca6ad95db618b22",
     "uv.lock": "91038254ab4b87f2651de4244fdf1dd4e95386b1907260ce6f734ee366cf3505",
-    "crystal_runtime.py": "39c1e0937d6f5513541de3c96afa8fc904240b267aee609246758998903bd6cd",
+    "crystal_runtime.py": "d74afbb52f27468a0cfe108e6f0e9d520b3e05f4693b1f14eb778c386f809938",
 }
 CRYSTAL_RUNTIME_VERSIONS = {
     "python": "3.12.14",
@@ -335,7 +335,7 @@ def _crystalcoder_transformers(*, max_tokens: int = 512) -> RepairModel:
     runtime_drift = [
         name
         for name, path in runtime_paths.items()
-        if not path.is_file() or sha256_file(path) != CRYSTAL_RUNTIME_FILES[name]
+        if not path.is_file() or sha256_text_file_lf(path) != CRYSTAL_RUNTIME_FILES[name]
     ]
     if runtime_drift:
         raise UnavailableModelError(

@@ -7,7 +7,7 @@ from pathlib import Path
 
 import pytest
 
-from each.hashing import sha256_file
+from each.hashing import sha256_text_file_lf
 from each.model_manifest import ModelManifest
 from each.models.base import ContextBudgetExceeded
 from each.models.transformers_model import TransformersRepairModel
@@ -28,9 +28,9 @@ def _model(tmp_path: Path) -> TransformersRepairModel:
     sandbox.write_text("fixture")
     helper = Path(__file__).parents[2] / "each" / "models" / "crystal_runtime.py"
     runtime_hashes = {
-        "pyproject.toml": sha256_file(runtime / "pyproject.toml"),
-        "uv.lock": sha256_file(runtime / "uv.lock"),
-        "crystal_runtime.py": sha256_file(helper),
+        "pyproject.toml": sha256_text_file_lf(runtime / "pyproject.toml"),
+        "uv.lock": sha256_text_file_lf(runtime / "uv.lock"),
+        "crystal_runtime.py": sha256_text_file_lf(helper),
     }
     manifest = ModelManifest(
         repo_id="publisher/model",
@@ -92,6 +92,14 @@ def test_transformers_adapter_uses_locked_offline_subprocess(monkeypatch, tmp_pa
     assert "GITHUB_TOKEN" not in captured["kwargs"]["environment"]
     assert model.last_input_token_count == 17
     assert model.last_generation_attempted is True
+
+
+def test_runtime_text_hash_is_checkout_line_ending_independent(tmp_path: Path) -> None:
+    lf = tmp_path / "lf.txt"
+    crlf = tmp_path / "crlf.txt"
+    lf.write_bytes(b"one\ntwo\n")
+    crlf.write_bytes(b"one\r\ntwo\r\n")
+    assert sha256_text_file_lf(lf) == sha256_text_file_lf(crlf)
 
 
 def test_transformers_adapter_reports_pre_generation_context_rejection(

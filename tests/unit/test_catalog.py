@@ -141,7 +141,7 @@ def test_qualified_crystal_rejects_unknown_lineage_before_artifact_access(monkey
 def test_qualified_crystal_rejects_runtime_drift_before_artifact_access(monkeypatch):
     monkeypatch.setattr(
         catalog,
-        "sha256_file",
+        "sha256_text_file_lf",
         lambda path: "0" * 64 if path.name == "uv.lock" else catalog.CRYSTAL_RUNTIME_FILES[
             "crystal_runtime.py" if path.name == "crystal_runtime.py" else "pyproject.toml"
         ],

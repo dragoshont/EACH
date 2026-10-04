@@ -11,7 +11,7 @@ import time
 from pathlib import Path
 from typing import Any
 
-from each.hashing import sha256_file
+from each.hashing import sha256_text_file_lf
 from each.model_manifest import ModelManifest, verify_snapshot_matches
 from each.models.base import ContextBudgetExceeded, RepairModel
 
@@ -96,7 +96,7 @@ class TransformersRepairModel(RepairModel):
         drift = [
             f"{name}: hash mismatch"
             for name, path in self._runtime_files.items()
-            if sha256_file(path) != self._runtime_files_sha256[name]
+            if sha256_text_file_lf(path) != self._runtime_files_sha256[name]
         ]
         if drift:
             raise RuntimeError(
