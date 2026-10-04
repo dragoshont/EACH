@@ -128,6 +128,8 @@ class MLXRepairModel(RepairModel):
     def _render_prompt(self, prompt: str) -> str:
         self._ensure_loaded()
         if self._prompt_format == "question-answer":
+            if prompt.startswith("Question: ") and "\n\nAnswer:" in prompt:
+                return prompt
             return f"Question: {prompt}\n\nAnswer:"
         chat_template = getattr(self._tokenizer, "chat_template", None)
         if chat_template:

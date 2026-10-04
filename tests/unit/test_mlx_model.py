@@ -116,6 +116,23 @@ def test_runtime_model_configuration_is_applied_and_recorded(tmp_path, monkeypat
     assert model.identity()["runtimeModelConfig"] == {"tie_word_embeddings": False}
 
 
+def test_question_answer_rendering_is_idempotent_for_official_repair_prompt(tmp_path, monkeypatch):
+    root = _snapshot(tmp_path, max_position_embeddings=8192)
+    manifest = build_manifest_from_snapshot(
+        root, repo_id="fixture/model", license="Apache-2.0",
+        runtime_name="fixture", runtime_version="1", conversion_chain="fixture",
+    )
+    model = MLXRepairModel(root, manifest, prompt_format="question-answer")
+    monkeypatch.setattr(model, "_ensure_loaded", lambda: setattr(model, "_tokenizer", _FakeTokenizer()))
+    prompt = (
+        "Question: Fix bugs in selected_function.\n"
+        "buggy function and public cases\n\n"
+        "Answer:\nstatic HRESULT WINAPI selected_function"
+    )
+    assert model._render_prompt(prompt) == prompt
+    assert model._render_prompt("plain instruction") == "Question: plain instruction\n\nAnswer:"
+
+
 def test_lazy_load_rejects_snapshot_changed_while_backend_opens_it(tmp_path, monkeypatch):
     root = _snapshot(tmp_path, max_position_embeddings=8192)
     manifest = build_manifest_from_snapshot(
