@@ -1,61 +1,119 @@
 # EACH
 
-### Evidence for AI-authored repairs. Not a certificate.
+## Start here
+
+**EACH records evidence about code written by a declared local model.** It
+captures the exact model and inputs, generated candidate, isolated build/tests,
+terminal attribution checks and signed receipt. Use it to answer:
+
+> Which model bytes authored this change, what information did they receive,
+> and what independently controlled checks did the result actually pass?
+
+EACH produces **authoring-provenance evidence**, not proof that code is correct,
+original, legally clean or suitable for production. Target source, prompts,
+responses and candidates stay private by default.
+
+### Quick start on an Apple Silicon Mac
+
+```bash
+brew install git uv docker colima jq
+git clone --branch dragoshont-each-project-bootstrap \
+  https://github.com/dragoshont/EACH.git
+cd EACH
+
+uv python install 3.12
+uv sync --locked
+uv run each doctor
+
+# Safe harness demonstration: canned FixtureModel, not neural inference.
+uv run each demo hello-repair
+
+# Repository verification.
+bash gates/checks.sh
+```
+
+The demo should reproduce a failing baseline, validate the canned repair in an
+isolated container and print private receipt paths. Verify a receipt with:
+
+```bash
+uv run each verify /absolute/path/to/receipt.json
+uv run each verify /absolute/path/to/receipt.json --full
+```
+
+For real local models:
+
+```bash
+uv sync --locked --extra models --extra audit
+```
+
+This installs runtimes only—it does **not** download weights. EACH intentionally
+has no “run any Hugging Face model” fallback. An exact checkpoint enters the
+catalog only after its base/post-training lineage, licenses, publisher hashes,
+conversion and runtime are reviewed. Model-specific dossiers are under
+[`docs/model-qualifications/`](docs/model-qualifications/).
+
+## What it is for
+
+```text
+public question / observations -> approved spec -> declared local model
+                               -> scoped candidate -> isolated validation
+                               -> terminal audit -> signed evidence receipt
+```
 
 **EACH** (Evidence-Audited Cleanroom Harness) is a local CLI that records
 what a coding model received, what it generated, how the candidate was
 validated, and which source-attribution checks actually ran.
 
-```text
-Issue / observations -> approved spec -> declared local model
-                     -> scoped candidate -> isolated validation
-                     -> terminal audit -> signed evidence receipt
-```
+## Current reality
 
-Target artifacts stay private by default. A passing signature proves integrity,
-not correctness, originality or legal clean-room status.
+EACH now has a practical path to local models with inspectable training
+lineage that can generate and compile real code. It does **not yet** have a
+reliable Xodus repair model.
 
-## Where the project stands
+The same two public Xodus optional-output bugs were evaluated with a protected
+six-case oracle:
 
-| Area | Current position |
-|---|---|
-| Current provenance-first work | Exact retained StarCoderBase and OctoCoder artifacts are **AUTHORIZED**. StarCoderBase completed the first qualified Xodus experiment: one private response, **PATCH_REJECTED** because it proposed no source change. |
-| Third approved candidate | StarCoder2 access is granted, but required supplementary/synthetic-generator ancestry remains unresolved. **Blocked before model loading.** |
-| Research program | M0-M8 complete; full research release gate verified. |
-| Production | **Not qualified.** Blockers remain in the [production ledger](docs/production-readiness-ledger.md); current work prioritizes the provenance-first Xodus pilot. |
-| First production-development exploration | Three new Python development tasks, nine local-model calls, **zero verified repairs**; this utility lane is stopped at its authorized cap. |
-| Historical benchmark | 25 Python/C/C++/Rust tasks, 75 selected recorded calls, **0 verified repairs**. |
-| Controlled compatibility experiment | M7: **8 passing tests, 1 failure**; complete negative evidence, not a working cache. |
-| Private real-world demonstration | M8: one bounded C repair with verified baseline failure and repaired success. Not full Xodus/Wine/game compatibility. |
-| Audit coverage | Synthetic calibration/holdout detect seeded copies, but false flags exceed the frozen target; external membership/scanning remain unavailable. No originality, EACH-P3 or legal-certification claim. |
-| Operations | Isolated interruption, timeout, quota, corruption, concurrency and temporary-key recovery drills implemented; independent production acceptance pending. |
-| API validation boundary | **P1 BLOCKED after actual independent REVISE.** Matching sandboxed process JSON does not authenticate Python API return and cannot verify a repair. |
+| Exact model family | Best sandbox result | Best console result | Verified fixes |
+|---|---:|---:|---:|
+| StarCoderBase 15.5B | 4/6 | 4/6 | **0/2** |
+| OctoCoder 15.5B | 4/6 | 4/6 | **0/2** |
+| CrystalCoder 7B | No compiling candidate | No compiling candidate | **0/2** |
+| K2 65B, local 8-bit | 4/6 | 3/6 | **0/2** |
+| CodeGen2.5-7B-multi, local 8-bit | 1/6 | Cases not run | **0/2** |
 
-See [development evidence](docs/development-status.md) for exact source
-revisions, gate results and limitations. Independent AI review supports
-engineering qualification; it does not confer production readiness.
+These are behavioral results, not comparisons against a preferred patch.
+StarCoderBase, OctoCoder, K2 and CodeGen2.5 all produced at least one compiling
+candidate, proving that provenance-qualified models can author executable code;
+none completed either fixed repair.
 
-The active priority is [models, harness, then one real Xodus behavior](docs/provenance-first-evaluation-plan.md),
-not more unrelated benchmarks. Earlier Qwen outcomes remain historical capability
-data and are excluded from provenance-first qualification. Dataset-stage
-eligibility does not certify lawful training or originality.
+Detailed evidence:
 
-The [finite registry](docs/model-qualifications/registry.json) and
-[dual-lane addendum](docs/EACH_DUAL_LANE_ADDENDUM.md) close this model-research
-cycle: StarCoder2 is blocked; Comma is deferred, not a launch dependency.
-The [first qualified Xodus run](docs/reference-builder-launch.md) is complete.
-Its signed receipt and materials verify; no candidate, validation or terminal
-audit occurred because the model proposed no change. This is a valid negative
-provenance result, not production qualification.
+- [Two-model and follow-up evaluation ledger](docs/two-model-evaluation-ledger.md)
+- [Finite exact-checkpoint registry](docs/model-qualifications/registry.json)
+- [K2-65B dossier](docs/model-qualifications/k2-progress.md)
+- [CodeGen2.5-multi dossier](docs/model-qualifications/codegen25-multi.md)
+- [CrystalCoder dossier](docs/model-qualifications/crystalcoder.md)
 
-The launch acceptance harness is frozen at
-`d433af83dd5a45f2f21f41dcccf3dab680a301eb`. Its final source-bound gates
-passed **686 tests with 11 optional skips**, **697 tests with all extras**,
-Ruff, package build, exact Base/Octo lazy identities, full receipt verification
-and Run validation. Run `each-qualified-xodus-launch-accepted-20261004`
-completed at revision 12 with deterministic, reality, GPT-family and
-Claude-family PASS gates. This accepts the evidence workflow and negative
-experiment—not the repair, production release, legal status or upstream use.
+### Provenance and licensing mean different things
+
+EACH can establish that a checkpoint's declared training stages and exact
+artifact are inspectable enough for bounded research. It cannot provide blanket
+legal clearance:
+
+- CrystalCoder and CodeGen2.5-multi use Apache-2.0 model licenses, while their
+  underlying source records retain attribution and heterogeneous-license risks.
+- K2 uses an Apache-2.0 model license, but its published mixture includes
+  ODC-By sources and a CC-BY-NC-SA-4.0 Pile-of-Law stage. It is authorized here
+  only for private bounded research—not commercial-use clearance.
+- StarCoder's stronger Python-continuation checkpoint remains gated behind
+  BigCode OpenRAIL-M acceptance. EACH will not accept gated terms for a user.
+- Granite Code 34B was rejected because its exact base-training lineage includes
+  unpublished/incompletely inspectable phase-2 material.
+- StarCoder2 remains blocked by unresolved synthetic-teacher ancestry.
+
+Current source-bound gates pass **745 tests with 12 optional skips** and
+**759 tests with all extras**, plus Ruff and `each doctor`. Production remains
+**not qualified**; see the [production ledger](docs/production-readiness-ledger.md).
 
 ## What you get
 
@@ -151,16 +209,26 @@ unavailable; a skip is not a successful isolation test.
 **Training-data provenance is a prerequisite, not a model preference.**
 EACH uses only eligible models with clear base and
 post-training dataset lineage. Public weights, exact hashes or a model
-license are not sufficient. The exact original StarCoderBase checkpoint is
-the first independently assessed candidate; other entries remain blocked.
-Historical Qwen capability trials do not qualify this product. See
-[model eligibility](docs/model-provenance.md).
+license are not sufficient. The current exact authorized catalog entries are
+`starcoderbase-mlx`, `octocoder-mlx`, `crystalcoder-transformers`,
+`k2-65b-mlx` and `codegen25-7b-multi-mlx`. Authorization is checkpoint-
+specific and does not extend to another size, revision, chat/instruct variant
+or family member. Historical Qwen capability trials do not qualify this
+product. See [model eligibility](docs/model-provenance.md) and the
+[finite registry](docs/model-qualifications/registry.json).
 The [provenance-first evaluation plan](docs/provenance-first-evaluation-plan.md)
 puts model/data access and lineage qualification ahead of runtime and repair
 tests, and names the candidate models and current blockers.
 
 The model catalog requires exact snapshots already present on disk. Installing
 the `models` extra does **not** download model weights.
+
+K2 and CodeGen2.5 provisioning/conversion evidence is intentionally more
+specific than a copy-paste download command: original publisher files,
+conversion records and local output hashes must all match the catalog pins.
+Follow their dossiers rather than substituting a similarly named community
+conversion. A successful load is still only runtime evidence; the current
+fixed-task ledger records zero verified repairs.
 
 The following is a historical artifact-provisioning reference, **not approval
 to generate targets or a recommendation to download weights now**.
