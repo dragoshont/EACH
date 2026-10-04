@@ -60,12 +60,26 @@ def test_recorded_implementation_is_bound_to_clean_producer_commit(tmp_path):
     _git(repo, "commit", "-q", "-m", "fixture implementation")
     commit = subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=repo, text=True).strip()
     run_store = art.RunStore(repository=repo)
+    run_store.create(
+        goal="verify historical implementation",
+        outcome="implementation is bound to an ancestor commit",
+        criteria=[
+            {
+                "id": "implementation",
+                "description": "implementation identity",
+                "verificationType": "deterministic",
+                "blocking": True,
+            }
+        ],
+        run_id="implementation-run",
+    )
     identity = {
         "implementationModule": "each.models.mlx_model",
         "implementationSha256": hashlib.sha256(module.read_bytes()).hexdigest(),
     }
     receipt = {"producerCommit": commit, "producerDirty": False}
     run_store._validate_recorded_model_implementation(
+        "implementation-run",
         receipt,
         identity,
         error_code="TARGET_EXPERIMENT_RECEIPT",
@@ -73,6 +87,7 @@ def test_recorded_implementation_is_bound_to_clean_producer_commit(tmp_path):
     identity["implementationSha256"] = "0" * 64
     with pytest.raises(art.RuntimeFailure, match="does not match"):
         run_store._validate_recorded_model_implementation(
+            "implementation-run",
             receipt,
             identity,
             error_code="TARGET_EXPERIMENT_RECEIPT",
@@ -80,6 +95,23 @@ def test_recorded_implementation_is_bound_to_clean_producer_commit(tmp_path):
     receipt["producerDirty"] = True
     with pytest.raises(art.RuntimeFailure, match="identity is invalid"):
         run_store._validate_recorded_model_implementation(
+            "implementation-run",
+            receipt,
+            identity,
+            error_code="TARGET_EXPERIMENT_RECEIPT",
+        )
+    receipt["producerDirty"] = False
+    identity["implementationSha256"] = hashlib.sha256(module.read_bytes()).hexdigest()
+    tree = subprocess.check_output(["git", "write-tree"], cwd=repo, text=True).strip()
+    orphan = subprocess.check_output(
+        ["git", "commit-tree", tree, "-m", "orphan"],
+        cwd=repo,
+        text=True,
+    ).strip()
+    receipt["producerCommit"] = orphan
+    with pytest.raises(art.RuntimeFailure, match="not an ancestor"):
+        run_store._validate_recorded_model_implementation(
+            "implementation-run",
             receipt,
             identity,
             error_code="TARGET_EXPERIMENT_RECEIPT",

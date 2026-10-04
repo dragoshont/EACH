@@ -2,7 +2,7 @@
   "reviewed_at": "2026-10-04",
   "scope": "Finite qualification of exact checkpoints for documented, inspectable training-dataset-stage lineage and bounded EACH research. Not exact training-sample reconstruction, legal certification, upstream acceptance, or whole-Run release approval.",
   "catalog_source": "each/models/catalog.py",
-  "verified_source_commit": "a47cd153227a875c395b84e3d52140e6fd543267",
+  "launch_result_verified_source_commit": "a47cd153227a875c395b84e3d52140e6fd543267",
   "artifact_verification_source_commit": "2440d2ff887e0ac8dc27212b4b4cfbb5140aaa2a",
   "initial_builder": "starcoderbase-mlx",
   "model_qualification_blocks_launch": false,

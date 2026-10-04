@@ -1398,6 +1398,7 @@ class RunStore:
 
     def _validate_recorded_model_implementation(
         self,
+        run_id: str,
         receipt: dict[str, Any],
         model_identity: dict[str, Any],
         *,
@@ -1429,6 +1430,16 @@ class RunStore:
             or hashlib.sha256(result.stdout).hexdigest() != implementation_sha
         ):
             raise RuntimeFailure(error_code, "recorded implementation does not match its producer commit")
+        baseline_commit = str(self.load(run_id)["baseline"].get("commit") or "")
+        ancestry = subprocess.run(
+            ["git", "merge-base", "--is-ancestor", commit, baseline_commit],
+            cwd=self.repository,
+            capture_output=True,
+            timeout=30,
+            check=False,
+        )
+        if ancestry.returncode != 0:
+            raise RuntimeFailure(error_code, "recorded implementation commit is not an ancestor of the Run baseline")
 
     def _validated_real_model_identity(self, receipt: dict[str, Any], *, error_code: str) -> tuple[str, str]:
         from each.models.base import validate_recorded_real_model_identity
@@ -1706,6 +1717,7 @@ class RunStore:
                 "private receipt identity does not match the official qualified local artifact",
             )
         self._validate_recorded_model_implementation(
+            run_id,
             receipt,
             model_identity,
             error_code="TARGET_EXPERIMENT_RECEIPT",
