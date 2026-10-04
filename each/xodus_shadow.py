@@ -395,6 +395,39 @@ def _function_profile_proposal(
     return patch
 
 
+def recommended_xodus_task_profile(model_identity: dict[str, Any]) -> dict[str, str]:
+    """Return the smallest empirically justified task shape for an authorized model."""
+    repo = str((model_identity.get("modelManifest") or {}).get("repoId") or "")
+    if repo == "bigcode/starcoderbase":
+        return {
+            "proposalFormat": "body",
+            "promptStyle": "fim",
+            "reason": "Full-function candidates compiled but missed required positive cases; reduce regeneration.",
+        }
+    if repo == "bigcode/octocoder":
+        return {
+            "proposalFormat": "function",
+            "promptStyle": "question-answer-tests",
+            "reason": "Generic function instruction produced no change; use official repair-style tests plus buggy code.",
+        }
+    raise ValueError("no Xodus task profile exists for this model identity")
+
+
+def _behavioral_case_prompt(api: str) -> str:
+    output = "sandboxId" if api == "sandbox" else "consoleId"
+    used = output + "Used"
+    value = "RETAIL" if api == "sandbox" else "00000000.00000000.00000000.00000000.00"
+    return (
+        "Public behavioral cases:\n"
+        f"1. valid buffer, {used}=NULL -> S_OK and {output}={value!r}\n"
+        f"2. valid buffer, {used} non-NULL -> S_OK, same value, exact size including NUL\n"
+        f"3. {output}=NULL, {used} non-NULL -> E_POINTER\n"
+        f"4. both outputs NULL -> E_POINTER\n"
+        f"5. undersized buffer, {used} non-NULL -> ERROR_INSUFFICIENT_BUFFER\n"
+        f"6. undersized buffer, {used}=NULL -> ERROR_INSUFFICIENT_BUFFER"
+    )
+
+
 def _assemble_source_root(fetched_source: str, allowed_path: str, dest: Path) -> None:
     """Materialize one merged source tree: the fetched real target file plus
     this repo's own (never-Builder-input) validation harness scaffold, at
@@ -562,10 +595,11 @@ def run_xodus_shadow_build(
         before, declaration, original_body, suffix = _function_profile_parts(fetched_source, signature)
         selected_source = declaration + original_body + "}\n"
         model_repo = (model.identity().get("modelManifest") or {}).get("repoId")
+        cases = _behavioral_case_prompt(selected_api)
         if model_repo == "bigcode/starcoderbase":
             middle_prefix = before if proposal_format == "function" else before + declaration
             middle_suffix = suffix[1:] if proposal_format == "function" else suffix
-            requirement = packet.problem_statement.replace("*/", "* /")
+            requirement = (packet.problem_statement + "\n\n" + cases).replace("*/", "* /")
             base_prompt = (
                 f"<fim_prefix>/* Approved requirement:\n{requirement}\n*/\n"
                 f"{middle_prefix}<fim_suffix>{middle_suffix}<fim_middle>"
@@ -575,8 +609,10 @@ def run_xodus_shadow_build(
                 "function body only, without the outer opening or closing brace"
             )
             base_prompt = (
-                f"{packet.problem_statement}\n\nCurrent permitted C function:\n{selected_source}\n"
-                f"Return only the corrected {answer_kind}. No diff, custom markers, explanation or other functions."
+                f"Question: The following public C function is buggy and fails these public cases.\n"
+                f"{packet.problem_statement}\n\n{cases}\n\nBuggy function:\n{selected_source}\n"
+                f"Return only the corrected {answer_kind}. You must change the shown function. "
+                "No diff, custom markers, explanation or other functions.\n\nAnswer:"
             )
         fim_evidence = {
             "selectedFunction": signature.split()[-1],

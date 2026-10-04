@@ -5,12 +5,12 @@ delivery from behavioral correctness. Receipt integrity is not repair success.
 Private sources, completions, candidates and Auditor findings stay private.
 Results are not production, legal, Wine or Xodus certification.
 
-**Current execution scope: four calls, two fixed tasks, one existing profile.**
-The user deferred harness comparison. Use H1/function replacement only.
+**Executed scope: four calls, two fixed tasks, one function-replacement profile.**
+The user deferred harness comparison.
 Batch SHA-256:
 `30a3052ad0199208c6bc41e014d57f11cbc4d1425d0bf1b7c67d83f1ad3c4ec7`.
-The exact-batch approval request returned user unavailable; no new model
-generation has occurred. This is pending approval, not a model result.
+The user directed immediate evaluation after this exact batch was displayed.
+Four calls ran; no retry, additional model or second profile was added.
 
 ## Models
 
@@ -55,8 +55,8 @@ it is not part of the current execution or a prerequisite for evaluating H1.
 
 | Model | S: sandbox ID / H1 | C: console ID / H1 | Distinct verified fixes |
 |---|---|---|---|
-| StarCoderBase | NOT RUN | NOT RUN | Not measured in this batch |
-| OctoCoder | NOT RUN | NOT RUN | Not measured in this batch |
+| StarCoderBase | Candidate compiled; **3/6 cases PASS** | Candidate compiled; **3/6 cases PASS** | **0/2** |
+| OctoCoder | **PATCH_REJECTED: no change**; cases NOT RUN | **PATCH_REJECTED: no change**; cases NOT RUN | **0/2** |
 
 Each cell records exact Spec/material hashes, model/runtime identity, actual
 prompt/output, sampling, input tokens, response characters, completion time,
@@ -64,6 +64,36 @@ proposal acceptance, build exit, named behavioral cases, audit execution,
 receipt verification and private evidence references. Missing metrics remain
 UNAVAILABLE. There are **four cells and two distinct issues**; a model can score
 0/2, 1/2 or 2/2 verified fixes. Format failure is not a behavioral-test failure.
+
+### Named case results
+
+StarCoderBase produced the same behavioral pattern on both tasks:
+
+| Case | Sandbox | Console |
+|---|---|---|
+| Optional size output is NULL, valid buffer | FAIL | FAIL |
+| Valid buffer and non-NULL size output | FAIL | FAIL |
+| Required buffer is NULL | PASS | PASS |
+| Both outputs are NULL | PASS | PASS |
+| Short buffer, non-NULL size output | PASS | PASS |
+| Short buffer, NULL size output | FAIL | FAIL |
+
+This is behavioral evaluation, not comparison to a known patch. The Base
+candidates compiled but did not implement the required positive behavior.
+OctoCoder returned the selected public function unchanged in both calls, so no
+candidate was applied.
+
+### Cell evidence
+
+| Model / task | Spec SHA-256 | Receipt SHA-256 | Input tokens | Completion seconds | Outcome |
+|---|---|---|---:|---:|---|
+| Base / S | `afe1af765ba112607d8c0786e39af2168f9ef59be1b55a137426f59a5574e699` | `7a4bf937961fa986eae2478f855cd90c814274c2370c65b086c82beb2b6bc983` | 1,839 | 35.512 | 3/6, not verified |
+| Base / C | `be4965f244fa77efb63edeacd17e9e3eb38926952fd3f0c0c009914592625387` | `e905adca4693e6dc4be999b9bc5231ffc910632814afda44ad3b505a24568f9d` | 1,767 | 13.116 | 3/6, not verified |
+| Octo / S | `afe1af765ba112607d8c0786e39af2168f9ef59be1b55a137426f59a5574e699` | `2d985b875dec42c2b19c872910f3f5a47bb6e857592ff415f8afe63c14e173e4` | 545 | 51.656 | No change |
+| Octo / C | `be4965f244fa77efb63edeacd17e9e3eb38926952fd3f0c0c009914592625387` | `550dfcf5c9b2a3dd48890d60b80b892c67928b33094a832be140788a3a884f74` | 609 | 15.749 | No change |
+
+Every receipt and all declared materials verified. Private candidates and raw
+responses remain private.
 
 ## Existing executions -- not a matched model comparison
 
@@ -103,6 +133,27 @@ repair behavior.
    its matches to Builder. Missing coverage remains UNAVAILABLE.
 7. Wait for useful repairs before performance publication. No upstream PR.
 
+## Task tailoring learned from the four calls
+
+Future EACH task construction should be model-specific but keep the same public
+requirements and behavioral oracle:
+
+- **StarCoderBase:** use body completion, not complete-function regeneration.
+  Include the six public expected cases as a compact truth table. Its accepted
+  full-function candidates preserved existing error cases but missed the
+  positive optional-output behavior.
+- **OctoCoder:** use its official HumanEvalFix-style structure:
+  `Question: <requirement and public tests>\n\nAnswer:\n<buggy function prefix>`.
+  Explicitly say the shown function fails the listed tests and must be changed.
+  The generic “correct this function” form produced a no-op twice.
+- Treat unchanged output as `NO_CHANGE`, not a formatting failure.
+- A future repeat is a new approved batch. Do not silently consume deferred H2
+  calls or expand the model list.
+
+These recommendations are encoded by
+`each.xodus_shadow.recommended_xodus_task_profile`; unknown/unqualified models
+fail closed rather than inheriting one of these profiles.
+
 The oracle measures extracted C functions with independent ABI stubs, not a
 native Windows GDK library, full Wine DLL or whole-game success.
 The protected parent rejects a premature child exit or missing case data.
@@ -127,6 +178,7 @@ outside the claimed assurance. Do not relabel the production oracle gap PASS.
   says only some models are good at both code generation and tool calling.
   No verified OctoCoder-specific improvement was found in this bounded search.
 
-No external tool-loop installation or additional harness comparison is needed
-before the four-call evaluation. External harnesses are **investigated, not
-installed/evaluated**. Their incremental value is deferred by the user.
+No external tool-loop installation was used. External harnesses are
+**investigated, not installed/evaluated**. The useful idea copied from the
+official BigCode evaluator is task shaping—buggy function plus tests and the
+model's native prompt—not an autonomous tool loop.

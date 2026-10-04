@@ -248,6 +248,21 @@ def test_function_profiles_derive_diff_without_custom_markers(profile, signature
     assert "END_SOURCE" not in completion
 
 
+def test_recommended_profiles_follow_observed_model_failures() -> None:
+    assert xodus_shadow_module.recommended_xodus_task_profile(
+        {"modelManifest": {"repoId": "bigcode/starcoderbase"}}
+    )["proposalFormat"] == "body"
+    octo = xodus_shadow_module.recommended_xodus_task_profile(
+        {"modelManifest": {"repoId": "bigcode/octocoder"}}
+    )
+    assert octo["proposalFormat"] == "function"
+    assert octo["promptStyle"] == "question-answer-tests"
+    with pytest.raises(ValueError, match="no Xodus task profile"):
+        xodus_shadow_module.recommended_xodus_task_profile(
+            {"modelManifest": {"repoId": "unqualified/model"}}
+        )
+
+
 def test_body_profile_cannot_escape_selected_function() -> None:
     with pytest.raises(xodus_shadow_module.PatchRejected, match="escaped"):
         xodus_shadow_module._function_profile_proposal(
@@ -553,8 +568,13 @@ def test_split_native_profiles_reach_six_independent_behavioral_cases(
         if model_repo == "bigcode/starcoderbase":
             assert model.observed.startswith("<fim_prefix>")
             assert model.observed.endswith("<fim_middle>")
+            assert "Public behavioral cases:" in model.observed
         else:
-            assert "Current permitted C function:" in model.observed
+            assert model.observed.startswith("Question:")
+            assert "Public behavioral cases:" in model.observed
+            assert "Buggy function:" in model.observed
+            assert "You must change the shown function." in model.observed
+            assert model.observed.endswith("Answer:")
         receipt_path = Path(result["receipt_json"])
         receipt = json.loads(receipt_path.read_text())
         cases = json.loads(receipt["repairedResult"]["stdout"].split("EACH_CASE_RESULTS:", 1)[1])
