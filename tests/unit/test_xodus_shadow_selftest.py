@@ -259,6 +259,36 @@ def test_body_profile_cannot_escape_selected_function() -> None:
         )
 
 
+def test_function_profile_evaluates_the_function_not_response_wrappers(tmp_path) -> None:
+    signature = xodus_shadow_module._SANDBOX_ID_FUNCTION_SIGNATURE
+    _before, declaration, _body, _suffix = xodus_shadow_module._function_profile_parts(
+        _CACHED_SOURCE, signature,
+    )
+    function = declaration + _CORRECT_FIM_BODY + "}\n"
+    patch = xodus_shadow_module._function_profile_proposal(
+        "Corrected function:\n```c\n" + function + "```\nDone.",
+        _CACHED_SOURCE, "xsystem.c", signature, "function",
+    )
+    continued = xodus_shadow_module._function_profile_proposal(
+        function + "\nUnapplied explanation of the answer.\n",
+        _CACHED_SOURCE, "xsystem.c", signature, "function",
+    )
+    body = xodus_shadow_module._function_profile_proposal(
+        _CORRECT_FIM_BODY + "}\n", _CACHED_SOURCE, "xsystem.c", signature, "body",
+    )
+    from each.patch import apply_patch, parse_patch
+
+    reconstructed = []
+    for index, candidate_patch in enumerate((patch, continued, body)):
+        root = tmp_path / str(index)
+        root.mkdir()
+        target = root / "xsystem.c"
+        target.write_text(_CACHED_SOURCE)
+        apply_patch(parse_patch(candidate_patch), root, {"xsystem.c"})
+        reconstructed.append(target.read_text().split())
+    assert reconstructed[0] == reconstructed[1] == reconstructed[2]
+
+
 @requires_colima_each
 @requires_m8_native_image
 def test_terminal_audit_receives_post_patch_source_not_diff(tmp_path, monkeypatch) -> None:

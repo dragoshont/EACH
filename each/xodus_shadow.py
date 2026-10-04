@@ -350,11 +350,13 @@ def _function_profile_parts(source: str, signature: str) -> tuple[str, str, str,
 
 def _unwrap_function_output(completion: str) -> str:
     text = completion.strip()
-    if text.startswith("```"):
-        lines = text.splitlines()
-        if len(lines) < 3 or lines[-1].strip() != "```" or text.count("```") != 2:
+    if "```" in text:
+        opening = text.find("```")
+        code_start = text.find("\n", opening)
+        closing = text.find("```", code_start + 1)
+        if code_start < 0 or closing < 0 or text.count("```") != 2:
             raise PatchRejected("function output has an incomplete or ambiguous code fence")
-        text = "\n".join(lines[1:-1]).strip()
+        text = text[code_start + 1:closing].strip()
     if not text or "<fim_" in text or "<|endoftext|>" in text:
         raise PatchRejected("function output is empty or contains unexpected control tokens")
     return text + "\n"
@@ -367,14 +369,23 @@ def _function_profile_proposal(
     text = _unwrap_function_output(completion)
     if profile == "function":
         generated_prefix, generated_suffix = _split_sandbox_function_body(text, signature)
-        if generated_prefix.split() != declaration.split() or generated_suffix.strip() != "}":
-            raise PatchRejected("function output changed its interface or included unrelated source")
+        if generated_prefix.split() != declaration.split():
+            raise PatchRejected("function output changed its public interface")
+        # Like a function-completion evaluator, consume only the selected function.
+        # Continued prose/source is retained in the receipt, never applied to the file.
         text = text[len(generated_prefix):len(text) - len(generated_suffix)]
     proposal = before + declaration + text + suffix
     # The original closing brace must remain the unique boundary of this body.
     checked_prefix, checked_suffix = _split_sandbox_function_body(proposal, signature)
     if checked_prefix != before + declaration or checked_suffix != suffix:
-        raise PatchRejected("function output escaped its selected body")
+        if profile == "body" and text.rstrip().endswith("}"):
+            # Some body completions include the existing outer closing brace.
+            # Accept only when removing that one delimiter restores the exact scope.
+            text = text.rstrip()[:-1] + "\n"
+            proposal = before + declaration + text + suffix
+            checked_prefix, checked_suffix = _split_sandbox_function_body(proposal, signature)
+        if checked_prefix != before + declaration or checked_suffix != suffix:
+            raise PatchRejected("function output escaped its selected body")
     try:
         patch = derive_unified_diff(path=path, original_text=source, proposed_text=proposal)
     except RawProposalRejected as exc:

@@ -80,7 +80,10 @@ repair behavior.
 
 1. Require an independently reproduced failing baseline for each task.
 2. Accept complete function/body source without diff arithmetic or custom
-   BEGIN/END markers. Reject ambiguous/truncated output; never invent code.
+   BEGIN/END markers. Tolerate one complete code fence or an included outer
+   closing brace; consume only the selected function, never continued unrelated
+   source. Retain the entire raw response. Reject ambiguous/truncated output;
+   never invent code.
 3. Compile only in the no-network `colima-each-oracle` container with protected
    validators. Do not execute target code on the Mac host.
 4. Report named case PASS/FAIL/NOT_RUN. A candidate that exits before returning
