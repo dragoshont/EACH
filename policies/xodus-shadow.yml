@@ -102,3 +102,18 @@ pinned_targets:
       - ["python3", "examples/xodus-m8-sandbox-id/build_check.py", "build", "xsystem.c"]
     acceptance_commands:
       - ["python3", "examples/xodus-m8-sandbox-id/build_check.py", "run"]
+    experiments:
+      each-two-model-ledger-sandbox-v1:
+        target_ref: "791710510d9ba0746bbd60754215eb321800e4f0"
+        allowed_paths: ["xsystem.c"]
+        build_commands:
+          - ["python3", "examples/xodus-m8-sandbox-id/build_check.py", "build", "xsystem.c", "sandbox"]
+        acceptance_commands:
+          - ["python3", "examples/xodus-m8-sandbox-id/build_check.py", "run", "sandbox"]
+      each-two-model-ledger-console-v1:
+        target_ref: "791710510d9ba0746bbd60754215eb321800e4f0"
+        allowed_paths: ["xsystem.c"]
+        build_commands:
+          - ["python3", "examples/xodus-m8-sandbox-id/build_check.py", "build", "xsystem.c", "console"]
+        acceptance_commands:
+          - ["python3", "examples/xodus-m8-sandbox-id/build_check.py", "run", "console"]

@@ -132,6 +132,30 @@ def test_strict_repo_with_exact_pinned_envelope_passes(tmp_path: Path, monkeypat
     verify_xodus_shadow_binding(approved)  # must not raise
 
 
+@pytest.mark.parametrize("api", ["sandbox", "console"])
+def test_named_ledger_envelope_only_allows_its_selected_api(tmp_path, monkeypatch, api):
+    monkeypatch.setenv("EACH_HOME", str(tmp_path))
+    task_id = f"each-two-model-ledger-{api}-v1"
+    build = _REAL_BUILD_COMMANDS[0] + [api]
+    run = _REAL_ACCEPTANCE_COMMANDS[0] + [api]
+    approved = ApprovedSpec.approve(
+        _real_envelope_packet(task_id, build_commands=[build], acceptance_commands=[run])
+    )
+    _durably_approve(approved)
+    verify_xodus_shadow_binding(approved)
+    wrong_api = "console" if api == "sandbox" else "sandbox"
+    wrong = ApprovedSpec.approve(
+        _real_envelope_packet(
+            task_id,
+            build_commands=[_REAL_BUILD_COMMANDS[0] + [wrong_api]],
+            acceptance_commands=[_REAL_ACCEPTANCE_COMMANDS[0] + [wrong_api]],
+        )
+    )
+    _durably_approve(wrong)
+    with pytest.raises(PolicyViolation, match="build_commands"):
+        verify_xodus_shadow_binding(wrong)
+
+
 def test_strict_repo_with_deadbeef_target_ref_is_rejected(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

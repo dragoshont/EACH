@@ -139,6 +139,11 @@ def verify_xodus_shadow_binding(approved: ApprovedSpec, *, policy_path: Path = P
             f"policy {policy_path} declares {packet.target_repo!r} as a strict-run repository but has no "
             "pinned_targets entry for it; refusing to run against an unpinned envelope"
         )
+    experiments = pinned.get("experiments") or {}
+    if packet.task_id in experiments:
+        pinned = experiments[packet.task_id]
+        if not isinstance(pinned, dict):
+            raise PolicyViolation("named experiment envelope must be a mapping")
     _require_exact_match(pinned, "target_ref", packet.target_ref, policy_path)
     _require_exact_match(pinned, "allowed_paths", list(packet.allowed_paths), policy_path)
     _require_exact_match(

@@ -71,6 +71,7 @@ NATIVE_IMAGE_DIGEST = (
 _SANDBOX_ID_FUNCTION_SIGNATURE = (
     "static HRESULT WINAPI x_system_XSystemGetXboxLiveSandboxId"
 )
+_CONSOLE_ID_FUNCTION_SIGNATURE = "static HRESULT WINAPI x_system_XSystemGetConsoleId"
 
 _PROMPT_TEMPLATE = """You are repairing exactly one bug in a real, existing C source file, described below by its own public issue report. You must fix ONLY the behavior the issue describes, using ONLY the file content shown below and the issue text -- do not invent, assume, or reference any other implementation, patch, or fix you may have seen elsewhere for this exact bug.
 
@@ -190,7 +191,9 @@ def _retry_suffix_for_mode(proposal_format: str, *, reason: str) -> str:
     return _FULL_SOURCE_RETRY_SUFFIX.format(reason=reason)
 
 
-def _split_sandbox_function_body(source: str) -> tuple[str, str]:
+def _split_sandbox_function_body(
+    source: str, signature_text: str = _SANDBOX_ID_FUNCTION_SIGNATURE,
+) -> tuple[str, str]:
     """Return the exact public-source prefix/suffix around the target C body."""
     matches: list[int] = []
     state = "code"
@@ -199,9 +202,9 @@ def _split_sandbox_function_body(source: str) -> tuple[str, str]:
         char = source[index]
         nxt = source[index + 1] if index + 1 < len(source) else ""
         if state == "code":
-            if source.startswith(_SANDBOX_ID_FUNCTION_SIGNATURE, index):
+            if source.startswith(signature_text, index):
                 matches.append(index)
-                index += len(_SANDBOX_ID_FUNCTION_SIGNATURE)
+                index += len(signature_text)
                 continue
             if char == "/" and nxt == "*":
                 state = "block-comment"
@@ -240,7 +243,7 @@ def _split_sandbox_function_body(source: str) -> tuple[str, str]:
     signature = matches[0]
     state = "code"
     opening = -1
-    index = signature + len(_SANDBOX_ID_FUNCTION_SIGNATURE)
+    index = signature + len(signature_text)
     while index < len(source):
         char = source[index]
         nxt = source[index + 1] if index + 1 < len(source) else ""
@@ -335,6 +338,50 @@ def _split_sandbox_function_body(source: str) -> tuple[str, str]:
                 state = "code"
         index += 1
     raise PatchRejected("target function closing brace is absent")
+
+
+def _function_profile_parts(source: str, signature: str) -> tuple[str, str, str, str]:
+    prefix, suffix = _split_sandbox_function_body(source, signature)
+    start = prefix.rfind(signature)
+    body = source[len(prefix):len(source) - len(suffix)]
+    declaration = prefix[start:]
+    return prefix[:start], declaration, body, suffix
+
+
+def _unwrap_function_output(completion: str) -> str:
+    text = completion.strip()
+    if text.startswith("```"):
+        lines = text.splitlines()
+        if len(lines) < 3 or lines[-1].strip() != "```" or text.count("```") != 2:
+            raise PatchRejected("function output has an incomplete or ambiguous code fence")
+        text = "\n".join(lines[1:-1]).strip()
+    if not text or "<fim_" in text or "<|endoftext|>" in text:
+        raise PatchRejected("function output is empty or contains unexpected control tokens")
+    return text + "\n"
+
+
+def _function_profile_proposal(
+    completion: str, source: str, path: str, signature: str, profile: str,
+) -> str:
+    before, declaration, _old_body, suffix = _function_profile_parts(source, signature)
+    text = _unwrap_function_output(completion)
+    if profile == "function":
+        generated_prefix, generated_suffix = _split_sandbox_function_body(text, signature)
+        if generated_prefix.split() != declaration.split() or generated_suffix.strip() != "}":
+            raise PatchRejected("function output changed its interface or included unrelated source")
+        text = text[len(generated_prefix):len(text) - len(generated_suffix)]
+    proposal = before + declaration + text + suffix
+    # The original closing brace must remain the unique boundary of this body.
+    checked_prefix, checked_suffix = _split_sandbox_function_body(proposal, signature)
+    if checked_prefix != before + declaration or checked_suffix != suffix:
+        raise PatchRejected("function output escaped its selected body")
+    try:
+        patch = derive_unified_diff(path=path, original_text=source, proposed_text=proposal)
+    except RawProposalRejected as exc:
+        raise PatchRejected(str(exc)) from exc
+    if not patch:
+        raise PatchRejected("model proposed no change from the original function")
+    return patch
 
 
 def _assemble_source_root(fetched_source: str, allowed_path: str, dest: Path) -> None:
@@ -442,11 +489,13 @@ def run_xodus_shadow_build(
     ``each.raw_proposal``). Same approved spec, same scope, same
     validation/audit/receipt pipeline either way.
     """
-    if proposal_format not in {"diff", "full_source", "fim"}:
+    if proposal_format not in {"diff", "full_source", "fim", "function", "body"}:
         raise ValueError(
-            f"proposal_format must be 'diff', 'full_source', or 'fim', got {proposal_format!r}"
+            f"unsupported proposal_format: {proposal_format!r}"
         )
-    if proposal_format == "fim" and (type(max_attempts) is not int or max_attempts != 1):
+    if proposal_format in {"fim", "function", "body"} and (
+        type(max_attempts) is not int or max_attempts != 1
+    ):
         raise ValueError("FIM shadow runs require exactly one approved attempt")
     approved.verify()
     verify_xodus_shadow_binding(approved)
@@ -460,6 +509,10 @@ def run_xodus_shadow_build(
     allowed_path = packet.allowed_paths[0]
     build_command = list(packet.build_commands[0])
     acceptance_command = list(packet.acceptance_commands[0])
+    selected_api = build_command[-1] if build_command[-1] in {"sandbox", "console"} else "sandbox"
+    signature = (
+        _CONSOLE_ID_FUNCTION_SIGNATURE if selected_api == "console" else _SANDBOX_ID_FUNCTION_SIGNATURE
+    )
 
     run_id = run_id or f"xodus-shadow-{uuid.uuid4().hex[:8]}"
     validate_task_id(run_id)
@@ -494,7 +547,32 @@ def run_xodus_shadow_build(
 
     source_lines = fetched_source.splitlines()
     line_count = len(source_lines)
-    if proposal_format == "fim":
+    if proposal_format in {"function", "body"}:
+        before, declaration, original_body, suffix = _function_profile_parts(fetched_source, signature)
+        selected_source = declaration + original_body + "}\n"
+        model_repo = (model.identity().get("modelManifest") or {}).get("repoId")
+        if model_repo == "bigcode/starcoderbase":
+            middle_prefix = before if proposal_format == "function" else before + declaration
+            middle_suffix = suffix[1:] if proposal_format == "function" else suffix
+            requirement = packet.problem_statement.replace("*/", "* /")
+            base_prompt = (
+                f"<fim_prefix>/* Approved requirement:\n{requirement}\n*/\n"
+                f"{middle_prefix}<fim_suffix>{middle_suffix}<fim_middle>"
+            )
+        else:
+            answer_kind = "complete function with the same interface" if proposal_format == "function" else (
+                "function body only, without the outer opening or closing brace"
+            )
+            base_prompt = (
+                f"{packet.problem_statement}\n\nCurrent permitted C function:\n{selected_source}\n"
+                f"Return only the corrected {answer_kind}. No diff, custom markers, explanation or other functions."
+            )
+        fim_evidence = {
+            "selectedFunction": signature.split()[-1],
+            "infillPrefixSha256": sha256_bytes((before + declaration).encode()),
+            "infillSuffixSha256": sha256_bytes(suffix.encode()),
+        }
+    elif proposal_format == "fim":
         fim_prefix, fim_suffix = _split_sandbox_function_body(fetched_source)
         fim_evidence = {
             "infillPrefixSha256": sha256_bytes(fim_prefix.encode()),
@@ -674,7 +752,7 @@ def run_xodus_shadow_build(
         model.configure_sampling(temperature=0.0 if attempt_num == 1 else 0.2, seed=None if attempt_num == 1 else attempt_num)
         completion_started = time.perf_counter()
         model.last_prompt = None
-        model.last_prompt_tokens = None
+        model.last_input_token_count = None
         try:
             raw_completion = model.complete(prompt)
         except ContextBudgetExceeded as exc:
@@ -700,7 +778,7 @@ def run_xodus_shadow_build(
                     "materials_integrity": "UNAVAILABLE",
                     "proposal_format": proposal_format,
                     "completion_call_seconds": time.perf_counter() - completion_started,
-                    "input_tokens": getattr(model, "last_prompt_tokens", None),
+                    "input_tokens": getattr(model, "last_input_token_count", None),
                     "generation_attempted": False,
                     "outcome": outcome,
                     **fim_evidence,
@@ -725,7 +803,7 @@ def run_xodus_shadow_build(
                     "materials_integrity": "UNAVAILABLE",
                     "proposal_format": proposal_format,
                     "completion_call_seconds": time.perf_counter() - completion_started,
-                    "input_tokens": getattr(model, "last_prompt_tokens", None),
+                    "input_tokens": getattr(model, "last_input_token_count", None),
                     "generation_attempted": getattr(model, "last_generation_attempted", None),
                     "outcome": outcome,
                     **fim_evidence,
@@ -750,14 +828,21 @@ def run_xodus_shadow_build(
             "model_identity": model.identity(),
             "proposal_format": proposal_format,
             "completion_call_seconds": completion_call_seconds,
-            "input_tokens": getattr(model, "last_prompt_tokens", None),
+            "input_tokens": getattr(model, "last_input_token_count", None),
             "generation_attempted": getattr(model, "last_generation_attempted", None),
         }
-        if proposal_format == "fim":
+        if proposal_format in {"fim", "function", "body"}:
             attempt_record.update(fim_evidence)
 
         try:
-            patch_text = _extract_patch_text_for_mode(raw_completion, proposal_format, path=allowed_path, original_text=fetched_source)
+            if proposal_format in {"function", "body"}:
+                patch_text = _function_profile_proposal(
+                    raw_completion, fetched_source, allowed_path, signature, proposal_format,
+                )
+            else:
+                patch_text = _extract_patch_text_for_mode(
+                    raw_completion, proposal_format, path=allowed_path, original_text=fetched_source,
+                )
             patch = parse_patch(patch_text)
             touched = apply_patch(patch, worktree, {allowed_path})
         except PatchRejected as exc:

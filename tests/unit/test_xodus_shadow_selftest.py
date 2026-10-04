@@ -25,6 +25,7 @@ from __future__ import annotations
 import json
 import shutil
 import subprocess
+import tempfile
 import uuid
 from pathlib import Path
 
@@ -218,6 +219,46 @@ def test_fim_requires_exactly_one_integer_attempt(monkeypatch, attempts) -> None
         )
 
 
+@pytest.mark.parametrize("profile", ["function", "body"])
+@pytest.mark.parametrize(
+    "signature",
+    [
+        xodus_shadow_module._SANDBOX_ID_FUNCTION_SIGNATURE,
+        xodus_shadow_module._CONSOLE_ID_FUNCTION_SIGNATURE,
+    ],
+)
+def test_function_profiles_derive_diff_without_custom_markers(profile, signature) -> None:
+    _before, declaration, original_body, _suffix = xodus_shadow_module._function_profile_parts(
+        _CACHED_SOURCE, signature,
+    )
+    name = "console" if "ConsoleId" in signature else "sandbox"
+    body = original_body.replace(
+        f"if (!{name}Id || !{name}IdUsed)", f"if (!{name}Id)"
+    ).replace(
+        f"*{name}IdUsed = strlen( Id ) + 1;",
+        f"if ({name}IdUsed) *{name}IdUsed = strlen( Id ) + 1;",
+    )
+    completion = declaration + body + "}\n" if profile == "function" else body
+    patch = xodus_shadow_module._function_profile_proposal(
+        completion, _CACHED_SOURCE, "xsystem.c", signature, profile,
+    )
+    assert "--- a/xsystem.c" in patch
+    assert "+++ b/xsystem.c" in patch
+    assert "BEGIN_PATCH" not in completion
+    assert "END_SOURCE" not in completion
+
+
+def test_body_profile_cannot_escape_selected_function() -> None:
+    with pytest.raises(xodus_shadow_module.PatchRejected, match="escaped"):
+        xodus_shadow_module._function_profile_proposal(
+            "return S_OK;\n}\nint unexpected_function(void) { return 0; }\n",
+            _CACHED_SOURCE,
+            "xsystem.c",
+            xodus_shadow_module._SANDBOX_ID_FUNCTION_SIGNATURE,
+            "body",
+        )
+
+
 @requires_colima_each
 @requires_m8_native_image
 def test_terminal_audit_receives_post_patch_source_not_diff(tmp_path, monkeypatch) -> None:
@@ -302,6 +343,10 @@ def test_fixture_model_candidate_is_verified_and_signed(tmp_path, monkeypatch) -
     assert receipt["attempts"][0]["outcome"] == "REPAIR_VERIFIED"
     assert receipt["baselineResult"]["exit_code"] == 1
     assert receipt["repairedResult"]["exit_code"] == 0
+    output = receipt["repairedResult"]["stdout"]
+    cases = json.loads(output.split("EACH_CASE_RESULTS:", 1)[1])
+    assert len(cases) == 12
+    assert all(case["status"] == "PASS" for case in cases)
     assert set(receipt["audit"]["checks"]) == {
         "exact-substring",
         "ngram-similarity",
@@ -331,6 +376,165 @@ def test_fixture_model_candidate_is_verified_and_signed(tmp_path, monkeypatch) -
     # F3: proposalFormat must be surfaced as a bounded enum, not an
     # arbitrary attempt-controlled string.
     assert summary["attemptProposalFormats"] == ["diff"]
+
+
+@requires_colima_each
+@requires_m8_native_image
+def test_zero_exit_before_case_return_cannot_pass_behavioral_validation(tmp_path, monkeypatch) -> None:
+    from each.raw_proposal import derive_unified_diff
+
+    source = _CACHED_SOURCE.replace("if (!consoleId || !consoleIdUsed)", "if (!consoleId)").replace(
+        "*consoleIdUsed = strlen( Id ) + 1;", "if (consoleIdUsed) *consoleIdUsed = strlen( Id ) + 1;"
+    )
+    prefix, suffix = xodus_shadow_module._split_sandbox_function_body(source)
+    candidate = prefix + "    __builtin_exit(0);\n" + suffix
+    patch = derive_unified_diff(path="xsystem.c", original_text=source, proposed_text=candidate)
+    monkeypatch.setattr(xodus_shadow_module, "fetch_file", lambda *_a, **_k: source)
+    approved = _approve_selftest_spec("test-xodus-no-premature-zero-success")
+    result = run_xodus_shadow_build(
+        FixtureModel("BEGIN_PATCH\n" + patch + "END_PATCH"),
+        approved,
+        max_attempts=1,
+        run_id=f"selftest-no-premature-success-{uuid.uuid4().hex[:8]}",
+    )
+    assert result["outcome"] == "REPAIR_NOT_VERIFIED"
+    receipt = json.loads(Path(result["receipt_json"]).read_text())
+    cases = json.loads(receipt["repairedResult"]["stdout"].split("EACH_CASE_RESULTS:", 1)[1])
+    sandbox = [case for case in cases if case["api"] == "sandbox"]
+    assert len(sandbox) == 6
+    assert all(case["status"] == "FAIL" for case in sandbox)
+    assert all(case["reason"] == "case_data_missing_or_invalid" for case in sandbox)
+
+
+@requires_colima_each
+@requires_m8_native_image
+@pytest.mark.parametrize("api", ["sandbox", "console"])
+def test_oracle_rejects_correct_characters_without_string_terminator(monkeypatch, api):
+    from each.raw_proposal import derive_unified_diff
+
+    candidate = _ALREADY_FIXED_SOURCE
+    buffer_name = f"{api}Id"
+    candidate = candidate.replace(
+        f"strcpy_s( {buffer_name}, {buffer_name}Size, Id );",
+        f"memcpy( {buffer_name}, Id, strlen( Id ) );",
+    )
+    patch = derive_unified_diff(path="xsystem.c", original_text=_CACHED_SOURCE, proposed_text=candidate)
+    monkeypatch.setattr(xodus_shadow_module, "fetch_file", lambda *_a, **_k: _CACHED_SOURCE)
+    approved = _approve_selftest_spec(f"test-xodus-missing-terminator-{api}")
+    result = run_xodus_shadow_build(
+        FixtureModel("BEGIN_PATCH\n" + patch + "END_PATCH"),
+        approved, max_attempts=1, run_id=f"missing-terminator-{uuid.uuid4().hex[:8]}",
+    )
+    assert result["outcome"] == "REPAIR_NOT_VERIFIED"
+    receipt = json.loads(Path(result["receipt_json"]).read_text())
+    cases = json.loads(receipt["repairedResult"]["stdout"].split("EACH_CASE_RESULTS:", 1)[1])
+    positive = [
+        case for case in cases
+        if case["api"] == api and case["case"] in {"optional_size_output_null", "value_and_size_output"}
+    ]
+    assert len(positive) == 2
+    assert all(case["status"] == "FAIL" for case in positive)
+
+
+@requires_colima_each
+@requires_m8_native_image
+def test_oracle_accepts_valid_function_with_braces_in_comments_and_literals(monkeypatch):
+    from each.raw_proposal import derive_unified_diff
+
+    candidate = _ALREADY_FIXED_SOURCE.replace(
+        'const char *Id = "RETAIL";',
+        '/* } ignored */\n    const char brace = \'}\';\n    const char *literal = "}";\n'
+        '    (void)brace; (void)literal;\n    const char *Id = "RETAIL";',
+    )
+    patch = derive_unified_diff(path="xsystem.c", original_text=_CACHED_SOURCE, proposed_text=candidate)
+    monkeypatch.setattr(xodus_shadow_module, "fetch_file", lambda *_a, **_k: _CACHED_SOURCE)
+    approved = _approve_selftest_spec("test-xodus-oracle-lexical-braces")
+    result = run_xodus_shadow_build(
+        FixtureModel("BEGIN_PATCH\n" + patch + "END_PATCH"),
+        approved, max_attempts=1, run_id=f"oracle-lexical-{uuid.uuid4().hex[:8]}",
+    )
+    assert result["outcome"] == "REPAIR_VERIFIED"
+
+
+@requires_colima_each
+@requires_m8_native_image
+@pytest.mark.parametrize("api", ["sandbox", "console"])
+@pytest.mark.parametrize("profile", ["function", "body"])
+@pytest.mark.parametrize("model_repo", ["bigcode/starcoderbase", "bigcode/octocoder"])
+def test_split_native_profiles_reach_six_independent_behavioral_cases(
+    monkeypatch, api, profile, model_repo,
+) -> None:
+    with tempfile.TemporaryDirectory(prefix="each-split-profile-", dir=Path.home()) as private:
+        monkeypatch.setenv("EACH_HOME", private)
+        task_id = f"each-two-model-ledger-{api}-v1"
+        packet = make_spec_packet(
+            task_id=task_id,
+            target_repo="https://github.com/xodus-gaming/xgameruntime",
+            target_ref="791710510d9ba0746bbd60754215eb321800e4f0",
+            problem_statement="Harness fixture: preserve the documented optional size output contract.",
+            allowed_paths=["xsystem.c"],
+            build_commands=[[
+                "python3", "examples/xodus-m8-sandbox-id/build_check.py", "build", "xsystem.c", api,
+            ]],
+            acceptance_commands=[[
+                "python3", "examples/xodus-m8-sandbox-id/build_check.py", "run", api,
+            ]],
+            forbidden_sources=["proprietary-implementation", "auditor-source-matches"],
+            approved_by="harness-selftest",
+            sensitive=True,
+        )
+        approved = ApprovedSpec.approve(packet)
+        task_dir = specs_dir() / task_id
+        task_dir.mkdir(parents=True)
+        (task_dir / "approved.json").write_text(json.dumps(approved.to_dict()))
+        signature = (
+            xodus_shadow_module._CONSOLE_ID_FUNCTION_SIGNATURE if api == "console"
+            else xodus_shadow_module._SANDBOX_ID_FUNCTION_SIGNATURE
+        )
+        _before, declaration, body, _suffix = xodus_shadow_module._function_profile_parts(
+            _CACHED_SOURCE, signature,
+        )
+        name = api
+        corrected = body.replace(
+            f"if (!{name}Id || !{name}IdUsed)", f"if (!{name}Id)"
+        ).replace(
+            f"*{name}IdUsed = strlen( Id ) + 1;",
+            f"if ({name}IdUsed) *{name}IdUsed = strlen( Id ) + 1;",
+        )
+        response = declaration + corrected + "}\n" if profile == "function" else corrected
+
+        class NativePromptFixture(FixtureModel):
+            def identity(self):
+                value = super().identity()
+                value["modelManifest"] = {"repoId": model_repo}
+                return value
+
+            def complete(self, prompt):
+                self.observed = prompt
+                return super().complete(prompt)
+
+        monkeypatch.setattr(xodus_shadow_module, "fetch_file", lambda *_a, **_k: _CACHED_SOURCE)
+        model = NativePromptFixture(response)
+        result = run_xodus_shadow_build(
+            model, approved, max_attempts=1, proposal_format=profile,
+            run_id=f"split-native-{uuid.uuid4().hex[:8]}",
+        )
+        assert result["outcome"] == "REPAIR_VERIFIED"
+        if model_repo == "bigcode/starcoderbase":
+            assert model.observed.startswith("<fim_prefix>")
+            assert model.observed.endswith("<fim_middle>")
+        else:
+            assert "Current permitted C function:" in model.observed
+        receipt_path = Path(result["receipt_json"])
+        receipt = json.loads(receipt_path.read_text())
+        cases = json.loads(receipt["repairedResult"]["stdout"].split("EACH_CASE_RESULTS:", 1)[1])
+        assert len(cases) == 6
+        assert all(case["api"] == api and case["status"] == "PASS" for case in cases)
+        from each.attestation import verify_materials_root, verify_receipt
+        from each.signing import public_key_path
+
+        assert verify_receipt(receipt, public_key_path().read_bytes())["status"] == "PASS"
+        assert verify_materials_root(receipt, receipt_path.parent / "materials")["status"] == "PASS"
 
 
 @requires_colima_each
